@@ -1,6 +1,7 @@
 <!DOCTYPE html>
-<html>
-  <head>
+<html ng-app="confero.app">
+
+<head>
     <meta charset="utf-8">
     <meta name="viewport" content="initial-scale=1, maximum-scale=1, user-scalable=no, width=device-width">
     <title></title>
@@ -14,21 +15,27 @@
 
     <!-- ionic/angularjs js -->
     <script src="lib/ionic/js/ionic.bundle.js"></script>
-
+	<script src="lib/angular-resource/angular-resource.js"></script>
     <!-- cordova script (this will be a 404 during development) -->
     <script src="cordova.js"></script>
 
     <!-- your app's js -->
-    <script src="js/app.js"></script>
-  </head>
-  <body ng-app="starter">
+	<script src="js/directives/header.js"></script>
+    <script src="js/directives/tabs.js"></script>
+	<script src="js/services/EventsService.js"></script>
+	<script src="js/app.js"></script>
+	
+</head>
 
-    <ion-pane>
-      <ion-header-bar class="bar-stable">
-        <h1 class="title">Ionic Blank Starter</h1>
-      </ion-header-bar>
-      <ion-content>
-      </ion-content>
-    </ion-pane>
-  </body>
+<body ng-controller="EventsListCtrl">
+
+<ion-pane>
+    <confero-header></confero-header>
+    <ion-content>
+		blah
+    </ion-content>
+</ion-pane>
+
+</body>
+
 </html>
