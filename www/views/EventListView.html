@@ -1,0 +1,8 @@
+<ion-list>
+	<ion-item ng-repeat="event in events" 
+		item="{{event.Name}}"
+		href="#/conference/{{event.Id}}">
+		
+			Item {{ event.Id }}
+	</ion-item>
+</ion-list>

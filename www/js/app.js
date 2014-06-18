@@ -8,6 +8,7 @@ angular.module('confero.app', [
 	'ngResource',
 	'confero.header',
 	'confero.tabs',
+	'confero.eventsList',
 	'confero.eventsService'
 ])
 
@@ -25,8 +26,15 @@ angular.module('confero.app', [
 })
 
 .controller('EventsListCtrl', ['$scope', 'Events', function($scope, Events) {
-	$scope.events = Events.get();
-	console.log('Events',$scope.events);
+	$scope.events = [];
+	$scope.$watchCollection('events', function(newEvents, oldEvents) {
+            console.log('HERE',newEvents);
+          });
+
+	var eventPromise = Events.get();
+	eventPromise.$promise.then(function(data) {
+		$scope.events = data.Events;
+	});
 }]);
 
 /*
