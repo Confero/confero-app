@@ -8,6 +8,7 @@ angular.module('confero.app', [
 	'ngResource',
 	'confero.header',
 	'confero.tabs',
+	'confero.mainPage',
 	'confero.eventsList',
 	'confero.eventsService'
 ])
@@ -25,15 +26,48 @@ angular.module('confero.app', [
   });
 })
 
-.controller('EventsListCtrl', ['$scope', 'Events', function($scope, Events) {
-	$scope.events = [];
-	$scope.$watchCollection('events', function(newEvents, oldEvents) {
-            console.log('HERE',newEvents);
-          });
-
-	var eventPromise = Events.get();
-	eventPromise.$promise.then(function(data) {
-		$scope.events = data.Events;
+.controller('EventsListCtrl', ['$scope', 'PastEvents', 'InProgressEvents', 'UpcomingEvents', 
+			function($scope, PastEvents, InProgressEvents, UpcomingEvents) {
+				
+	$scope.locationWWW = 'http://'+ location.hostname + ':3000';
+	$scope.pastEvents = [];
+	$scope.upcomingEvents = [];
+	$scope.inProgressEvents = [];
+	
+	var pastEventsPromise = PastEvents.query();
+	pastEventsPromise.$promise.then(function(data) {
+		
+		angular.forEach(data, function(value, key){
+			var sd = moment(value.momentStartDate);
+			value.StartDatePretty = sd.format("MMMM D, YYYY");
+			sd = moment( value.momentEndDate );
+			value.EndDatePretty = sd.format("MMMM D, YYYY");
+		});
+		$scope.pastEvents = data;
+	});
+				
+	var upcomingEventsPromise = UpcomingEvents.query();
+		upcomingEventsPromise.$promise.then(function(data) {
+		
+		angular.forEach(data, function(value, key){
+			var sd = moment(value.momentStartDate);
+			value.StartDatePretty = sd.format("MMMM D, YYYY");
+			sd = moment( value.momentEndDate );
+			value.EndDatePretty = sd.format("MMMM D, YYYY");
+		});
+		$scope.upcomingEvents = data;
+	});
+				
+	var inProgressEventsPromise = InProgressEvents.query();
+	inProgressEventsPromise.$promise.then(function(data) {
+		
+		angular.forEach(data, function(value, key){
+			var sd = moment(value.momentStartDate);
+			value.StartDatePretty = sd.format("MMMM D, YYYY");
+			sd = moment( value.momentEndDate );
+			value.EndDatePretty = sd.format("MMMM D, YYYY");
+		});
+		$scope.inProgressEvents = data;
 	});
 }]);
 

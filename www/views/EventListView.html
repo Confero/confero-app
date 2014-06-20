@@ -1,8 +1,13 @@
-<ion-list>
-	<ion-item ng-repeat="event in events" 
-		item="{{event.Name}}"
-		href="#/conference/{{event.Id}}">
-		
-			Item {{ event.Id }}
-	</ion-item>
-</ion-list>
+<div class="list">
+
+        <a ng-repeat="event in events" 
+           href="#/{{event.Id}}"
+           class="item item-thumbnail-left">
+
+          <img ng-src="{{locationWWW}}/conferences/event/{{event.Id}}/image">
+          <h2>{{ event.Name }}</h2>
+          <h4>{{ event.Description }}</h4>
+		  <h4>{{ event.StartDatePretty }} - {{event.EndDatePretty}}</h4>
+        </a>
+
+ </div>
