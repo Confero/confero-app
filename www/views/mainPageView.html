@@ -1,8 +1,26 @@
-<div>
-    <h1>Upcoming</h1>
-    <events-list events="upcomingEvents" location="locationWWW"></events-list>
-    <h1>In Progress</h1>
-    <events-list events="inProgressEvents" location="locationWWW"></events-list>
-    <h1>Past</h1>
-    <events-list events="pastEvents" location="locationWWW"></events-list>
+<div class="card">
+    <div ng-if="upcomingEvents">
+        <div class="item item-divider">
+            Upcoming
+        </div>
+        <div class="item">
+            <events-list events="upcomingEvents" location="locationWWW"></events-list>
+        </div>
+    </div>
+    <div ng-if="inProgressEvents">
+        <div class="item item-divider">
+            In Progress
+        </div>
+        <div class="item">
+            <events-list events="inProgressEvents" location="locationWWW"></events-list>
+        </div>
+    </div>
+    <div ng-if="pastEvents">
+        <div class="item item-divider">
+            Past
+        </div>
+        <div class="item">
+            <events-list events="pastEvents" location="locationWWW"></events-list>
+        </div>
+    </div>
 </div>

@@ -12,31 +12,38 @@
     <!-- IF using Sass (run gulp sass first), then uncomment below and remove the CSS includes above
     <link href="css/ionic.app.css" rel="stylesheet">
     -->
-	<script src="lib/moment/moment.min.js"></script>
+    <script src="lib/moment/moment.min.js"></script>
     <!-- ionic/angularjs js -->
     <script src="lib/ionic/js/ionic.bundle.js"></script>
-	<script src="lib/angular-resource/angular-resource.js"></script>
+    <script src="lib/angular-resource/angular-resource.js"></script>
     <!-- cordova script (this will be a 404 during development) -->
     <script src="cordova.js"></script>
 
     <!-- your app's js -->
-	<script src="js/directives/header.js"></script>
+    <script src="js/directives/header.js"></script>
     <script src="js/directives/tabs.js"></script>
-	<script src="js/directives/eventsList.js"></script>
-	<script src="js/directives/mainPage.js"></script>
-	<script src="js/services/EventsService.js"></script>
-	<script src="js/app.js"></script>
-	
+    <script src="js/directives/eventsList.js"></script>
+    <script src="js/directives/mainPage.js"></script>
+    <script src="js/services/EventsService.js"></script>
+    <script src="js/app.js"></script>
+
 </head>
 
 <body ng-controller="EventsListCtrl">
 
-<ion-pane>
-    <confero-header></confero-header>
-    <ion-content>
-		<main-page></main-page>
-    </ion-content>
-</ion-pane>
+    <ion-nav-bar class="bar-positive nav-title-slide-ios7">
+        <ion-nav-back-button class="button-icon ion-arrow-left-c">
+        </ion-nav-back-button>
+    </ion-nav-bar>
+
+    <ion-nav-view animation="slide-left-right"></ion-nav-view>
+
+    <script id="events-page.html" type="text/ng-template">
+        <ion-pane> <confero-header></confero-header>
+        <ion-content>
+            <main-page></main-page> </ion-content>
+    	</ion-pane>
+    </script>
 
 </body>
 
