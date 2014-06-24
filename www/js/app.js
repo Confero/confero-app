@@ -43,9 +43,11 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
             $scope.inProgressEvents = data;
         });
     }
-]).controller('ConferenceTabCrtl', ['$scope', '$state', 'Sessions',
-    function($scope, $state, Sessions) {
+]).controller('ConferenceTabCrtl', ['$scope', '$state', 'Sessions', 'People',
+    function($scope, $state, Sessions, People) {
         $scope.conferenceId = $state.params.id;
+		$scope.ConferenceName = "confero";
+		
         var sessionsConf = Sessions.query({
             id: $scope.conferenceId
         });
@@ -73,20 +75,52 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
             });
             $scope.sessions = data;
         });
+		
+		var peopleConf = People.query({
+			id: $scope.conferenceId
+		});
+		
+		peopleConf.$promise.then(function(data) {
+			angular.forEach(data, function(value, key){
+				value.KeyEncoded = encodeURIComponent(value.Key);
+				var name = value.Name.split(/\s/);
+				value.firstName = name[0];
+				value.lastName = name[name.length - 1];
+			});
+			data.sort(function(a,b){
+				var s = NaturalSort(a.lastName, b.lastName);
+				if( s === 0 ) {
+					s = NaturalSort(a.firstName, b.firstName);
+				}
+				return s;
+			});
+			$scope.people = data;
+		});
     }
 ]).config(function($stateProvider, $urlRouterProvider) {
     $stateProvider.state('eventspage', {
         url: "/events-page",
         templateUrl: "events-page.html",
         controller: 'EventsListCtrl'
-    }).state('tabs', {
+    })
+	.state('tabs', {
         url: '/conference/:id',
         templateUrl: "./views/tabs.html"
-    }).state('tabs.sessions', {
+    })
+	.state('tabs.sessions', {
         url: '/sessions',
         views: {
             'sessions-tab': {
                 templateUrl: "./views/sessionsTab.html",
+                controller: "ConferenceTabCrtl"
+            }
+        }
+    })
+	.state('tabs.people', {
+        url: '/people',
+        views: {
+            'people-tab': {
+                templateUrl: "./views/peopleTab.html",
                 controller: "ConferenceTabCrtl"
             }
         }
