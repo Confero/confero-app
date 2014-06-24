@@ -43,8 +43,8 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
             $scope.inProgressEvents = data;
         });
     }
-]).controller('ConferenceTabCrtl', ['$scope', '$state', 'Sessions', 'People',
-    function($scope, $state, Sessions, People) {
+]).controller('ConferenceTabCrtl', ['$scope', '$state', 'Sessions', 'People', 'ConferenceInfo',
+    function($scope, $state, Sessions, People, ConferenceInfo ) {
         $scope.conferenceId = $state.params.id;
 		$scope.ConferenceName = "confero";
 		
@@ -75,7 +75,13 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
             });
             $scope.sessions = data;
         });
-		
+		var conferenceConf = ConferenceInfo.get({
+			id: $scope.conferenceId
+		});
+		conferenceConf.$promise.then( function(data){
+			$scope.ConferenceInfo = data;	
+		});
+
 		var peopleConf = People.query({
 			id: $scope.conferenceId
 		});
