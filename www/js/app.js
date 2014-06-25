@@ -43,8 +43,77 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
             $scope.inProgressEvents = data;
         });
     }
-]).controller('ConferenceTabCrtl', ['$scope', '$state', 'Sessions', 'People', 'ConferenceInfo',
-    function($scope, $state, Sessions, People, ConferenceInfo ) {
+])
+.controller('TabsCrtl', ['$scope', '$state', 
+	function($scope, $state, People, ConferenceInfo ) {
+        $scope.conferenceId = $state.params.id;
+		$scope.ConferenceName = "confero";
+	}
+])						 
+.controller('PeopleTabCrtl', ['$scope', '$state', 'People', 'ConferenceInfo',
+    function($scope, $state, People, ConferenceInfo ) {
+        $scope.conferenceId = $state.params.id;
+		$scope.ConferenceName = "confero";
+
+		var conferenceConf = ConferenceInfo.get({
+			id: $scope.conferenceId
+		});
+		conferenceConf.$promise.then( function(data){
+			$scope.ConferenceInfo = data;	
+		});
+
+		var peopleConf = People.query({
+			id: $scope.conferenceId
+		});
+		
+		peopleConf.$promise.then(function(data) {
+			angular.forEach(data, function(value, key){
+				value.KeyEncoded = encodeURIComponent(value.Key);
+				var name = value.Name.split(/\s/);
+				value.firstName = name[0];
+				value.lastName = name[name.length - 1];
+			});
+			data.sort(function(a,b){
+				var s = NaturalSort(a.lastName, b.lastName);
+				if( s === 0 ) {
+					s = NaturalSort(a.firstName, b.firstName);
+				}
+				return s;
+			});
+			$scope.people = data;
+		});
+    }
+])
+.controller('PapersTabCrtl', ['$scope', '$state', 'Papers', 'ConferenceInfo',
+    function($scope, $state, Papers, ConferenceInfo ) {
+        $scope.conferenceId = $state.params.id;
+		$scope.ConferenceName = "confero";
+
+		var conferenceConf = ConferenceInfo.get({
+			id: $scope.conferenceId
+		});
+		conferenceConf.$promise.then( function(data){
+			$scope.ConferenceInfo = data;	
+		});
+
+		var papersConf = Papers.query({
+			id: $scope.conferenceId
+		});
+		
+		papersConf.$promise.then(function(data) {
+			angular.forEach(data, function(value, key){
+				value.KeyEncoded = encodeURIComponent(value.Key);
+			});
+			data.sort(function(a,b){
+				return NaturalSort(a.Title, b.Title);
+			});
+			$scope.papers = data;
+		});
+    }
+])
+
+.controller('SessionsTabCrtl', ['$scope', '$state', 'Sessions', 'ConferenceInfo',
+    function($scope, $state, Sessions, ConferenceInfo ) {
         $scope.conferenceId = $state.params.id;
 		$scope.ConferenceName = "confero";
 		
@@ -81,29 +150,9 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
 		conferenceConf.$promise.then( function(data){
 			$scope.ConferenceInfo = data;	
 		});
-
-		var peopleConf = People.query({
-			id: $scope.conferenceId
-		});
-		
-		peopleConf.$promise.then(function(data) {
-			angular.forEach(data, function(value, key){
-				value.KeyEncoded = encodeURIComponent(value.Key);
-				var name = value.Name.split(/\s/);
-				value.firstName = name[0];
-				value.lastName = name[name.length - 1];
-			});
-			data.sort(function(a,b){
-				var s = NaturalSort(a.lastName, b.lastName);
-				if( s === 0 ) {
-					s = NaturalSort(a.firstName, b.firstName);
-				}
-				return s;
-			});
-			$scope.people = data;
-		});
     }
-]).config(function($stateProvider, $urlRouterProvider) {
+])
+.config(function($stateProvider, $urlRouterProvider) {
     $stateProvider.state('eventspage', {
         url: "/events-page",
         templateUrl: "events-page.html",
@@ -118,7 +167,7 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
         views: {
             'sessions-tab': {
                 templateUrl: "./views/sessionsTab.html",
-                controller: "ConferenceTabCrtl"
+                controller: "SessionsTabCrtl"
             }
         }
     })
@@ -127,45 +176,18 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
         views: {
             'people-tab': {
                 templateUrl: "./views/peopleTab.html",
-                controller: "ConferenceTabCrtl"
+                controller: "PeopleTabCrtl"
+            }
+        }
+    })
+	.state('tabs.papers', {
+        url: '/papers',
+        views: {
+            'papers-tab': {
+                templateUrl: "./views/papersTab.html",
+                controller: "PapersTabCrtl"
             }
         }
     });
     $urlRouterProvider.otherwise("/events-page");
-    /* .state('tabs.session', {
-      url: "/session",
-      views: {
-        'session-tab': {
-          templateUrl: "./views/sessionsTab.html",
-          controller: 'HomeTabCtrl'
-        }
-      }
-    })
-.state('tabs.custom', {
-      url: "/custom",
-      views: {
-        'custom-tab': {
-          templateUrl: "./views/customTab.html",
-          controller: 'HomeTabCtrl'
-        }
-      }
-    })
-  .state('tabs.people', {
-      url: "/people",
-      views: {
-        'people-tab': {
-          templateUrl: "./views/peopleTab.html",
-          controller: 'HomeTabCtrl'
-        }
-      }
-    })
-  .state('tabs.papers', {
-      url: "/papers",
-      views: {
-        'papers-tab': {
-          templateUrl: "./views/papersTab.html",
-          controller: 'HomeTabCtrl'
-        }
-      }
-    });*/
 });

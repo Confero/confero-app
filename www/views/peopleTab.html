@@ -1,16 +1,18 @@
-<ion-view title="{{ConferenceInfo.Name}}">
-    <ion-content>
-        <div class="list">
-            <div ng-repeat="person in people">
-				<div ng-show="showPeopleDivider($index)" class="item item-divider">
-					<h2>{{ person.PrettyDateTimeFull }}</h2>
-				</div>
-				<a href="#/conference/{{conferenceId}}/people/{{person.KeyEncoded}}" class="item">
-                    <h2><span ng-bind-html="person.Name"></span></h2>
-                    <h3>{{ person.Affiliation }}</h3>
-                
-                </a>
+<div ng-controller="PeopleTabCrtl">
+    <ion-view title="{{ConferenceInfo.Name}}">
+        <ion-content>
+            <div class="list">
+                <div ng-repeat="person in people">
+                    <div ng-show="showPeopleDivider($index)" class="item item-divider">
+                        <h2>{{ person.PrettyDateTimeFull }}</h2>
+                    </div>
+                    <a href="#/conference/{{conferenceId}}/people/{{person.KeyEncoded}}" class="item item-icon-right">
+                        <h2><span ng-bind-html="person.Name"></span></h2>
+                        <h3>{{ person.Affiliation }}</h3>
+ 						<i class="icon ion-ios7-arrow-right dark"></i>
+                    </a>
+                </div>
             </div>
-        </div>
-    </ion-content>
-</ion-view>
+        </ion-content>
+    </ion-view>
+</div>

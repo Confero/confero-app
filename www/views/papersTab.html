@@ -1,5 +1,21 @@
-<confero-header></confero-header><ion-pane>
-    <confero-header></confero-header>
-    <ion-content>
-    </ion-content>
-</ion-pane>
+<div ng-controller="PapersTabCrtl">
+    <ion-view title="{{ConferenceInfo.Name}}">
+        <ion-content>
+            <div class="list">
+                <div ng-repeat="paper in papers">
+                    <a href="#/conference/{{conferenceId}}/paper/{{paper.KeyEncoded}}" class="item item-icon-left item-icon-right">
+                        <i class="icon ion-ribbon-b colorGold" ng-show="paper.Award"></i>
+                        <div class="item-content">
+                            <h2><span ng-bind-html="paper.Title"></span></h2>
+                            <h3>{{ paper.PersonsString }}</h3>
+                        </div>
+                        <span ng-show="paper.starred" class="starred badge badge-assertive "><i class="image ion-star colorGold"></i></span>
+                        <i class="icon ion-ios7-arrow-right dark"></i>
+
+
+                    </a>
+                </div>
+            </div>
+        </ion-content>
+    </ion-view>
+</div>
