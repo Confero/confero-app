@@ -1,4 +1,6 @@
-angular.module('confero.conferenceService', ['ngResource']).factory('Sessions', ['$resource', '$cacheFactory',
+angular.module('confero.conferenceService', ['ngResource'])
+
+.factory('Sessions', ['$resource', '$cacheFactory',
     function($resource, $cacheFactory) {
         var www = 'http://' + location.hostname + ':3000';
         var res = www + '/conference/:id/sessions';

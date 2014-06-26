@@ -2,7 +2,16 @@
 // angular.module is a global place for creating, registering and retrieving Angular modules
 // 'starter' is the name of this angular module example (also set in a <body> attribute in index.html)
 // the 2nd parameter is an array of 'requires'
-angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero.tabs', 'confero.mainPage', 'confero.eventsList', 'confero.eventsService', 'confero.conferenceService']).run(function($ionicPlatform) {
+angular.module('confero.app', [ 
+	'ionic', 
+	'ngResource', 
+	'confero.tabs', 
+	'confero.mainPage', 
+	'confero.eventsList', 
+	'confero.eventsService', 
+	'confero.conferenceService',
+	'confero.sessionService',
+	]).run(function($ionicPlatform) {
     $ionicPlatform.ready(function() {
         // Hide the accessory bar by default (remove this to show the accessory bar above the keyboard
         // for form inputs)
@@ -152,11 +161,35 @@ angular.module('confero.app', ['ionic', 'ngResource', 'confero.header', 'confero
 		});
     }
 ])
+.controller('SessionPageCtrl', ['$scope', '$state', 'Session', 'ConferenceInfo',
+	function($scope, $state, Session, ConferenceInfo){
+		$scope.conferenceId = $state.params.id;
+		$scope.sessionKey = $state.params.key;
+		
+		var sessionConf = Session.get({
+			id: $scope.conferenceId,
+			key: $scope.sessionKey
+		});
+		
+		
+		var conferenceConf = ConferenceInfo.get({
+			id: $scope.conferenceId
+		});
+		conferenceConf.$promise.then( function(data){
+			$scope.ConferenceInfo = data;	
+		});
+	}
+])
 .config(function($stateProvider, $urlRouterProvider) {
     $stateProvider.state('eventspage', {
         url: "/events-page",
         templateUrl: "events-page.html",
         controller: 'EventsListCtrl'
+    })
+	.state('sessionPage', {
+		url: "/conference/:id/session/:key",
+        templateUrl: "./views/sessionPage.html",
+        controller: 'SessionPageCtrl'
     })
 	.state('tabs', {
         url: '/conference/:id',

@@ -1,6 +1,5 @@
 /* Empty. Add your own CSS if you like */
-
-.colour0 {
+ .colour0 {
     background-color: #00A8DF;
 }
 .colour1 {
@@ -46,12 +45,19 @@
     background-color: #206900;
 }
 .colorWhite {
-	color: #fff;
+    color: #fff;
 }
 .colorGold {
-	color: #FFD700;
+    color: #FFD700;
+}
+.starredMarginTop5px {
+	margin-top:5px;
+}
+.starredMarginTop15px {
+    margin-top:15px;
 }
 .starred {
-	margin-right:15px;
-	margin-top:10px;
+    margin-right:20px;
+	line-height:1.25em;
+	font-size:1.5em;
 }

@@ -10,7 +10,8 @@
                         <h2 class="colorWhite"><span ng-bind-html="session.Title"></span></h2>
                         <h3 class="colorWhite">{{ session.Type }}</h3>
                         <h3 class="colorWhite">{{ session.PrettyDateTime }}</h3>
-						 <i class="icon ion-ios7-arrow-right light"></i>
+                        <span ng-show="session.starred" class="badge badge-assertive starred starredMarginTop15px"><i class="image ion-star colorGold"></i></span>
+                        <i class="icon ion-ios7-arrow-right light"></i>
                     </a>
                 </div>
             </div>
