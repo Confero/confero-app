@@ -8,9 +8,11 @@ angular.module('confero.app', [
 	'confero.tabs', 
 	'confero.mainPage', 
 	'confero.eventsList', 
+	'confero.paperItem',
 	'confero.eventsService', 
 	'confero.conferenceService',
 	'confero.sessionService',
+	'confero.paperService',
 	]).run(function($ionicPlatform) {
     $ionicPlatform.ready(function() {
         // Hide the accessory bar by default (remove this to show the accessory bar above the keyboard
@@ -165,12 +167,21 @@ angular.module('confero.app', [
 	function($scope, $state, Session, ConferenceInfo){
 		$scope.conferenceId = $state.params.id;
 		$scope.sessionKey = $state.params.key;
+		$scope.items = {};
 		
 		var sessionConf = Session.get({
 			id: $scope.conferenceId,
 			key: $scope.sessionKey
 		});
-		
+		$scope.starred = false;
+		sessionConf.$promise.then(function(data){
+			var t = data.Time.split('-');
+			data.StartTime = moment(data.Day + ' ' + t[0].trim(), "YYYY-MM-DD HH:mm");
+			data.EndTime = moment(data.Day + ' ' + t[1].trim(), "YYYY-MM-DD HH:mm");
+			data.PrettyDateTime = data.StartTime.format("ddd MMMM D[th] HH:mm") + ' - ' + data.EndTime.format("HH:mm");
+			data.Colour = 'colour' + (simpleHash(data.Location) % 15);
+			$scope.session = data;
+		});
 		
 		var conferenceConf = ConferenceInfo.get({
 			id: $scope.conferenceId
@@ -178,6 +189,18 @@ angular.module('confero.app', [
 		conferenceConf.$promise.then( function(data){
 			$scope.ConferenceInfo = data;	
 		});
+		$scope.$watch('starred', function(newValue, oldValue){
+			if(newValue){
+				$scope.isStarredStyle = 'ion-ios7-star colorGold';
+			} else {
+				$scope.isStarredStyle = 'ion-ios7-star-outline';
+			}
+			
+		});
+		
+		$scope.clickStar = function() {
+			$scope.starred = !$scope.starred;
+		};
 	}
 ])
 .config(function($stateProvider, $urlRouterProvider) {

@@ -1,6 +1,20 @@
-<div ng-controller="SessionsTabCrtl">
+<div ng-controller="SessionPageCtrl">
     <ion-view title="{{ConferenceInfo.Name}}">
         <ion-content>
+            <div class="card">
+                <div class="item item-divider item-icon-left {{session.Colour}} colorWhite">
+                    <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()"></i>
+                    <h2 class="colorWhite">{{session.Title}}</h2>
+                    <h4 class="colorWhite">Location: {{session.Location}}</h4>
+                    <h4 class="colorWhite">{{session.PrettyDateTime}}</h4>
+					<h4 class="colorWhite" ng-show="session.Chairs.length > 0">Chair<span ng-show="session.Chairs.length > 1">s</span>: {{session.ChairsString}}</h4>
+                </div>
+                <div clas="item">
+                    <div class="list">
+                        <paper-item ng-repeat="key in session.Items" conference="conferenceId" key="key" ></paper-item>
+                    </div>
+                </div>
+            </div>
         </ion-content>
     </ion-view>
 </div>
