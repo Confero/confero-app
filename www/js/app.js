@@ -9,10 +9,12 @@ angular.module('confero.app', [
 	'confero.mainPage', 
 	'confero.eventsList', 
 	'confero.paperItem',
+	'confero.peopleItem',
 	'confero.eventsService', 
 	'confero.conferenceService',
 	'confero.sessionService',
 	'confero.paperService',
+	'confero.peopleService',
 	]).run(function($ionicPlatform) {
     $ionicPlatform.ready(function() {
         // Hide the accessory bar by default (remove this to show the accessory bar above the keyboard
@@ -93,6 +95,18 @@ angular.module('confero.app', [
 			});
 			$scope.people = data;
 		});
+		
+		$scope.dividerTitle = function($index){
+			return $scope.people[$index].lastName[0];
+		};
+		
+		$scope.showPeopleDivider = function($index) {
+			if( !$scope.people[$index - 1] ) {
+				return true;
+			} else {
+				return $scope.people[$index - 1].lastName[0] !== $scope.people[$index].lastName[0];
+			}
+		};
     }
 ])
 .controller('PapersTabCrtl', ['$scope', '$state', 'Papers', 'ConferenceInfo',
@@ -203,6 +217,41 @@ angular.module('confero.app', [
 		};
 	}
 ])
+.controller('PaperPageCtrl', ['$scope', '$state', 'Paper', 'ConferenceInfo',
+	function($scope, $state, Paper, ConferenceInfo){
+		$scope.conferenceId = $state.params.id;
+		$scope.paperKey = $state.params.key;
+		$scope.items = {};
+		
+		var paperConf = Paper.get({
+			id: $scope.conferenceId,
+			key: $scope.paperKey
+		});
+		$scope.starred = false;
+		paperConf.$promise.then(function(data){
+			$scope.paperData = data;
+		});
+		
+		var conferenceConf = ConferenceInfo.get({
+			id: $scope.conferenceId
+		});
+		conferenceConf.$promise.then( function(data){
+			$scope.ConferenceInfo = data;	
+		});
+		$scope.$watch('starred', function(newValue, oldValue){
+			if(newValue){
+				$scope.isStarredStyle = 'ion-ios7-star colorGold';
+			} else {
+				$scope.isStarredStyle = 'ion-ios7-star-outline';
+			}
+			
+		});
+		
+		$scope.clickStar = function() {
+			$scope.starred = !$scope.starred;
+		};
+	}
+])
 .config(function($stateProvider, $urlRouterProvider) {
     $stateProvider.state('eventspage', {
         url: "/events-page",
@@ -213,6 +262,11 @@ angular.module('confero.app', [
 		url: "/conference/:id/session/:key",
         templateUrl: "./views/sessionPage.html",
         controller: 'SessionPageCtrl'
+    })
+	.state('paperPage', {
+		url: "/conference/:id/paper/:key",
+        templateUrl: "./views/paperPageView.html",
+        controller: 'PaperPageCtrl'
     })
 	.state('tabs', {
         url: '/conference/:id',

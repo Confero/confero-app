@@ -4,13 +4,9 @@
             <div class="list">
                 <div ng-repeat="person in people">
                     <div ng-show="showPeopleDivider($index)" class="item item-divider">
-                        <h2>{{ person.PrettyDateTimeFull }}</h2>
+                        <h2>{{ dividerTitle($index) }}</h2>
                     </div>
-                    <a href="#/conference/{{conferenceId}}/people/{{person.KeyEncoded}}" class="item item-icon-right">
-                        <h2><span ng-bind-html="person.Name"></span></h2>
-                        <h3>{{ person.Affiliation }}</h3>
- 						<i class="icon ion-ios7-arrow-right dark"></i>
-                    </a>
+                   <people-item conference="conferenceId" person="person"></people-item>
                 </div>
             </div>
         </ion-content>

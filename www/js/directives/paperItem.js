@@ -1,4 +1,4 @@
-angular.module('confero.paperItem', ['confero.conferenceService']).directive('paperItem', function(Paper) {
+angular.module('confero.paperItem', ['confero.paperService']).directive('paperItem', function(Paper) {
     return {
         restrict: 'E',
         replace: 'true',
