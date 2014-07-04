@@ -1,0 +1,18 @@
+<div ng-controller="PaperPageCtrl">
+    <ion-view title="{{ConferenceInfo.Name}}">
+        <ion-content>
+            <div class="card">
+                <div class="item item-divider item-icon-left item-icon-right">
+                    <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()"></i>
+                    <h2 class="tablecell"><span class="middle" ng-bind-html="paperData.Title"></span></h2> 
+                    <i class="icon ion-ribbon-b colorGold" ng-show="paperData.Award"></i>
+                </div>
+                <div clas="item item-divider">
+                    <div class="list">
+                        <people-item ng-repeat="key in paperData.Authors" conference="conferenceId" key="key"></people-item>
+                    </div>
+                </div>
+            </div>
+        </ion-content>
+    </ion-view>
+</div>

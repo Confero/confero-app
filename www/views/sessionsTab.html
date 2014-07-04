@@ -1,0 +1,20 @@
+<div ng-controller="SessionsTabCrtl">
+    <ion-view title="{{ConferenceInfo.Name}}">
+        <ion-content>
+            <div class="list">
+                <div ng-repeat="session in sessions">
+                    <div ng-show="showSessionDivider($index)" class="item item-divider ">
+                        <h2>{{ session.PrettyDateTimeFull }}</h2>
+                    </div>
+                    <a href="#/conference/{{conferenceId}}/session/{{session.KeyEncoded}}" class="item {{session.Colour}} item-icon-right">
+                        <h2 class="colorWhite"><span ng-bind-html="session.Title"></span></h2>
+                        <h3 class="colorWhite">{{ session.Type }}</h3>
+                        <h3 class="colorWhite">{{ session.PrettyDateTime }}</h3>
+                        <span ng-show="session.starred" class="badge badge-assertive starred starredMarginTop15px"><i class="image ion-star colorGold"></i></span>
+                        <i class="icon ion-ios7-arrow-right light"></i>
+                    </a>
+                </div>
+            </div>
+        </ion-content>
+    </ion-view>
+</div>

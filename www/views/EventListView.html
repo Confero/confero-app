@@ -1,0 +1,11 @@
+<div class="list">
+
+    <a ng-repeat="event in events" href="#/conference/{{event.Id}}/sessions" class="item item-thumbnail-left">
+        <img ng-src="{{locationWWW}}/conferences/event/{{event.Id}}/image">
+
+        <h2>{{ event.Name }}</h2>
+        <h4>{{ event.Description }}</h4>
+        <h4>{{ event.StartDatePretty }} - {{event.EndDatePretty}}</h4>
+    </a>
+
+</div>

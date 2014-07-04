@@ -1,0 +1,9 @@
+<a href="#/conference/{{conferenceId}}/paper/{{paperData.KeyEncoded}}" class="item item-icon-left item-icon-right">
+    <i class="icon ion-ribbon-b colorGold" ng-show="paperData.Award"></i>
+    <div class="item-content">
+        <h2><span ng-bind-html="paperData.Title"></span></h2>
+        <h3>{{ paperData.PersonsString }}</h3>
+    </div>
+    <span ng-show="paperData.starred" class="starred starredMarginTop5px badge badge-assertive "><i class="image ion-star colorGold"></i></span>
+    <i class="icon ion-ios7-arrow-right dark"></i>
+</a>

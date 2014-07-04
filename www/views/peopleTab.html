@@ -1,0 +1,14 @@
+<div ng-controller="PeopleTabCrtl">
+    <ion-view title="{{ConferenceInfo.Name}}">
+        <ion-content>
+            <div class="list">
+                <div ng-repeat="person in people">
+                    <div ng-show="showPeopleDivider($index)" class="item item-divider">
+                        <h2>{{ dividerTitle($index) }}</h2>
+                    </div>
+                   <people-item conference="conferenceId" person="person"></people-item>
+                </div>
+            </div>
+        </ion-content>
+    </ion-view>
+</div>

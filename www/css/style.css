@@ -1,1 +1,69 @@
 /* Empty. Add your own CSS if you like */
+ .colour0 {
+    background-color: #00A8DF;
+}
+.colour1 {
+    background-color: #fb7009;
+}
+.colour2 {
+    background-color: #60124e;
+}
+.colour3 {
+    background-color: #269926;
+}
+.colour4 {
+    background-color: #ef3125;
+}
+.colour5 {
+    background-color: #006666;
+}
+.colour6 {
+    background-color: #7B4A12;
+}
+.colour7 {
+    background-color: #009664;
+}
+.colour8 {
+    background-color: #bf7000;
+}
+.colour9 {
+    background-color: #422663;
+}
+.colour10 {
+    background-color: #DAA520;
+}
+.colour11 {
+    background-color: #738F9B;
+}
+.colour12 {
+    background-color: #78200b;
+}
+.colour13 {
+    background-color: #1d447c;
+}
+.colour14 {
+    background-color: #206900;
+}
+.colorWhite {
+    color: #fff;
+}
+.colorGold {
+    color: #FFD700;
+}
+.starredMarginTop5px {
+	margin-top:5px;
+}
+.starredMarginTop15px {
+    margin-top:15px;
+}
+.starred {
+    margin-right:20px;
+	line-height:1.25em;
+	font-size:1.5em;
+}
+.tablecell {
+	display: table-cell;
+}
+.middle {
+	vertical-align: middle;
+}

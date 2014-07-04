@@ -7,6 +7,14 @@ module.exports = function(config) {
 	frameworks: ['jasmine'],
 	browsers: ['PhantomJS'],
 	exclude:[],
+	files : [
+		'www/lib/angular/angular.js',
+		'www/lib/angular-ui-route/angular-route.js',
+		'www/lib/angular-resource/angular-resource.js',
+		'bower_components/angular-mocks/angular-mocks.js',
+		'www/js/**/*.js',
+		'test/unit/**/*.js'
+    ],
 	junitReporter: {
 		outputFile: 'output/tests/unit.xml',
 		suite: 'unit'

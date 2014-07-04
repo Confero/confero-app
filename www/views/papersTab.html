@@ -1,0 +1,9 @@
+<div ng-controller="PapersTabCrtl">
+    <ion-view title="{{ConferenceInfo.Name}}">
+        <ion-content>
+            <div class="list">
+                <paper-item ng-repeat="paper in papers" conference="conferenceId" paper="paper"></paper-item>
+            </div>
+        </ion-content>
+    </ion-view>
+</div>
