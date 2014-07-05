@@ -10,6 +10,7 @@ angular.module('confero.app', [
 	'confero.eventsList', 
 	'confero.paperItem',
 	'confero.peopleItem',
+	'confero.sessionItem',
 	'confero.eventsService', 
 	'confero.conferenceService',
 	'confero.sessionService',
@@ -157,16 +158,6 @@ angular.module('confero.app', [
             }
         };
         sessionsConf.$promise.then(function(data) {
-            angular.forEach(data, function(value, key) {
-                value.KeyEncoded = encodeURIComponent(value.Key);
-                var time = value.Time.split('-');
-                value.StartTime = moment(value.Day + ' ' + time[0].trim(), 'YYYY-MM-DD HH:mm');
-                value.EndTime = moment(value.Day + ' ' + time[1].trim(), 'YYYY-MM-DD HH:mm');
-                value.PrettyDate = value.StartTime.format("dddd MMMM D[th]");
-                value.PrettyDateTime = value.StartTime.format("ddd MMMM D[th] HH:mm") + ' - ' + value.EndTime.format("HH:mm");
-				value.PrettyDateTimeFull = value.StartTime.format("dddd MMMM D[th] HH:mm") + ' - ' + value.EndTime.format("HH:mm");
-                value.Colour = 'colour' + (simpleHash(value.Location) % 15);
-            });
             $scope.sessions = data;
         });
 		var conferenceConf = ConferenceInfo.get({

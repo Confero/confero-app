@@ -12,6 +12,10 @@
                         <people-item ng-repeat="key in paperData.Authors" conference="conferenceId" key="key"></people-item>
                     </div>
                 </div>
+                <div clas="item item-divider">
+                    <session-item conference="conferenceId" paperkey="paperData.Key"></session-item>
+                    
+                </div>
             </div>
         </ion-content>
     </ion-view>

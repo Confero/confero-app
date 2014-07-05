@@ -18,8 +18,8 @@ angular.module('confero.paperItem', ['confero.paperService']).directive('paperIt
                     $scope.paperData = data;
                 });
             } else {
-				$scope.paperData = $scope.paper;
-			}
+                $scope.paperData = $scope.paper;
+            }
         }
     };
 });

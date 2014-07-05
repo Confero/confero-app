@@ -1,0 +1,7 @@
+<a href="#/conference/{{conferenceId}}/session/{{sessionData.KeyEncoded}}" class="item {{sessionData.Colour}} item-icon-right">
+    <h2 class="colorWhite"><span ng-bind-html="sessionData.Title"></span></h2>
+    <h3 class="colorWhite">{{ sessionData.Type }}</h3>
+    <h3 class="colorWhite">{{ sessionData.PrettyDateTime }}</h3>
+    <span ng-show="sessionData.starred" class="badge badge-assertive starred starredMarginTop15px"><i class="image ion-star colorGold"></i></span>
+    <i class="icon ion-ios7-arrow-right light"></i>
+</a>
