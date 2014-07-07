@@ -14,7 +14,18 @@
                 </div>
                 <div clas="item item-divider">
                     <session-item conference="conferenceId" paperkey="paperData.Key"></session-item>
-                    
+
+                </div>
+                <div clas="item item-divider">
+                    <a href="{{paperData.googleScholar}}" ng-show="paperData.googleScholar" class="padding">
+                        <img ng-src="./img/scholar.png">
+                    </a> 
+                    <a href="{{paperData.urlDOI}}" ng-show="paperData.DOI" class="padding">
+                        <img ng-src="./img/doi.png">
+                    </a>
+                </div>
+                <div clas="item item-divider item-text-wrap padding">
+                    {{paperData.Abstract}}
                 </div>
             </div>
         </ion-content>
