@@ -1,0 +1,33 @@
+<div ng-controller="PeoplePageCtrl">
+    <ion-view title="{{ConferenceInfo.Name}}">
+        <ion-content>
+            <div class="card">
+                <div class="item item-divider item-icon-left">
+                    <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()"></i>
+                    <div class="tablecell">
+                        <div class="middle">
+                            <h2 ng-bind-html="peopleData.Name"></h2> 
+                            <h3 ng-bind-html="peopleData.Affiliation"></h3>
+                        </div>
+
+                    </div>
+                </div>
+                <div clas="item item-divider">
+                    <a href="{{peopleData.googleScholar}}" ng-show="peopleData.googleScholar" class="padding">
+                        <img ng-src="./img/scholar.png">
+                    </a>
+                </div>
+                <div clas="item item-divider">
+                    <session-item ng-repeat="session in Sessions" conference="conferenceId" session="session"></session-item>
+                </div>
+
+
+                <div clas="item item-divider">
+                    <div class="list">
+                        <paper-item ng-repeat="item in Items" conference="conferenceId" paper="item"></paper-item>
+                    </div>
+                </div>
+            </div>
+        </ion-content>
+    </ion-view>
+</div>
