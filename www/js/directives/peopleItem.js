@@ -9,6 +9,9 @@ angular.module('confero.peopleItem', ['confero.peopleService']).directive('peopl
             key: "=key"
         },
         controller: function($scope) {
+			var setupData = function() {
+				$scope.personData.KeyEncoded = encodeURIComponent($scope.personData.Key);
+			};
             if(!$scope.person && $scope.key) {
                 var k = encodeURIComponent($scope.key);
                 var item = Person.get({
@@ -17,9 +20,11 @@ angular.module('confero.peopleItem', ['confero.peopleService']).directive('peopl
                 });
                 item.$promise.then(function(data) {
                     $scope.personData = data;
+					setupData();
                 });
             } else {
                 $scope.personData = $scope.person;
+				setupData();
             }
         }
     };

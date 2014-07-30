@@ -1,33 +1,36 @@
-angular.module('confero.eventsService', ['ngResource'])
+angular.module('confero.eventsService', ['confero.ConferoDataService'])
 
-.factory('PastEvents', ['$resource', '$cacheFactory',
-	function($resource, $cacheFactory) {
-		var www = 'http://'+ location.hostname + ':3000';
-		var now = moment();
-		var res = www + '/conferences/events/past?date=' + now.toISOString();
-		return $resource( res, {}, {
-			'get' : {method:'GET', cache: $cacheFactory}
-		});
-	}
-])
-.factory('UpcomingEvents', ['$resource', '$cacheFactory',
-	function($resource, $cacheFactory) {
-		var www = 'http://'+ location.hostname + ':3000';
-		var now = moment();
-		var res = www + "/conferences/events/upcoming?date=" + now.toISOString();
-		return $resource( res, {}, {
-			'get' : {method:'GET', cache: $cacheFactory}
-		});
-	}
-])
-.factory('InProgressEvents', ['$resource', '$cacheFactory',
-	function($resource, $cacheFactory) {
-		var www = 'http://'+ location.hostname + ':3000';
-		var now = moment();
-		var res = www + '/conferences/events/inprogress?date=' + now.toISOString();
-		return $resource( res, {}, {
-			'get' : {method:'GET', cache: $cacheFactory}
-		});
-	}
-]);
-
+.factory('EventsIndex', ['EventsCache', '$q',
+	function(EventsCache, $q) {
+		
+		return {
+			
+			Past: function() {
+				var deferred = $q.defer();
+				EventsCache.get().then(function(eventsIndex){
+					var now = moment();
+					deferred.resolve(eventsIndex.getEventsByTemporal('past', now));
+				});
+				
+				return deferred.promise;
+			},
+			UpComing: function(){
+				var deferred = $q.defer();
+				EventsCache.get().then(function(eventsIndex){
+					var now = moment();
+					deferred.resolve(eventsIndex.getEventsByTemporal('upcoming', now));
+				});
+				
+				return deferred.promise;
+			},
+			InProgress: function(){
+				var deferred = $q.defer();
+				EventsCache.get().then(function(eventsIndex){
+					var now = moment();
+					deferred.resolve(eventsIndex.getEventsByTemporal('inprogress', now));
+				});
+				
+				return deferred.promise;
+			}
+		};
+	}]);

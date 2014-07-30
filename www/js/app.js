@@ -5,7 +5,10 @@
 angular.module('confero.app', [
 		'ionic', 
 		'ngResource', 
-		'confero.tabs', 
+		'LocalForageModule',
+		'confero.tabs',
+		'confero.ConferoDataObjects',
+	'confero.ConferoDataService',
 		'confero.mainPage', 
 		'confero.eventsList', 
 		'confero.paperItem', 
@@ -27,13 +30,13 @@ angular.module('confero.app', [
             StatusBar.styleDefault();
         }
     });
-}).controller('EventsListCtrl', ['$scope', 'PastEvents', 'InProgressEvents', 'UpcomingEvents',
-    function($scope, PastEvents, InProgressEvents, UpcomingEvents) {
+}).controller('EventsListCtrl', ['$scope', 'EventsIndex', 
+    function($scope, EventsIndex) {
         $scope.locationWWW = 'http://' + location.hostname + ':3000';
         $scope.pastEvents = [];
         $scope.upcomingEvents = [];
         $scope.inProgressEvents = [];
-        var pastEventsPromise = PastEvents.query();
+        
         var applyMoment = function(data) {
             angular.forEach(data, function(value, key) {
                 var sd = moment(value.momentStartDate);
@@ -42,17 +45,18 @@ angular.module('confero.app', [
                 value.EndDatePretty = sd.format("MMMM D, YYYY");
             });
         };
-        pastEventsPromise.$promise.then(function(data) {
+		var pastEventsPromise = EventsIndex.Past();
+        pastEventsPromise.then(function(data) {
             applyMoment(data);
             $scope.pastEvents = data;
         });
-        var upcomingEventsPromise = UpcomingEvents.query();
-        upcomingEventsPromise.$promise.then(function(data) {
+        var upcomingEventsPromise = EventsIndex.UpComing();
+        upcomingEventsPromise.then(function(data) {
             applyMoment(data);
             $scope.upcomingEvents = data;
         });
-        var inProgressEventsPromise = InProgressEvents.query();
-        inProgressEventsPromise.$promise.then(function(data) {
+        var inProgressEventsPromise = EventsIndex.InProgress();
+        inProgressEventsPromise.then(function(data) {
             applyMoment(data);
             $scope.inProgressEvents = data;
         });
@@ -220,6 +224,54 @@ angular.module('confero.app', [
             $scope.starred = !$scope.starred;
         };
     }
+]).controller('PeoplePageCtrl', ['$scope', '$state', 'Person', 'ConferenceInfo', 'SessionsByPersonKey', 'ItemsByPersonKey',
+    function($scope, $state, Person, ConferenceInfo, SessionsByPersonKey, ItemsByPersonKey) {
+        $scope.conferenceId = $state.params.id;
+        $scope.peopleKey = $state.params.key;
+     
+        var peopleConf = Person.get({
+            id: $scope.conferenceId,
+            key: $scope.peopleKey
+        });
+		var peopleSessionsConf = SessionsByPersonKey.query({
+            id: $scope.conferenceId,
+            key: $scope.peopleKey
+        });
+		var peopleItemsConf = ItemsByPersonKey.query({
+            id: $scope.conferenceId,
+            key: $scope.peopleKey
+        });
+
+		peopleItemsConf.$promise.then(function(data) {
+            $scope.Items = data;
+
+        });
+		peopleSessionsConf.$promise.then(function(data) {
+            $scope.Sessions = data;
+        });
+
+        $scope.starred = false;
+        peopleConf.$promise.then(function(data) {
+            $scope.peopleData = data;
+            $scope.peopleData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Name.replace(/\s/g, "+") + '+' + data.Affiliation.replace(/\s/g, '+');
+        });
+        var conferenceConf = ConferenceInfo.get({
+            id: $scope.conferenceId
+        });
+        conferenceConf.$promise.then(function(data) {
+            $scope.ConferenceInfo = data;
+        });
+        $scope.$watch('starred', function(newValue, oldValue) {
+            if(newValue) {
+                $scope.isStarredStyle = 'ion-ios7-star colorGold';
+            } else {
+                $scope.isStarredStyle = 'ion-ios7-star-outline';
+            }
+        });
+        $scope.clickStar = function() {
+            $scope.starred = !$scope.starred;
+        };
+    }
 ]).config(function($stateProvider, $urlRouterProvider) {
     $stateProvider.state('eventspage', {
         url: "/events-page",
@@ -233,6 +285,10 @@ angular.module('confero.app', [
         url: "/conference/:id/paper/:key",
         templateUrl: "./views/paperPageView.html",
         controller: 'PaperPageCtrl'
+    }).state('peoplePage', {
+        url: "/conference/:id/people/:key",
+        templateUrl: "./views/peoplePageView.html",
+        controller: 'PeoplePageCtrl'
     }).state('tabs', {
         url: '/conference/:id',
         templateUrl: "./views/tabs.html"
