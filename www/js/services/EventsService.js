@@ -1,4 +1,4 @@
-angular.module('confero.eventsService', ['confero.ConferoDataService'])
+angular.module('confero.EventsService', ['confero.ConferoDataService'])
 
 .factory('EventsIndex', ['EventsCache', '$q',
 	function(EventsCache, $q) {

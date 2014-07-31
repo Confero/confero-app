@@ -2,24 +2,7 @@
 // angular.module is a global place for creating, registering and retrieving Angular modules
 // 'starter' is the name of this angular module example (also set in a <body> attribute in index.html)
 // the 2nd parameter is an array of 'requires'
-angular.module('confero.app', [
-		'ionic', 
-		'ngResource', 
-		'LocalForageModule',
-		'confero.tabs',
-		'confero.ConferoDataObjects',
-	'confero.ConferoDataService',
-		'confero.mainPage', 
-		'confero.eventsList', 
-		'confero.paperItem', 
-		'confero.peopleItem', 
-		'confero.sessionItem', 
-		'confero.eventsService', 
-		'confero.conferenceService', 
-		'confero.sessionService', 
-		'confero.paperService', 
-		'confero.peopleService' 
-	]).run(function($ionicPlatform) {
+angular.module('confero.app', ['ionic', 'ngResource', 'LocalForageModule', 'confero.tabs', 'confero.ConferoDataObjects', 'confero.ConferoDataService', 'confero.mainPage', 'confero.eventsList', 'confero.paperItem', 'confero.peopleItem', 'confero.sessionItem', 'confero.EventsService', 'confero.ConferenceService', 'confero.SessionService', 'confero.PaperService', 'confero.PeopleService']).run(function($ionicPlatform) {
     $ionicPlatform.ready(function() {
         // Hide the accessory bar by default (remove this to show the accessory bar above the keyboard
         // for form inputs)
@@ -30,13 +13,12 @@ angular.module('confero.app', [
             StatusBar.styleDefault();
         }
     });
-}).controller('EventsListCtrl', ['$scope', 'EventsIndex', 
+}).controller('EventsListCtrl', ['$scope', 'EventsIndex',
     function($scope, EventsIndex) {
         $scope.locationWWW = 'http://' + location.hostname + ':3000';
         $scope.pastEvents = [];
         $scope.upcomingEvents = [];
         $scope.inProgressEvents = [];
-        
         var applyMoment = function(data) {
             angular.forEach(data, function(value, key) {
                 var sd = moment(value.momentStartDate);
@@ -45,7 +27,7 @@ angular.module('confero.app', [
                 value.EndDatePretty = sd.format("MMMM D, YYYY");
             });
         };
-		var pastEventsPromise = EventsIndex.Past();
+        var pastEventsPromise = EventsIndex.Past();
         pastEventsPromise.then(function(data) {
             applyMoment(data);
             $scope.pastEvents = data;
@@ -62,24 +44,20 @@ angular.module('confero.app', [
         });
     }
 ]).controller('TabsCrtl', ['$scope', '$state',
-    function($scope, $state, People, ConferenceInfo) {
+    function($scope, $state) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
     }
-]).controller('PeopleTabCrtl', ['$scope', '$state', 'People', 'ConferenceInfo',
-    function($scope, $state, People, ConferenceInfo) {
+]).controller('PeopleTabCrtl', ['$scope', '$state', 'Conference',
+    function($scope, $state, Conference) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-        var conferenceConf = ConferenceInfo.get({
-            id: $scope.conferenceId
-        });
-        conferenceConf.$promise.then(function(data) {
+        var infoPromise = Conference.Info($scope.conferenceId);
+        infoPromise.then(function(data) {
             $scope.ConferenceInfo = data;
         });
-        var peopleConf = People.query({
-            id: $scope.conferenceId
-        });
-        peopleConf.$promise.then(function(data) {
+        var peoplePromise = Conference.People($scope.conferenceId);
+        peoplePromise.then(function(data) {
             angular.forEach(data, function(value, key) {
                 value.KeyEncoded = encodeURIComponent(value.Key);
                 var name = value.Name.split(/\s/);
@@ -106,20 +84,16 @@ angular.module('confero.app', [
             }
         };
     }
-]).controller('PapersTabCrtl', ['$scope', '$state', 'Papers', 'ConferenceInfo',
-    function($scope, $state, Papers, ConferenceInfo) {
+]).controller('PapersTabCrtl', ['$scope', '$state', 'Conference',
+    function($scope, $state, Conference) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-        var conferenceConf = ConferenceInfo.get({
-            id: $scope.conferenceId
-        });
-        conferenceConf.$promise.then(function(data) {
+        var infoPromise = Conference.Info($scope.conferenceId);
+        infoPromise.then(function(data) {
             $scope.ConferenceInfo = data;
         });
-        var papersConf = Papers.query({
-            id: $scope.conferenceId
-        });
-        papersConf.$promise.then(function(data) {
+        var papersPromise = Conference.Papers($scope.conferenceId);
+        papersPromise.then(function(data) {
             angular.forEach(data, function(value, key) {
                 value.KeyEncoded = encodeURIComponent(value.Key);
             });
@@ -129,13 +103,10 @@ angular.module('confero.app', [
             $scope.papers = data;
         });
     }
-]).controller('SessionsTabCrtl', ['$scope', '$state', 'Sessions', 'ConferenceInfo',
-    function($scope, $state, Sessions, ConferenceInfo) {
+]).controller('SessionsTabCrtl', ['$scope', '$state', 'Conference',
+    function($scope, $state, Conference) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-        var sessionsConf = Sessions.query({
-            id: $scope.conferenceId
-        });
         $scope.showSessionDivider = function(index) {
             if($scope.sessions) {
                 if(index === 0) {
@@ -147,40 +118,43 @@ angular.module('confero.app', [
                 }
             }
         };
-        sessionsConf.$promise.then(function(data) {
-            $scope.sessions = data;
-        });
-        var conferenceConf = ConferenceInfo.get({
-            id: $scope.conferenceId
-        });
-        conferenceConf.$promise.then(function(data) {
-            $scope.ConferenceInfo = data;
-        });
+        
+		Conference
+			.Sessions($scope.conferenceId)
+        	.then(function(data) {
+            	$scope.sessions = data;
+        	});
+         
+		Conference
+			.Info($scope.conferenceId)
+        	.then(function(data) {
+          	  $scope.ConferenceInfo = data;
+       	 });
     }
-]).controller('SessionPageCtrl', ['$scope', '$state', 'Session', 'ConferenceInfo',
-    function($scope, $state, Session, ConferenceInfo) {
+]).controller('SessionPageCtrl', ['$scope', '$state', 'Session', 'Conference',
+    function($scope, $state, Session, Conference) {
         $scope.conferenceId = $state.params.id;
         $scope.sessionKey = $state.params.key;
         $scope.items = {};
-        var sessionConf = Session.get({
-            id: $scope.conferenceId,
-            key: $scope.sessionKey
-        });
         $scope.starred = false;
-        sessionConf.$promise.then(function(data) {
-            var t = data.Time.split('-');
-            data.StartTime = moment(data.Day + ' ' + t[0].trim(), "YYYY-MM-DD HH:mm");
-            data.EndTime = moment(data.Day + ' ' + t[1].trim(), "YYYY-MM-DD HH:mm");
-            data.PrettyDateTime = data.StartTime.format("ddd MMMM D[th] HH:mm") + ' - ' + data.EndTime.format("HH:mm");
-            data.Colour = 'colour' + (simpleHash(data.Location) % 15);
-            $scope.session = data;
+        
+		Session
+			.get($scope.conferenceId, $scope.sessionKey)
+			.then(function(data) {
+            	var t = data.Time.split('-');
+           		data.StartTime = moment(data.Day + ' ' + t[0].trim(), "YYYY-MM-DD HH:mm");
+            	data.EndTime = moment(data.Day + ' ' + t[1].trim(), "YYYY-MM-DD HH:mm");
+            	data.PrettyDateTime = data.StartTime.format("ddd MMMM D[th] HH:mm") + ' - ' + data.EndTime.format("HH:mm");
+            	data.Colour = 'colour' + (simpleHash(data.Location) % 15);
+            	$scope.session = data;
         });
-        var conferenceConf = ConferenceInfo.get({
-            id: $scope.conferenceId
-        });
-        conferenceConf.$promise.then(function(data) {
-            $scope.ConferenceInfo = data;
-        });
+        
+		Conference
+			.Info($scope.conferenceId)
+			.then(function(data) {
+            	$scope.ConferenceInfo = data;
+        	});
+		
         $scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {
                 $scope.isStarredStyle = 'ion-ios7-star colorGold';
@@ -188,80 +162,66 @@ angular.module('confero.app', [
                 $scope.isStarredStyle = 'ion-ios7-star-outline';
             }
         });
-        $scope.clickStar = function() {
+        
+		$scope.clickStar = function() {
             $scope.starred = !$scope.starred;
         };
     }
-]).controller('PaperPageCtrl', ['$scope', '$state', 'Paper', 'ConferenceInfo',
-    function($scope, $state, Paper, ConferenceInfo) {
+]).controller('PaperPageCtrl', ['$scope', '$state', 'Paper', 'Conference',
+    function($scope, $state, Paper, Conference) {
         $scope.conferenceId = $state.params.id;
         $scope.paperKey = $state.params.key;
         $scope.items = {};
-        var paperConf = Paper.get({
-            id: $scope.conferenceId,
-            key: $scope.paperKey
-        });
-        $scope.starred = false;
-        paperConf.$promise.then(function(data) {
-            $scope.paperData = data;
-            $scope.paperData.urlDOI = decodeURIComponent(data.DOI);
-            $scope.paperData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Authors.join("+").replace("@", "").replace(/\s/g, "+") + '+' + data.Title.replace(/\s/g, '+');
-        });
-        var conferenceConf = ConferenceInfo.get({
-            id: $scope.conferenceId
-        });
-        conferenceConf.$promise.then(function(data) {
-            $scope.ConferenceInfo = data;
-        });
-        $scope.$watch('starred', function(newValue, oldValue) {
+		$scope.starred = false;
+        
+		Paper
+			.get($scope.conferenceId, $scope.paperKey)
+       		.then(function(data) {
+            	$scope.paperData = data;
+            	$scope.paperData.urlDOI = decodeURIComponent(data.DOI);
+            	$scope.paperData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Authors.join("+").replace("@", "").replace(/\s/g, "+") + '+' + data.Title.replace(/\s/g, '+');
+       	 });
+		
+        Conference
+			.Info($scope.conferenceId)
+        	.then(function(data) {
+            	$scope.ConferenceInfo = data;
+        	});
+        
+		$scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {
                 $scope.isStarredStyle = 'ion-ios7-star colorGold';
             } else {
                 $scope.isStarredStyle = 'ion-ios7-star-outline';
             }
         });
-        $scope.clickStar = function() {
+        
+		$scope.clickStar = function() {
             $scope.starred = !$scope.starred;
         };
     }
-]).controller('PeoplePageCtrl', ['$scope', '$state', 'Person', 'ConferenceInfo', 'SessionsByPersonKey', 'ItemsByPersonKey',
-    function($scope, $state, Person, ConferenceInfo, SessionsByPersonKey, ItemsByPersonKey) {
+]).controller('PeoplePageCtrl', ['$scope', '$state', 'People', 'Conference',
+    function($scope, $state, People, Conference) {
         $scope.conferenceId = $state.params.id;
         $scope.peopleKey = $state.params.key;
-     
-        var peopleConf = Person.get({
-            id: $scope.conferenceId,
-            key: $scope.peopleKey
-        });
-		var peopleSessionsConf = SessionsByPersonKey.query({
-            id: $scope.conferenceId,
-            key: $scope.peopleKey
-        });
-		var peopleItemsConf = ItemsByPersonKey.query({
-            id: $scope.conferenceId,
-            key: $scope.peopleKey
-        });
-
-		peopleItemsConf.$promise.then(function(data) {
-            $scope.Items = data;
-
-        });
-		peopleSessionsConf.$promise.then(function(data) {
-            $scope.Sessions = data;
-        });
-
-        $scope.starred = false;
-        peopleConf.$promise.then(function(data) {
+        People.Person($scope.conferenceId, $scope.peopleKey).then(function(data) {
             $scope.peopleData = data;
             $scope.peopleData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Name.replace(/\s/g, "+") + '+' + data.Affiliation.replace(/\s/g, '+');
         });
-        var conferenceConf = ConferenceInfo.get({
-            id: $scope.conferenceId
+        People.SessionsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
+            $scope.Sessions = data;
         });
-        conferenceConf.$promise.then(function(data) {
+        People.ItemsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
+            $scope.Items = data;
+        });
+        
+		$scope.starred = false;
+		
+        Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         });
-        $scope.$watch('starred', function(newValue, oldValue) {
+        
+		$scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {
                 $scope.isStarredStyle = 'ion-ios7-star colorGold';
             } else {

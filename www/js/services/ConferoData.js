@@ -1,4 +1,6 @@
-angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
+angular.module('confero.ConferoDataObjects', [])
+
+.factory('EventsData', [
     function() {
         var eventIndex, eventByKey;
         return {
@@ -58,9 +60,9 @@ angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
     function() {
         var confDataCache = {};
         return {
-            addConference: function(confId, data, event) {
+            addConference: function(confId, data, version) {
                 var confData = data;
-                confData.Version = event.Version;
+                confData.Version = version;
                 confData.Sessions.sort(function compare(a, b) {
                     var atime = a.Time.split('-');
                     var btime = b.Time.split('-');
@@ -136,7 +138,7 @@ angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
             },
             getSessionByPaperKey: function(confId, paperKey) {
                 if(confDataCache[confId]) {
-                    return this.getSessionByKey(confId, confDataCache.SessionByPaperKey[paperKey]);
+                    return this.getSessionByKey(confId, confDataCache[confId].SessionByPaperKey[paperKey]);
                 }
             },
             getItemsByPeopleKey: function(confId, peopleKey) {

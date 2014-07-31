@@ -1,18 +1,15 @@
-angular.module('confero.paperService', ['ngResource'])
+angular.module('confero.PaperService', ['confero.ConferoDataService'])
 
-.factory('Paper', ['$resource', '$cacheFactory',
-    function($resource, $cacheFactory) {
-        var www = 'http://' + location.hostname + ':3000';
-        var res = www + '/conference/:id/item/:key';
-        return $resource(res, {}, {
-            'get': {
-                method: 'GET',
-                params: {
-                    id: '',
-					key:''
-                },
-                cache: $cacheFactory
+.factory('Paper', ['ConferenceCache', '$q',
+    function(ConferenceCache, $q) {
+        return {
+            get: function(confId, paperKey) {
+                var deferred = $q.defer();
+                ConferenceCache.get(confId).then(function(conf) {
+                    deferred.resolve(conf.getItemByKey(confId, paperKey));
+                });
+                return deferred.promise;
             }
-        });
+        };
     }
 ]);

@@ -1,4 +1,4 @@
-angular.module('confero.peopleItem', ['confero.peopleService']).directive('peopleItem', function(Person) {
+angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopleItem', function(People) {
     return {
         restrict: 'E',
         replace: 'true',
@@ -14,11 +14,8 @@ angular.module('confero.peopleItem', ['confero.peopleService']).directive('peopl
 			};
             if(!$scope.person && $scope.key) {
                 var k = encodeURIComponent($scope.key);
-                var item = Person.get({
-                    id: $scope.conferenceId,
-                    key: k
-                });
-                item.$promise.then(function(data) {
+                var personPromise = People.Person($scope.conferenceId, $scope.key);
+                personPromise.then(function(data) {
                     $scope.personData = data;
 					setupData();
                 });

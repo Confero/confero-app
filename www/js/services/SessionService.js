@@ -1,34 +1,24 @@
-angular.module('confero.sessionService', ['ngResource'])
+angular.module('confero.SessionService', ['confero.ConferoDataService'])
 
-.factory('Session', ['$resource', '$cacheFactory',
-    function($resource, $cacheFactory) {
-        var www = 'http://' + location.hostname + ':3000';
-        var res = www + '/conference/:id/session/:key';
-        return $resource(res, {}, {
-            'get': {
-                method: 'GET',
-                params: {
-                    id: '',
-					key:''
-                },
-                cache: $cacheFactory
+
+.factory('Session', ['ConferenceCache', '$q',
+    function(ConferenceCache, $q) {
+        return {
+            get: function(confId, sessionKey) {
+                var deferred = $q.defer();
+                ConferenceCache.get(confId).then(function(conf) {
+					
+                    deferred.resolve(conf.getSessionByKey(confId, sessionKey));
+                });
+                return deferred.promise;
+            },
+            SessionByPaperKey: function(confId, paperKey) {
+                var deferred = $q.defer();
+                ConferenceCache.get(confId).then(function(conf) {
+                    deferred.resolve(conf.getSessionByPaperKey(confId, paperKey));
+                });
+                return deferred.promise;
             }
-        });
-    }
-])
-.factory('SessionByPaperKey', ['$resource', '$cacheFactory',
-    function($resource, $cacheFactory) {
-        var www = 'http://' + location.hostname + ':3000';
-		var res = www + '/conference/:id/session?paperkey=:paperkey';
-        return $resource(res, {}, {
-            'get': {
-                method: 'GET',
-                params: {
-                    id: '',
-					paperkey:''
-                },
-                cache: $cacheFactory
-            }
-        });
+        };
     }
 ]);

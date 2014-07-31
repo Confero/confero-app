@@ -1,50 +1,29 @@
-angular.module('confero.peopleService', ['ngResource'])
+angular.module('confero.PeopleService', ['confero.ConferoDataService'])
 
-.factory('Person', ['$resource', '$cacheFactory',
-    function($resource, $cacheFactory) {
-        var www = 'http://' + location.hostname + ':3000';
-        var res = www + '/conference/:id/people/:key';
-        return $resource(res, {}, {
-            'get': {
-                method: 'GET',
-                params: {
-                    id: '',
-					key:''
-                },
-                cache: $cacheFactory
+.factory('People', ['ConferenceCache', '$q',
+    function(ConferenceCache, $q) {
+        return {
+            Person: function(confId, personKey) {
+                var deferred = $q.defer();
+                ConferenceCache.get(confId).then(function(conf) {
+                    deferred.resolve(conf.getPersonByKey(confId,personKey));
+                });
+                return deferred.promise;
+            },
+            SessionsByPeopleKey: function(confId, personKey) {
+                var deferred = $q.defer();
+                ConferenceCache.get(confId).then(function(conf) {
+                    deferred.resolve(conf.getSessionsByPeopleKey(confId, personKey));
+                });
+                return deferred.promise;
+            },
+            ItemsByPeopleKey: function(confId, personKey) {
+                var deferred = $q.defer();
+                ConferenceCache.get(confId).then(function(conf) {
+                    deferred.resolve(conf.getItemsByPeopleKey(confId, personKey));
+                });
+                return deferred.promise;
             }
-        });
-    }
-])
-.factory('SessionsByPersonKey', ['$resource', '$cacheFactory',
-    function($resource, $cacheFactory) {
-        var www = 'http://' + location.hostname + ':3000';
-        var res = www + '/conference/:id/people/:key/sessions';
-        return $resource(res, {}, {
-            'get': {
-                method: 'GET',
-                params: {
-                    id: '',
-					key:''
-                },
-                cache: $cacheFactory
-            }
-        });
-    }
-])
-.factory('ItemsByPersonKey', ['$resource', '$cacheFactory',
-    function($resource, $cacheFactory) {
-        var www = 'http://' + location.hostname + ':3000';
-        var res = www + '/conference/:id/people/:key/items';
-        return $resource(res, {}, {
-            'get': {
-                method: 'GET',
-                params: {
-                    id: '',
-					key:''
-                },
-                cache: $cacheFactory
-            }
-        });
+        };
     }
 ]);

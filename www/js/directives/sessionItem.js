@@ -1,4 +1,4 @@
-angular.module('confero.sessionItem', ['confero.sessionService']).directive('sessionItem', function(Paper, Session, SessionByPaperKey) {
+angular.module('confero.sessionItem', ['confero.SessionService']).directive('sessionItem', function(Session) {
     return {
         restrict: 'E',
         replace: 'true',
@@ -10,7 +10,7 @@ angular.module('confero.sessionItem', ['confero.sessionService']).directive('ses
             paperkey: "=paperkey"
         },
         controller: function($scope) {
-            var item;
+            var sessionPromise;
             var setupData = function() {
                 $scope.sessionData.KeyEncoded = encodeURIComponent($scope.sessionData.Key);
                 var time = $scope.sessionData.Time.split('-');
@@ -26,24 +26,22 @@ angular.module('confero.sessionItem', ['confero.sessionService']).directive('ses
                 setupData();
             }
             $scope.$watch('key', function(newValue) {
-                item = Session.get({
-                    id: $scope.conferenceId,
-                    key: $scope.key
-                });
-                item.$promise.then(function(data) {
+				if($scope.key) {
+                sessionPromise = Session.get($scope.conferenceId, $scope.key);
+                sessionPromise.then(function(data) {
                     $scope.sessionData = data;
                     setupData();
                 });
+				}
             });
             $scope.$watch('paperkey', function(newValue) {
-                item = SessionByPaperKey.get({
-                    id: $scope.conferenceId,
-                    paperkey: $scope.paperkey
-                });
-                item.$promise.then(function(data) {
-                    $scope.sessionData = data;
-                    setupData();
-                });
+                if($scope.paperkey) {
+                    sessionPromise = Session.SessionByPaperKey($scope.conferenceId, $scope.paperkey);
+                    sessionPromise.then(function(data) {
+                        $scope.sessionData = data;
+                        setupData();
+                    });
+                }
             });
         }
     };
