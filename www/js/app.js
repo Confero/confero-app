@@ -2,7 +2,25 @@
 // angular.module is a global place for creating, registering and retrieving Angular modules
 // 'starter' is the name of this angular module example (also set in a <body> attribute in index.html)
 // the 2nd parameter is an array of 'requires'
-angular.module('confero.app', ['ionic', 'ngResource', 'LocalForageModule', 'confero.tabs', 'confero.ConferoDataObjects', 'confero.ConferoDataService', 'confero.mainPage', 'confero.eventsList', 'confero.paperItem', 'confero.peopleItem', 'confero.sessionItem', 'confero.EventsService', 'confero.ConferenceService', 'confero.SessionService', 'confero.PaperService', 'confero.PeopleService']).run(function($ionicPlatform) {
+angular.module('confero.app', [
+	'ionic', 
+	'ngResource', 
+	'LocalForageModule', 
+	'confero.tabs', 
+	'confero.ConferoDataObjects', 
+	'confero.ConferoDataService', 
+	'confero.mainPage', 
+	'confero.eventsList', 
+	'confero.paperItem', 
+	'confero.peopleItem', 
+	'confero.sessionItem', 
+	'confero.EventsService', 
+	'confero.ConferenceService', 
+	'confero.SessionService', 
+	'confero.PaperService', 
+	'confero.PeopleService' ])
+
+.run(function($ionicPlatform) {
     $ionicPlatform.ready(function() {
         // Hide the accessory bar by default (remove this to show the accessory bar above the keyboard
         // for form inputs)
@@ -13,33 +31,31 @@ angular.module('confero.app', ['ionic', 'ngResource', 'LocalForageModule', 'conf
             StatusBar.styleDefault();
         }
     });
-}).controller('EventsListCtrl', ['$scope', 'EventsIndex',
+})
+.config(['$localForageProvider', function($localForageProvider){
+    $localForageProvider.config({
+        driver      : 'localStorageWrapper', // if you want to force a driver
+        name        : 'Confero', // name of the database and prefix for your data
+        version     : 1.0, // version of the database, you shouldn't have to use this
+        storeName   : 'conferoData', // name of the table
+        description : 'Confero data store'
+    });
+}])
+.controller('EventsListCtrl', ['$scope', 'EventsIndex',
     function($scope, EventsIndex) {
         $scope.locationWWW = 'http://' + location.hostname + ':3000';
         $scope.pastEvents = [];
         $scope.upcomingEvents = [];
         $scope.inProgressEvents = [];
-        var applyMoment = function(data) {
-            angular.forEach(data, function(value, key) {
-                var sd = moment(value.momentStartDate);
-                value.StartDatePretty = sd.format("MMMM D, YYYY");
-                sd = moment(value.momentEndDate);
-                value.EndDatePretty = sd.format("MMMM D, YYYY");
-            });
-        };
-        var pastEventsPromise = EventsIndex.Past();
-        pastEventsPromise.then(function(data) {
-            applyMoment(data);
+       
+        EventsIndex.Past().then(function(data) {
             $scope.pastEvents = data;
         });
-        var upcomingEventsPromise = EventsIndex.UpComing();
-        upcomingEventsPromise.then(function(data) {
-            applyMoment(data);
+        
+		EventsIndex.UpComing().then(function(data) {
             $scope.upcomingEvents = data;
         });
-        var inProgressEventsPromise = EventsIndex.InProgress();
-        inProgressEventsPromise.then(function(data) {
-            applyMoment(data);
+        EventsIndex.InProgress().then(function(data) {
             $scope.inProgressEvents = data;
         });
     }
@@ -52,12 +68,10 @@ angular.module('confero.app', ['ionic', 'ngResource', 'LocalForageModule', 'conf
     function($scope, $state, Conference) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-        var infoPromise = Conference.Info($scope.conferenceId);
-        infoPromise.then(function(data) {
+        Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         });
-        var peoplePromise = Conference.People($scope.conferenceId);
-        peoplePromise.then(function(data) {
+        Conference.People($scope.conferenceId).then(function(data) {
             angular.forEach(data, function(value, key) {
                 value.KeyEncoded = encodeURIComponent(value.Key);
                 var name = value.Name.split(/\s/);
@@ -88,12 +102,10 @@ angular.module('confero.app', ['ionic', 'ngResource', 'LocalForageModule', 'conf
     function($scope, $state, Conference) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-        var infoPromise = Conference.Info($scope.conferenceId);
-        infoPromise.then(function(data) {
+        Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         });
-        var papersPromise = Conference.Papers($scope.conferenceId);
-        papersPromise.then(function(data) {
+        Conference.Papers($scope.conferenceId).then(function(data) {
             angular.forEach(data, function(value, key) {
                 value.KeyEncoded = encodeURIComponent(value.Key);
             });

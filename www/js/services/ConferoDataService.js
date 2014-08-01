@@ -24,7 +24,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                     deferred.resolve(EventsData);
                     deferred.notify('storage');
                 } else {
-                    var res = 'assets/EventIndex.json';
+                    var res = 'assets/conf-data/EventIndex.json';
                     var call = $resource(res, {}, {
                         'get': {
                             method: 'GET',
@@ -35,7 +35,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                         EventsData.setEventsIndex(data);
                         deferred.resolve(EventsData);
                         deferred.notify('local');
-                        $localForage.setItem('ConferoEventIndex', eventsData).then(function() {
+                        $localForage.setItem('ConferoEventIndex', data).then(function() {
                             fetchFromServer();
                         });
                     }, function(reason) {
@@ -91,7 +91,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                             deferred.resolve(ConferenceData);
                             deferred.notify('storage');
                         } else {
-                            var res = 'assets/data/' + EventsData.getEventById(confId).File;
+                            var res = 'assets/conf-data/data/' + EventsData.getEventById(confId).File;
                             var call = $resource(res, {}, {
                                 'get': {
                                     method: 'GET',

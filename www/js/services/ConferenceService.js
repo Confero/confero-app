@@ -30,10 +30,17 @@ angular.module('confero.ConferenceService', ['confero.ConferoDataService'])
                 if(confInfoCache[confId]) {
                     deferred.resolve(confInfoCache[confId]);
                 } else {
-                    ConferenceCache.get(confId).then(function(conference) {
+                    ConferenceCache.get(confId).then(function(conf) {
                         var info = {};
+						var conference = conf.get(confId);
                         for(var i in conference) {
-                            if(conference.hasOwnProperty(i) && i !== "Sessions" && i !== "SessionsByKey" && i !== "Items" && i !== "ItemsByKey" && i !== "People" && i !== "PeopleByKey") {
+                            if(conference.hasOwnProperty(i) && 
+								i !== "Sessions" && 
+								i !== "SessionsByKey" && 
+								i !== "Items" && 
+								i !== "ItemsByKey" && 
+								i !== "People" && 
+								i !== "PeopleByKey") {
                                 info[i] = conference[i];
                             }
                         }

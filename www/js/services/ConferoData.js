@@ -1,6 +1,4 @@
-angular.module('confero.ConferoDataObjects', [])
-
-.factory('EventsData', [
+angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
     function() {
         var eventIndex, eventByKey;
         return {
@@ -8,11 +6,13 @@ angular.module('confero.ConferoDataObjects', [])
                 eventIndex = eventsData;
                 eventByKey = {};
                 for(var i = 0; eventIndex.Events[i]; i++) {
-                    eventIndex.Events[i].momentStartDate = moment(eventIndex.Events[i].StartDate, "MM/DD/YYYY");
-                    eventIndex.Events[i].momentEndDate = moment(eventIndex.Events[i].EndDate, "MM/DD/YYYY");
+                    eventIndex.Events[i].momentStartDate = moment(eventIndex.Events[i].StartDate, "YYYY-MM-DD");
+                    eventIndex.Events[i].momentEndDate = moment(eventIndex.Events[i].EndDate, "YYYY-MM-DD");
                     eventIndex.Events[i].momentEndDate.hour(23);
                     eventIndex.Events[i].momentEndDate.minute(59);
                     eventByKey[eventIndex.Events[i].Id] = eventIndex.Events[i];
+                    eventIndex.Events[i].StartDatePretty = eventIndex.Events[i].momentStartDate.format("MMMM D, YYYY");
+                    eventIndex.Events[i].EndDatePretty = eventIndex.Events[i].momentEndDate.format("MMMM D, YYYY");
                 }
                 eventIndex.Events.sort(function compare(a, b) {
                     if(a.momentEndDate.isAfter(b.momentEndDate)) {
@@ -107,7 +107,7 @@ angular.module('confero.ConferoDataObjects', [])
                     confData.ItemsByKey = {};
                     for(i = 0; confData.Items[i]; i++) {
                         confData.ItemsByKey[confData.Items[i].Key] = confData.Items[i];
-                        for(j = 0; conferenceCache[id].Items[i].Authors[j]; j++) {
+                        for(j = 0; confData.Items[i].Authors[j]; j++) {
                             if(confData.ItemsKeyByPeopleKey[confData.Items[i].Authors[j]]) {
                                 confData.ItemsKeyByPeopleKey[confData.Items[i].Authors[j]].push(confData.Items[i].Key);
                             } else {
