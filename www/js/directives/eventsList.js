@@ -7,7 +7,10 @@ angular.module('confero.eventsList', []).directive('eventsList', function() {
             events: "=events",
             locationWWW: "=location",
             index: "=index"
-        },
+        }
+    };
+}).directive('errSrc', function() {
+	return {
         link: function(scope, element, attrs) {
             element.bind('error', function() {
                 if(attrs.src != attrs.errSrc) {
