@@ -40,6 +40,7 @@ angular.module('confero.app', [
         storeName   : 'conferoData', // name of the table
         description : 'Confero data store'
     });
+	$localForageProvider.setNotify(true, true); 
 }])
 .controller('EventsListCtrl', ['$scope', 'EventsIndex',
     function($scope, EventsIndex) {
@@ -59,10 +60,15 @@ angular.module('confero.app', [
             $scope.inProgressEvents = data;
         });
     }
-]).controller('TabsCrtl', ['$scope', '$state',
-    function($scope, $state) {
+]).controller('TabsCrtl', ['$scope', '$state', '$ionicLoading',
+    function($scope, $state, $ionicLoading) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
+		$ionicLoading.show({template: 'Loading...'});
+		
+		$scope.$on('loadingFinished', function(ngLoadEvent) {
+   			$ionicLoading.hide();
+		});
     }
 ]).controller('PeopleTabCrtl', ['$scope', '$state', 'Conference',
     function($scope, $state, Conference) {
@@ -115,8 +121,8 @@ angular.module('confero.app', [
             $scope.papers = data;
         });
     }
-]).controller('SessionsTabCrtl', ['$scope', '$state', 'Conference',
-    function($scope, $state, Conference) {
+]).controller('SessionsTabCrtl', ['$scope', '$state', 'Conference', '$timeout',
+    function($scope, $state, Conference, $timeout) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
         $scope.showSessionDivider = function(index) {
@@ -130,7 +136,7 @@ angular.module('confero.app', [
                 }
             }
         };
-        
+		
 		Conference
 			.Sessions($scope.conferenceId)
         	.then(function(data) {
@@ -244,6 +250,14 @@ angular.module('confero.app', [
             $scope.starred = !$scope.starred;
         };
     }
+]).controller('CustomTabCrtl', ['$scope', '$state', 'Conference',
+    function($scope, $state, Conference) {
+        $scope.conferenceId = $state.params.id;
+        $scope.ConferenceName = "confero";
+        Conference.Info($scope.conferenceId).then(function(data) {
+            $scope.ConferenceInfo = data;
+        });
+    }
 ]).config(function($stateProvider, $urlRouterProvider) {
     $stateProvider.state('eventspage', {
         url: "/events-page",
@@ -272,6 +286,14 @@ angular.module('confero.app', [
                 controller: "SessionsTabCrtl"
             }
         }
+    }).state('tabs.custom', {
+        url: '/custom',
+        views: {
+            'custom-tab': {
+                templateUrl: "./views/customTab.html",
+                controller: "CustomTabCrtl"
+            }
+        }
     }).state('tabs.people', {
         url: '/people',
         views: {
@@ -290,4 +312,11 @@ angular.module('confero.app', [
         }
     });
     $urlRouterProvider.otherwise("/events-page");
-});
+})
+.directive('onLastListItem', function() {
+        return function(scope, element, attrs) {
+            if (scope.$last) setTimeout(function(){
+                scope.$emit('loadingFinished', element, attrs);
+            }, 1);
+        };
+    });

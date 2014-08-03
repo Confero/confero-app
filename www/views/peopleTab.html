@@ -2,7 +2,7 @@
     <ion-view title="{{ConferenceInfo.Name}}">
         <ion-content>
             <div class="list">
-                <div ng-repeat="person in people">
+                <div ng-repeat="person in people" on-last-list-item>
                     <div ng-show="showPeopleDivider($index)" class="item item-divider">
                         <h2>{{ dividerTitle($index) }}</h2>
                     </div>
