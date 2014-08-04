@@ -19,7 +19,9 @@ angular.module('confero.app', [
 	'confero.SessionService', 
 	'confero.PaperService', 
 	'confero.PeopleService' ])
-
+.constant('$ionicLoadingConfig', {
+  template: '<h1><i class="icon ion-loading-a"></i>Loading...</h1>'
+})
 .run(function($ionicPlatform) {
     $ionicPlatform.ready(function() {
         // Hide the accessory bar by default (remove this to show the accessory bar above the keyboard
@@ -42,10 +44,7 @@ angular.module('confero.app', [
     });
 	$localForageProvider.setNotify(true, true); 
 }])
-.constant('$ionicLoadingConfig', {
-	templateUrl : './views/spinner.html',
-	duration:5000
-})	
+
 .controller('EventsListCtrl', ['$scope', 'EventsIndex',
     function($scope, EventsIndex) {
         $scope.locationWWW = 'http://' + location.hostname + ':3000';
@@ -68,10 +67,9 @@ angular.module('confero.app', [
     function($scope, $state, $ionicLoading) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-		
-		
+		$ionicLoading.show();
 		$scope.$on('loadingFinished', function(ngLoadEvent) {
-   			$ionicLoading.hide();
+			$ionicLoading.hide();
 		});
     }
 ]).controller('PeopleTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
@@ -320,10 +318,12 @@ angular.module('confero.app', [
     });
     $urlRouterProvider.otherwise("/events-page");
 })
-.directive('onLastListItem', function() {
+.directive('onLastListItem', function($timeout) {
         return function(scope, element, attrs) {
-            if (scope.$last) setTimeout(function(){
-                scope.$emit('loadingFinished', element, attrs);
-            }, 1);
+			if (scope.$last) {
+				$timeout(function(){
+					scope.$emit('loadingFinished', element, attrs);
+				});
+			}
         };
     });
