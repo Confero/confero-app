@@ -55,10 +55,11 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
     }
 ]).factory('ConferenceCache', ['$resource', '$cacheFactory', '$localForage', 'ConferenceData', 'EventsData', '$q',
     function($resource, $cacheFactory, $localForage, ConferenceData, EventsData, $q) {
-        var fetchFromServer = function(confId, deferred) {
+        var fetchFromServer = function(confId, deferred, currentVersion) {
             var www = 'http://' + location.hostname + ':3000';
-            var res = www + '/conference/:id';
-            var call = $resource(res, {}, {
+            var confLoc = '/conference/:id';
+            var verLoc = '/conferences/event/:id/version';
+            var call = $resource(www + verLoc, {}, {
                 'get': {
                     method: 'GET',
                     params: {
@@ -70,12 +71,27 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                 id: confId
             });
             call.$promise.then(function(data) {
-                var version = EventsData.getEventById(confId).Version;
-                ConferenceData.addConference(confId, data, version);
-                deferred.resolve(ConferenceData);
-                deferred.notify('server');
-                data.Version = version;
-                $localForage.setItem(confId, data);
+                if(!currentVersion || data.version > currentVersion) {
+                    var call = $resource(www + confLoc, {}, {
+                        'get': {
+                            method: 'GET',
+                            params: {
+                                id: '',
+                            },
+                            cache: $cacheFactory
+                        }
+                    }).get({
+                        id: confId
+                    });
+                    call.$promise.then(function(data) {
+                        var version = EventsData.getEventById(confId).Version;
+                        ConferenceData.addConference(confId, data, version);
+                        deferred.resolve(ConferenceData);
+                        deferred.notify('server');
+                        data.Version = version;
+                        $localForage.setItem(confId, data);
+                    });
+                }
             });
         };
         return {
@@ -90,6 +106,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                             ConferenceData.addConference(confId, value, value.Version);
                             deferred.resolve(ConferenceData);
                             deferred.notify('storage');
+                            fetchFromServer(confId, deferred, value.Version);
                         } else {
                             var res = 'assets/conf-data/data/' + EventsData.getEventById(confId).File;
                             var call = $resource(res, {}, {
@@ -105,7 +122,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                                 deferred.notify('local');
                                 data.Version = version;
                                 $localForage.setItem(confId, data).then(function() {
-                                    fetchFromServer(confId, deferred);
+                                    fetchFromServer(confId, deferred, version);
                                 });
                             }, function(reason) {
                                 fetchFromServer(confId, deferred);

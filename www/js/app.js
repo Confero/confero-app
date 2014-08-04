@@ -42,6 +42,10 @@ angular.module('confero.app', [
     });
 	$localForageProvider.setNotify(true, true); 
 }])
+.constant('$ionicLoadingConfig', {
+	templateUrl : './views/spinner.html',
+	duration:5000
+})	
 .controller('EventsListCtrl', ['$scope', 'EventsIndex',
     function($scope, EventsIndex) {
         $scope.locationWWW = 'http://' + location.hostname + ':3000';
@@ -64,14 +68,15 @@ angular.module('confero.app', [
     function($scope, $state, $ionicLoading) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-		$ionicLoading.show({template: 'Loading...'});
+		
 		
 		$scope.$on('loadingFinished', function(ngLoadEvent) {
    			$ionicLoading.hide();
 		});
     }
-]).controller('PeopleTabCrtl', ['$scope', '$state', 'Conference',
-    function($scope, $state, Conference) {
+]).controller('PeopleTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
+    function($scope, $state, Conference, $ionicLoading) {
+		$ionicLoading.show();
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
         Conference.Info($scope.conferenceId).then(function(data) {
@@ -104,8 +109,9 @@ angular.module('confero.app', [
             }
         };
     }
-]).controller('PapersTabCrtl', ['$scope', '$state', 'Conference',
-    function($scope, $state, Conference) {
+]).controller('PapersTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
+    function($scope, $state, Conference, $ionicLoading) {
+		$ionicLoading.show();
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
         Conference.Info($scope.conferenceId).then(function(data) {
@@ -121,9 +127,10 @@ angular.module('confero.app', [
             $scope.papers = data;
         });
     }
-]).controller('SessionsTabCrtl', ['$scope', '$state', 'Conference', '$timeout',
-    function($scope, $state, Conference, $timeout) {
-        $scope.conferenceId = $state.params.id;
+]).controller('SessionsTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
+    function($scope, $state, Conference, $ionicLoading) {
+        $ionicLoading.show();
+		$scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
         $scope.showSessionDivider = function(index) {
             if($scope.sessions) {
