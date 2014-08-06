@@ -10,7 +10,8 @@ angular.module('confero.app', [
 	'confero.ConferoDataObjects', 
 	'confero.ConferoDataService', 
 	'confero.mainPage', 
-	'confero.eventsList', 
+	'confero.eventsList',
+	'confero.lastListItem',
 	'confero.paperItem', 
 	'confero.peopleItem', 
 	'confero.sessionItem', 
@@ -317,13 +318,4 @@ angular.module('confero.app', [
         }
     });
     $urlRouterProvider.otherwise("/events-page");
-})
-.directive('onLastListItem', function($timeout) {
-        return function(scope, element, attrs) {
-			if (scope.$last) {
-				$timeout(function(){
-					scope.$emit('loadingFinished', element, attrs);
-				});
-			}
-        };
-    });
+});
