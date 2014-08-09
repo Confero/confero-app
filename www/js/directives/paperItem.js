@@ -1,4 +1,6 @@
-angular.module('confero.paperItem', ['confero.PaperService']).directive('paperItem', function(Paper) {
+angular.module('confero.paperItem', ['confero.PaperService'])
+
+.directive('paperItem', ['Paper', function(Paper) {
     return {
         restrict: 'E',
         replace: 'true',
@@ -10,18 +12,18 @@ angular.module('confero.paperItem', ['confero.PaperService']).directive('paperIt
         },
         controller: function($scope) {
             var setupData = function() {
-				$scope.paperData.KeyEncoded = encodeURIComponent($scope.paperData.Key);
-			};
+               $scope.paperData.KeyEncoded = encodeURIComponent($scope.paperData.Key);
+            };
             if(!$scope.paper && $scope.key) {
                 var paperPromise = Paper.get($scope.conferenceId, $scope.key);
                 paperPromise.then(function(data) {
                     $scope.paperData = data;
-					setupData();
+                    setupData();
                 });
             } else {
                 $scope.paperData = $scope.paper;
-				setupData();
+                setupData();
             }
         }
     };
-});
+}]);

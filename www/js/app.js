@@ -3,23 +3,24 @@
 // 'starter' is the name of this angular module example (also set in a <body> attribute in index.html)
 // the 2nd parameter is an array of 'requires'
 angular.module('confero.app', [
-	'ionic', 
-	'ngResource', 
-	'LocalForageModule', 
-	'confero.tabs', 
-	'confero.ConferoDataObjects', 
-	'confero.ConferoDataService', 
-	'confero.mainPage', 
-	'confero.eventsList',
-	'confero.lastListItem',
-	'confero.paperItem', 
-	'confero.peopleItem', 
-	'confero.sessionItem', 
-	'confero.EventsService', 
-	'confero.ConferenceService', 
-	'confero.SessionService', 
-	'confero.PaperService', 
-	'confero.PeopleService' ])
+    'ionic', 
+    'ngResource', 
+    'LocalForageModule', 
+    'confero.tabs', 
+    'confero.ConferoDataObjects', 
+    'confero.ConferoDataService', 
+    'confero.mainPage', 
+    'confero.eventsList',
+    'confero.lastListItem',
+    'confero.paperItem', 
+    'confero.peopleItem', 
+    'confero.sessionItem', 
+    'confero.EventsService',
+    'confero.StarredService',
+    'confero.ConferenceService', 
+    'confero.SessionService', 
+    'confero.PaperService', 
+    'confero.PeopleService' ])
 .constant('$ionicLoadingConfig', {
   template: '<h1><i class="icon ion-loading-a"></i>Loading...</h1>'
 })
@@ -37,13 +38,13 @@ angular.module('confero.app', [
 })
 .config(['$localForageProvider', function($localForageProvider){
     $localForageProvider.config({
-        driver      : 'localStorageWrapper', // if you want to force a driver
+        //driver      : 'localStorageWrapper', // if you want to force a driver
         name        : 'Confero', // name of the database and prefix for your data
         version     : 1.0, // version of the database, you shouldn't have to use this
         storeName   : 'conferoData', // name of the table
         description : 'Confero data store'
     });
-	$localForageProvider.setNotify(true, true); 
+    $localForageProvider.setNotify(true, true); 
 }])
 
 .controller('EventsListCtrl', ['$scope', 'EventsIndex',
@@ -57,25 +58,28 @@ angular.module('confero.app', [
             $scope.pastEvents = data;
         });
         
-		EventsIndex.UpComing().then(function(data) {
+        EventsIndex.UpComing().then(function(data) {
             $scope.upcomingEvents = data;
         });
         EventsIndex.InProgress().then(function(data) {
             $scope.inProgressEvents = data;
         });
     }
-]).controller('TabsCrtl', ['$scope', '$state', '$ionicLoading',
-    function($scope, $state, $ionicLoading) {
+]).controller('TabsCrtl', ['$scope', '$state', '$ionicLoading', '$ionicNavBarDelegate',
+    function($scope, $state, $ionicLoading, $ionicNavBarDelegate) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-		$ionicLoading.show();
-		$scope.$on('loadingFinished', function(ngLoadEvent) {
-			$ionicLoading.hide();
-		});
+        $ionicLoading.show();
+        $scope.$on('loadingFinished', function(ngLoadEvent) {
+            $ionicLoading.hide();
+        });
+        $scope.getPreviousTitle = function() {
+           return $ionicNavBarDelegate.getPreviousTitle();
+        };
     }
 ]).controller('PeopleTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
     function($scope, $state, Conference, $ionicLoading) {
-		$ionicLoading.show();
+        $ionicLoading.show();
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
         Conference.Info($scope.conferenceId).then(function(data) {
@@ -110,7 +114,7 @@ angular.module('confero.app', [
     }
 ]).controller('PapersTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
     function($scope, $state, Conference, $ionicLoading) {
-		$ionicLoading.show();
+        $ionicLoading.show();
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
         Conference.Info($scope.conferenceId).then(function(data) {
@@ -129,8 +133,12 @@ angular.module('confero.app', [
 ]).controller('SessionsTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
     function($scope, $state, Conference, $ionicLoading) {
         $ionicLoading.show();
-		$scope.conferenceId = $state.params.id;
+        $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
+		
+		 $scope.back = function(){
+			$state.go('eventspage');
+		};
         $scope.showSessionDivider = function(index) {
             if($scope.sessions) {
                 if(index === 0) {
@@ -142,43 +150,48 @@ angular.module('confero.app', [
                 }
             }
         };
-		
-		Conference
-			.Sessions($scope.conferenceId)
-        	.then(function(data) {
-            	$scope.sessions = data;
-        	});
+
+        Conference
+            .Sessions($scope.conferenceId)
+            .then(function(data) {
+                $scope.sessions = data;
+            });
          
-		Conference
-			.Info($scope.conferenceId)
-        	.then(function(data) {
-          	  $scope.ConferenceInfo = data;
-       	 });
+        Conference
+            .Info($scope.conferenceId)
+            .then(function(data) {
+               $scope.ConferenceInfo = data;
+        });
     }
-]).controller('SessionPageCtrl', ['$scope', '$state', 'Session', 'Conference',
-    function($scope, $state, Session, Conference) {
+]).controller('SessionPageCtrl', ['$scope', '$state', 'Session', 'Conference', 'Starred',
+    function($scope, $state, Session, Conference, Starred) {
         $scope.conferenceId = $state.params.id;
         $scope.sessionKey = $state.params.key;
         $scope.items = {};
         $scope.starred = false;
-        
-		Session
-			.get($scope.conferenceId, $scope.sessionKey)
-			.then(function(data) {
-            	var t = data.Time.split('-');
-           		data.StartTime = moment(data.Day + ' ' + t[0].trim(), "YYYY-MM-DD HH:mm");
-            	data.EndTime = moment(data.Day + ' ' + t[1].trim(), "YYYY-MM-DD HH:mm");
-            	data.PrettyDateTime = data.StartTime.format("ddd MMMM D[th] HH:mm") + ' - ' + data.EndTime.format("HH:mm");
-            	data.Colour = 'colour' + (simpleHash(data.Location) % 15);
-            	$scope.session = data;
+       
+        Session
+            .get($scope.conferenceId, $scope.sessionKey)
+            .then(function(data) {
+                var t = data.Time.split('-');
+                data.StartTime = moment(data.Day + ' ' + t[0].trim(), "YYYY-MM-DD HH:mm");
+                data.EndTime = moment(data.Day + ' ' + t[1].trim(), "YYYY-MM-DD HH:mm");
+                data.PrettyDateTime = data.StartTime.format("ddd MMMM D[th] HH:mm") + ' - ' + data.EndTime.format("HH:mm");
+                data.Colour = 'colour' + (simpleHash(data.Location) % 15);
+                $scope.session = data;
+                Starred
+                   .get($scope.conferenceId, $scope.sessionKey)
+                   .then(function(value){
+                      $scope.starred = value;
+                   });
         });
         
-		Conference
-			.Info($scope.conferenceId)
-			.then(function(data) {
-            	$scope.ConferenceInfo = data;
-        	});
-		
+        Conference
+            .Info($scope.conferenceId)
+            .then(function(data) {
+                $scope.ConferenceInfo = data;
+            });
+
         $scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {
                 $scope.isStarredStyle = 'ion-ios7-star colorGold';
@@ -187,32 +200,41 @@ angular.module('confero.app', [
             }
         });
         
-		$scope.clickStar = function() {
-            $scope.starred = !$scope.starred;
+        $scope.clickStar = function() {
+            Starred
+                .toggleStar($scope.conferenceId, $scope.sessionKey)
+                .then(function(value){
+                    $scope.starred = value;
+                });
         };
     }
-]).controller('PaperPageCtrl', ['$scope', '$state', 'Paper', 'Conference',
-    function($scope, $state, Paper, Conference) {
+]).controller('PaperPageCtrl', ['$scope', '$state', 'Paper', 'Conference', 'Starred',
+    function($scope, $state, Paper, Conference, Starred) {
         $scope.conferenceId = $state.params.id;
         $scope.paperKey = $state.params.key;
         $scope.items = {};
-		$scope.starred = false;
+        $scope.starred = false;
         
-		Paper
-			.get($scope.conferenceId, $scope.paperKey)
-       		.then(function(data) {
-            	$scope.paperData = data;
-            	$scope.paperData.urlDOI = decodeURIComponent(data.DOI);
-            	$scope.paperData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Authors.join("+").replace("@", "").replace(/\s/g, "+") + '+' + data.Title.replace(/\s/g, '+');
-       	 });
-		
+        Paper
+            .get($scope.conferenceId, $scope.paperKey)
+            .then(function(data) {
+                $scope.paperData = data;
+                $scope.paperData.urlDOI = decodeURIComponent(data.DOI);
+                $scope.paperData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Authors.join("+").replace("@", "").replace(/\s/g, "+") + '+' + data.Title.replace(/\s/g, '+');
+                Starred
+                   .get($scope.conferenceId, $scope.paperKey)
+                   .then(function(value){
+                      $scope.starred = value;
+                   });
+        });
+
         Conference
-			.Info($scope.conferenceId)
-        	.then(function(data) {
-            	$scope.ConferenceInfo = data;
-        	});
+            .Info($scope.conferenceId)
+            .then(function(data) {
+               $scope.ConferenceInfo = data;
+            });
         
-		$scope.$watch('starred', function(newValue, oldValue) {
+        $scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {
                 $scope.isStarredStyle = 'ion-ios7-star colorGold';
             } else {
@@ -220,17 +242,26 @@ angular.module('confero.app', [
             }
         });
         
-		$scope.clickStar = function() {
-            $scope.starred = !$scope.starred;
+        $scope.clickStar = function() {
+            Starred
+                .toggleStar($scope.conferenceId, $scope.paperKey)
+                .then(function(value){
+                    $scope.starred = value;
+                });
         };
     }
-]).controller('PeoplePageCtrl', ['$scope', '$state', 'People', 'Conference',
-    function($scope, $state, People, Conference) {
+]).controller('PeoplePageCtrl', ['$scope', '$state', 'People', 'Conference', 'Starred',
+    function($scope, $state, People, Conference, Starred) {
         $scope.conferenceId = $state.params.id;
         $scope.peopleKey = $state.params.key;
         People.Person($scope.conferenceId, $scope.peopleKey).then(function(data) {
             $scope.peopleData = data;
             $scope.peopleData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Name.replace(/\s/g, "+") + '+' + data.Affiliation.replace(/\s/g, '+');
+            Starred
+                .get($scope.conferenceId, $scope.peopleKey)
+                .then(function(value){
+                   $scope.starred = value;
+                });
         });
         People.SessionsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
             $scope.Sessions = data;
@@ -239,13 +270,13 @@ angular.module('confero.app', [
             $scope.Items = data;
         });
         
-		$scope.starred = false;
-		
+        $scope.starred = false;
+
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         });
         
-		$scope.$watch('starred', function(newValue, oldValue) {
+        $scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {
                 $scope.isStarredStyle = 'ion-ios7-star colorGold';
             } else {
@@ -253,7 +284,11 @@ angular.module('confero.app', [
             }
         });
         $scope.clickStar = function() {
-            $scope.starred = !$scope.starred;
+            Starred
+                .toggleStar($scope.conferenceId, $scope.peopleKey)
+                .then(function(value){
+                    $scope.starred = value;
+                });
         };
     }
 ]).controller('CustomTabCrtl', ['$scope', '$state', 'Conference',
@@ -269,18 +304,6 @@ angular.module('confero.app', [
         url: "/events-page",
         templateUrl: "events-page.html",
         controller: 'EventsListCtrl'
-    }).state('sessionPage', {
-        url: "/conference/:id/session/:key",
-        templateUrl: "./views/sessionPage.html",
-        controller: 'SessionPageCtrl'
-    }).state('paperPage', {
-        url: "/conference/:id/paper/:key",
-        templateUrl: "./views/paperPageView.html",
-        controller: 'PaperPageCtrl'
-    }).state('peoplePage', {
-        url: "/conference/:id/people/:key",
-        templateUrl: "./views/peoplePageView.html",
-        controller: 'PeoplePageCtrl'
     }).state('tabs', {
         url: '/conference/:id',
         templateUrl: "./views/tabs.html"
@@ -316,6 +339,18 @@ angular.module('confero.app', [
                 controller: "PapersTabCrtl"
             }
         }
+    }).state('sessionPage', {
+        url: "/conference/:id/session/:key",
+        templateUrl: "./views/sessionPage.html",
+        controller: 'SessionPageCtrl'
+    }).state('paperPage', {
+        url: "/conference/:id/paper/:key",
+        templateUrl: "./views/paperPageView.html",
+        controller: 'PaperPageCtrl'
+    }).state('peoplePage', {
+        url: "/conference/:id/people/:key",
+        templateUrl: "./views/peoplePageView.html",
+        controller: 'PeoplePageCtrl'
     });
     $urlRouterProvider.otherwise("/events-page");
 });

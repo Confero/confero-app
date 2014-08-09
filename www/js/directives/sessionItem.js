@@ -26,13 +26,13 @@ angular.module('confero.sessionItem', ['confero.SessionService']).directive('ses
                 setupData();
             }
             $scope.$watch('key', function(newValue) {
-				if($scope.key) {
-                sessionPromise = Session.get($scope.conferenceId, $scope.key);
-                sessionPromise.then(function(data) {
-                    $scope.sessionData = data;
-                    setupData();
-                });
-				}
+                if($scope.key) {
+                    sessionPromise = Session.get($scope.conferenceId, $scope.key);
+                    sessionPromise.then(function(data) {
+                        $scope.sessionData = data;
+                        setupData();
+                    });
+                }
             });
             $scope.$watch('paperkey', function(newValue) {
                 if($scope.paperkey) {

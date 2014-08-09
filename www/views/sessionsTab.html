@@ -1,6 +1,15 @@
 <div ng-controller="SessionsTabCrtl">
     <ion-view title="{{ConferenceInfo.Name}}">
+		<ion-nav-buttons side="left">
+      <button class="button" ng-click="back()">
+        <i class="ion-arrow-left-c"></i> Back
+      </button>
+    </ion-nav-buttons>
         <ion-content>
+			<label class="item item-input">
+                    <i class="icon ion-search placeholder-icon"></i>
+                    <input type="text" placeholder="Search" ng-model="q">
+                </label>
             <div class="list">
                 <div ng-repeat="session in sessions" on-last-list-item>
                     <div ng-show="showSessionDivider($index)" class="item item-divider">

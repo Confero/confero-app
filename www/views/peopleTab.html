@@ -1,8 +1,12 @@
 <div ng-controller="PeopleTabCrtl">
     <ion-view title="{{ConferenceInfo.Name}}">
         <ion-content>
+			<label class="item item-input">
+                    <i class="icon ion-search placeholder-icon"></i>
+                    <input type="text" placeholder="Search" ng-model="q">
+                </label>
             <div class="list">
-                <div ng-repeat="person in people" on-last-list-item>
+                <div ng-repeat="person in people | filter:q" on-last-list-item>
                     <div ng-show="showPeopleDivider($index)" class="item item-divider">
                         <h2>{{ dividerTitle($index) }}</h2>
                     </div>
