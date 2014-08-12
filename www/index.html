@@ -33,6 +33,7 @@
     <script src="js/directives/peopleItem.js"></script>
     <script src="js/directives/sessionItem.js"></script>
     <script src="js/services/ConferoData.js"></script>
+	<script src="js/services/NavigationService.js"></script>
     <script src="js/services/ConferoDataService.js"></script>
     <script src="js/services/EventsService.js"></script>
     <script src="js/services/ConferenceService.js"></script>
@@ -47,14 +48,12 @@
 <body>
 
     <ion-nav-bar class="bar-dark nav-title-slide-ios7">
-        <ion-nav-back-button class="button-icon ion-arrow-left-c">
-        </ion-nav-back-button>
     </ion-nav-bar>
 
     <ion-nav-view animation="slide-left-right"></ion-nav-view>
 
     <script id="events-page.html" type="text/ng-template" ng-controller="EventsListCtrl">
-        <ion-view title="Confero"><ion-content><main-page></main-page></ion-content></ion-view>
+        <main-page></main-page>
     </script>
 
 </body>

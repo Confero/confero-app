@@ -30,10 +30,18 @@ angular.module('confero.StarredService', ['LocalForageModule']).factory('Starred
                         if(value) {
                             starred[confId] = value;
                         }
-                        deferred.resolve(starred[confId][key]);
+                        if(key) {
+                            deferred.resolve(starred[confId][key]);
+                        } else {
+                            deferred.resolve(starred[confId]);
+                        }
                     });
                 } else {
-                    deferred.resolve(starred[confId][key]);
+                    if(key) {
+                        deferred.resolve(starred[confId][key]);
+                    } else {
+                        deferred.resolve(starred[confId]);
+                    }
                 }
                 return deferred.promise;
             }

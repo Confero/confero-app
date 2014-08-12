@@ -121,6 +121,23 @@ angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
             get: function(confId) {
                 return confDataCache[confId];
             },
+            resolveKey: function(confId, key) {
+                if(confDataCache[confId]) {
+                    if(confDataCache[confId].PeopleByKey[key]) {
+                        return {
+                            person: confDataCache[confId].PeopleByKey[key]
+                        };
+                    } else if(confDataCache[confId].SessionsByKey[key]) {
+                        return {
+                            session: confDataCache[confId].SessionsByKey[key]
+                        };
+                    } else if(confDataCache[confId].ItemsByKey[key]) {
+                        return {
+                            item: confDataCache[confId].ItemsByKey[key]
+                        };
+                    }
+                }
+            },
             getPersonByKey: function(confId, peopleKey) {
                 if(confDataCache[confId]) {
                     return confDataCache[confId].PeopleByKey[peopleKey];
