@@ -2,10 +2,10 @@
 <widget id="com.confero.app" version="4.0.1" xmlns="http://www.w3.org/ns/widgets" xmlns:cdv="http://cordova.apache.org/ns/1.0">
     <name>Confero</name>
     <description>
-        An Ionic Framework and Cordova project.
+        Conference App.
     </description>
-    <author email="" href="http://www.conferoapp.com/">
-      Confero
+    <author email="rylan@icottrell.com" href="http://www.conferoapp.com/">
+      Rylan Cottrell
     </author>
     <content src="index.html" />
     <access origin="*" />

@@ -4,7 +4,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
         var deferred = $q.defer();
         if(!EventsData.getEventIndex()) {
             var fetchFromServer = function() {
-                var www = 'http://' + location.hostname + ':3000';
+                var www = 'http://ranche-exogen.codio.io:3000';
                 var res = www + '/conferences/events';
                 var call = $resource(res, {}, {
                     'get': {
@@ -57,7 +57,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
 ]).factory('ConferenceCache', ['$resource', '$cacheFactory', '$localForage', 'ConferenceData', 'EventsData', '$q',
     function($resource, $cacheFactory, $localForage, ConferenceData, EventsData, $q) {
         var fetchFromServer = function(confId, deferred, currentVersion) {
-            var www = 'http://' + location.hostname + ':3000';
+            var www = 'http://ranche-exogen.codio.io:3000';
             var confLoc = '/conference/:id';
             var verLoc = '/conferences/event/:id/version';
             var call = $resource(www + verLoc, {}, {
