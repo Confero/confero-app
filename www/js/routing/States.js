@@ -12,7 +12,7 @@ angular.module('confero.app')
         url: '/sessions',
         views: {
             'sessions-tab': {
-                templateUrl: "./views/sessionsTab.html",
+                templateUrl: "views/sessionsTab.html",
                 controller: "SessionsTabCrtl"
             }
         }
@@ -20,7 +20,7 @@ angular.module('confero.app')
         url: '/custom',
         views: {
             'custom-tab': {
-                templateUrl: "./views/customTab.html",
+                templateUrl: "views/customTab.html",
                 controller: "CustomTabCrtl"
             }
         }
@@ -28,7 +28,7 @@ angular.module('confero.app')
         url: '/people',
         views: {
             'people-tab': {
-                templateUrl: "./views/peopleTab.html",
+                templateUrl: "views/peopleTab.html",
                 controller: "PeopleTabCrtl"
             }
         }
@@ -36,21 +36,21 @@ angular.module('confero.app')
         url: '/papers',
         views: {
             'papers-tab': {
-                templateUrl: "./views/papersTab.html",
+                templateUrl: "views/papersTab.html",
                 controller: "PapersTabCrtl"
             }
         }
     }).state('sessionPage', {
         url: "/conference/:id/session/:key",
-        templateUrl: "./views/sessionPage.html",
+        templateUrl: "views/sessionPage.html",
         controller: 'SessionPageCtrl'
     }).state('paperPage', {
         url: "/conference/:id/paper/:key",
-        templateUrl: "./views/paperPageView.html",
+        templateUrl: "views/paperPageView.html",
         controller: 'PaperPageCtrl',
     }).state('peoplePage', {
         url: "/conference/:id/people/:key",
-        templateUrl: "./views/peoplePageView.html",
+        templateUrl: "views/peoplePageView.html",
         controller: 'PeoplePageCtrl'
     });
     $urlRouterProvider.otherwise("/");
