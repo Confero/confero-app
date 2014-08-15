@@ -1,10 +1,12 @@
 angular.module('confero.app')
-.controller('PeopleTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading', '$ionicNavBarDelegate',
+.controller('PeopleTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
     function($scope, $state, Conference, $ionicLoading, $ionicNavBarDelegate) {
-        $ionicLoading.show();
+        
+		$ionicLoading.show();
+		
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-        $ionicNavBarDelegate.showBackButton(false);
+        
         $scope.backToEventsList = function(){
            $state.go('eventspage');
         };
@@ -12,7 +14,7 @@ angular.module('confero.app')
             $scope.ConferenceInfo = data;
         });
         Conference.People($scope.conferenceId).then(function(data) {
-            angular.forEach(data, function(value, key) {
+			angular.forEach(data, function(value, key) {
                 value.KeyEncoded = encodeURIComponent(value.Key);
                 var name = value.Name.split(/\s/);
                 value.firstName = name[0];

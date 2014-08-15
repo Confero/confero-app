@@ -1,36 +1,34 @@
-<div ng-controller="PaperPageCtrl">
-    <ion-view title="{{ConferenceInfo.Name}}" animation="slide-left-right">
-        <ion-nav-buttons side="left">
-            <button class="button icon button-clear ion-arrow-left-c" ng-click="back()"></button>
-        </ion-nav-buttons>
-        <ion-content>
-            <div class="card">
-                <div class="item item-divider item-icon-left item-icon-right">
-                    <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()"></i>
-                    <h2 class="tablecell"><span class="middle" ng-bind-html="paperData.Title"></span></h2> 
-                    <i class="icon ion-ribbon-b colorGold" ng-show="paperData.Award"></i>
-                </div>
-                <div clas="item item-divider">
-                    <div class="list">
-                        <people-item ng-repeat="key in paperData.Authors" conference="conferenceId" key="key"></people-item>
-                    </div>
-                </div>
-                <div clas="item item-divider">
-                    <session-item conference="conferenceId" paperkey="paperData.Key"></session-item>
-
-                </div>
-                <div clas="item item-divider">
-                    <a href="{{paperData.googleScholar}}" ng-show="paperData.googleScholar" class="padding">
-                        <img ng-src="./img/scholar.png">
-                    </a>
-                    <a href="{{paperData.urlDOI}}" ng-show="paperData.DOI" class="padding">
-                        <img ng-src="./img/doi.png">
-                    </a>
-                </div>
-                <div clas="item item-divider item-text-wrap padding">
-                    {{paperData.Abstract}}
+<ion-view title="{{ConferenceInfo.Name}}" animation="slide-left-right">
+    <ion-nav-buttons side="left">
+        <button class="button icon button-clear ion-arrow-left-c" ng-click="back()"></button>
+    </ion-nav-buttons>
+    <ion-content>
+        <div class="card">
+            <div class="item item-divider item-icon-left item-icon-right">
+                <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()"></i>
+                <h2 class="tablecell"><span class="middle" ng-bind-html="paperData.Title"></span></h2> 
+                <i class="icon ion-ribbon-b colorGold" ng-show="paperData.Award"></i>
+            </div>
+            <div clas="item item-divider">
+                <div class="list">
+                    <people-item ng-repeat="key in paperData.Authors" conference="conferenceId" key="key"></people-item>
                 </div>
             </div>
-        </ion-content>
-    </ion-view>
-</div>
+            <div clas="item item-divider">
+                <session-item conference="conferenceId" paperkey="paperData.Key"></session-item>
+
+            </div>
+            <div clas="item item-divider">
+                <a href="{{paperData.googleScholar}}" ng-show="paperData.googleScholar" class="padding">
+                    <img ng-src="./img/scholar.png">
+                </a>
+                <a href="{{paperData.urlDOI}}" ng-show="paperData.DOI" class="padding">
+                    <img ng-src="./img/doi.png">
+                </a>
+            </div>
+            <div clas="item item-divider item-text-wrap padding">
+                {{paperData.Abstract}}
+            </div>
+        </div>
+    </ion-content>
+</ion-view>

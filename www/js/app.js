@@ -43,11 +43,11 @@ angular.module('confero.app', [
     });
     $localForageProvider.setNotify(true, true); 
 }])
-.controller('TabsCrtl', ['$scope', '$state', '$ionicLoading', 
-    function($scope, $state, $ionicLoading, $ionicNavBarDelegate) {
+.controller('TabsCrtl', ['$scope', '$state', '$ionicLoading', '$rootScope',
+    function($scope, $state, $ionicLoading, $ionicNavBarDelegate, $rootScope) {
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-        $ionicLoading.show();
+        
         $scope.$on('loadingFinished', function(ngLoadEvent) {
             $ionicLoading.hide();
         });

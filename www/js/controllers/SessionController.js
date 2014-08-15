@@ -1,14 +1,16 @@
 angular.module('confero.app')
-.controller('SessionsTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading', '$ionicNavBarDelegate', 
-    function($scope, $state, Conference, $ionicLoading, $ionicNavBarDelegate) {
+
+.controller('SessionsTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
+    function($scope, $state, Conference, $ionicLoading, $timeout) {
         $ionicLoading.show();
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
-        $ionicNavBarDelegate.showBackButton(false);
-        $scope.backToEventsList = function(){
+        
+		$scope.backToEventsList = function(){
            $state.go('eventspage');
         };
-        $scope.showSessionDivider = function(index) {
+        
+		$scope.showSessionDivider = function(index) {
             if($scope.sessions) {
                 if(index === 0) {
                     return true;
@@ -23,7 +25,7 @@ angular.module('confero.app')
         Conference
             .Sessions($scope.conferenceId)
             .then(function(data) {
-                $scope.sessions = data;
+               $scope.sessions = data;
             });
          
         Conference

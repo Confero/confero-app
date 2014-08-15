@@ -6,7 +6,8 @@ angular.module('confero.app')
         controller: 'EventsListCtrl'
     }).state('tabs', {
         url: '/conference/:id',
-        templateUrl: "./views/tabs.html"
+        templateUrl: "./views/tabs.html",
+		controller: "TabsCrtl",
     }).state('tabs.sessions', {
         url: '/sessions',
         views: {

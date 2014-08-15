@@ -2,8 +2,8 @@ angular.module('confero.lastListItem', []).directive('onLastListItem', function(
     return function(scope, element, attrs) {
         if(scope.$last) {
             $timeout(function() {
-                scope.$emit('loadingFinished', element, attrs);
-            });
+                scope.$emit('loadingFinished', element);
+            }, 10);
         }
     };
 });
