@@ -1,5 +1,4 @@
-angular.module('confero.app')
-.config(function($stateProvider, $urlRouterProvider) {
+angular.module('confero.app').config(function($stateProvider, $urlRouterProvider) {
     $stateProvider.state('eventspage', {
         url: "/",
         templateUrl: "events-page.html",
@@ -7,7 +6,7 @@ angular.module('confero.app')
     }).state('tabs', {
         url: '/conference/:id',
         templateUrl: "./views/tabs.html",
-		controller: "TabsCrtl",
+        controller: "TabsCrtl",
     }).state('tabs.sessions', {
         url: '/sessions',
         views: {
