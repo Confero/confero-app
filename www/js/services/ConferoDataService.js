@@ -1,5 +1,4 @@
-angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule', 'confero.ConferoDataObjects'])
-.factory('EventsCache', ['$resource', '$cacheFactory', '$localForage', 'EventsData', '$q',
+angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule', 'confero.ConferoDataObjects']).factory('EventsCache', ['$resource', '$cacheFactory', '$localForage', 'EventsData', '$q',
     function($resource, $cacheFactory, $localForage, EventsData, $q) {
         var deferred = $q.defer();
         if(!EventsData.getEventIndex()) {
@@ -17,6 +16,8 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                     deferred.resolve(EventsData);
                     deferred.notify('server');
                     $localForage.setItem('ConferoEventIndex', data);
+                }, function(rejection) {
+                    console.log(rejection);
                 });
             };
             $localForage.getItem('ConferoEventIndex').then(function(value) {
@@ -43,6 +44,8 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                         fetchFromServer();
                     });
                 }
+            }, function(rejection) {
+                console.log(rejection);
             });
         } else {
             deferred.resolve(EventsData);
@@ -93,6 +96,8 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                         $localForage.setItem(confId, data);
                     });
                 }
+            }, function(rejection) {
+                console.log(rejection);
             });
         };
         return {
@@ -129,6 +134,8 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                                 fetchFromServer(confId, deferred);
                             });
                         }
+                    }, function(rejection) {
+                        console.log(rejection);
                     });
                 }
                 return deferred.promise;

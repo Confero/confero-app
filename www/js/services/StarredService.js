@@ -14,6 +14,8 @@ angular.module('confero.StarredService', ['LocalForageModule']).factory('Starred
                         starred[confId][key] = !starred[confId][key];
                         deferred.resolve(starred[confId][key]);
                         $localForage.setItem(prefix + confId, starred[confId]);
+                    }, function(rejection) {
+                        console.log(rejection);
                     });
                 } else {
                     starred[confId][key] = !starred[confId][key];
@@ -35,6 +37,8 @@ angular.module('confero.StarredService', ['LocalForageModule']).factory('Starred
                         } else {
                             deferred.resolve(starred[confId]);
                         }
+                    }, function(rejection) {
+                        console.log(rejection);
                     });
                 } else {
                     if(key) {

@@ -10,9 +10,13 @@ angular.module('confero.app')
         $scope.backToEventsList = function(){
            $state.go('eventspage');
         };
+        
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
+        }, function(rejection){
+            console.log(rejection);
         });
+        
         Conference.People($scope.conferenceId).then(function(data) {
 			angular.forEach(data, function(value, key) {
                 value.KeyEncoded = encodeURIComponent(value.Key);
@@ -28,7 +32,10 @@ angular.module('confero.app')
                 return s;
             });
             $scope.people = data;
+        }, function(rejection){
+            console.log(rejection);
         });
+        
         $scope.dividerTitle = function($index) {
             return $scope.people[$index].lastName[0];
         };
@@ -58,18 +65,28 @@ angular.module('confero.app')
                 .then(function(value){
                    $scope.starred = value;
                 });
+        }, function(rejection){
+            console.log(rejection);
         });
+        
         People.SessionsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
             $scope.Sessions = data;
+        }, function(rejection){
+            console.log(rejection);
         });
+        
         People.ItemsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
             $scope.Items = data;
+        }, function(rejection){
+            console.log(rejection);
         });
         
         $scope.starred = false;
 
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
+        }, function(rejection){
+            console.log(rejection);
         });
         
         $scope.$watch('starred', function(newValue, oldValue) {

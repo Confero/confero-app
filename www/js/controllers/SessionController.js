@@ -26,12 +26,16 @@ angular.module('confero.app')
             .Sessions($scope.conferenceId)
             .then(function(data) {
                $scope.sessions = data;
-            });
+            }, function(rejection){
+            console.log(rejection);
+        });
          
         Conference
             .Info($scope.conferenceId)
             .then(function(data) {
                $scope.ConferenceInfo = data;
+        }, function(rejection){
+            console.log(rejection);
         });
     }
 ]).controller('SessionPageCtrl', ['$scope', '$state', 'Session', 'Conference', 'Starred', 'Navigation',
@@ -59,13 +63,17 @@ angular.module('confero.app')
                    .then(function(value){
                       $scope.starred = value;
                    });
+        }, function(rejection){
+            console.log(rejection);
         });
         
         Conference
             .Info($scope.conferenceId)
             .then(function(data) {
                 $scope.ConferenceInfo = data;
-            });
+            }, function(rejection){
+            console.log(rejection);
+        });
 
         $scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {

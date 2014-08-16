@@ -9,6 +9,8 @@ angular.module('confero.app')
         };
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
+        }, function(rejection){
+            console.log(rejection);
         });
     }
 ]);

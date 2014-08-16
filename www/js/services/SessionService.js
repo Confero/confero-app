@@ -1,14 +1,12 @@
-angular.module('confero.SessionService', ['confero.ConferoDataService'])
-
-
-.factory('Session', ['ConferenceCache', '$q',
+angular.module('confero.SessionService', ['confero.ConferoDataService']).factory('Session', ['ConferenceCache', '$q',
     function(ConferenceCache, $q) {
         return {
             get: function(confId, sessionKey) {
                 var deferred = $q.defer();
                 ConferenceCache.get(confId).then(function(conf) {
-					
                     deferred.resolve(conf.getSessionByKey(confId, sessionKey));
+                }, function(rejection) {
+                    console.log(rejection);
                 });
                 return deferred.promise;
             },
@@ -16,6 +14,8 @@ angular.module('confero.SessionService', ['confero.ConferoDataService'])
                 var deferred = $q.defer();
                 ConferenceCache.get(confId).then(function(conf) {
                     deferred.resolve(conf.getSessionByPaperKey(confId, paperKey));
+                }, function(rejection) {
+                    console.log(rejection);
                 });
                 return deferred.promise;
             }

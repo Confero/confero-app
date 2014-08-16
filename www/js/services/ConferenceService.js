@@ -1,6 +1,4 @@
-angular.module('confero.ConferenceService', ['confero.ConferoDataService'])
-
-.factory('Conference', ['ConferenceCache', '$q',
+angular.module('confero.ConferenceService', ['confero.ConferoDataService']).factory('Conference', ['ConferenceCache', '$q',
     function(ConferenceCache, $q) {
         var confInfoCache = {};
         return {
@@ -8,6 +6,8 @@ angular.module('confero.ConferenceService', ['confero.ConferoDataService'])
                 var deferred = $q.defer();
                 ConferenceCache.get(confId).then(function(conference) {
                     deferred.resolve(conference.get(confId).People);
+                }, function(rejection) {
+                    console.log(rejection);
                 });
                 return deferred.promise;
             },
@@ -15,6 +15,8 @@ angular.module('confero.ConferenceService', ['confero.ConferoDataService'])
                 var deferred = $q.defer();
                 ConferenceCache.get(confId).then(function(conference) {
                     deferred.resolve(conference.get(confId).Sessions);
+                }, function(rejection) {
+                    console.log(rejection);
                 });
                 return deferred.promise;
             },
@@ -22,6 +24,8 @@ angular.module('confero.ConferenceService', ['confero.ConferoDataService'])
                 var deferred = $q.defer();
                 ConferenceCache.get(confId).then(function(conference) {
                     deferred.resolve(conference.get(confId).Items);
+                }, function(rejection) {
+                    console.log(rejection);
                 });
                 return deferred.promise;
             },
@@ -32,15 +36,9 @@ angular.module('confero.ConferenceService', ['confero.ConferoDataService'])
                 } else {
                     ConferenceCache.get(confId).then(function(conf) {
                         var info = {};
-						var conference = conf.get(confId);
+                        var conference = conf.get(confId);
                         for(var i in conference) {
-                            if(conference.hasOwnProperty(i) && 
-								i !== "Sessions" && 
-								i !== "SessionsByKey" && 
-								i !== "Items" && 
-								i !== "ItemsByKey" && 
-								i !== "People" && 
-								i !== "PeopleByKey") {
+                            if(conference.hasOwnProperty(i) && i !== "Sessions" && i !== "SessionsByKey" && i !== "Items" && i !== "ItemsByKey" && i !== "People" && i !== "PeopleByKey") {
                                 info[i] = conference[i];
                             }
                         }
