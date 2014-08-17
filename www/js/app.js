@@ -43,6 +43,12 @@ angular.module('confero.app', [
     });
     $localForageProvider.setNotify(true, true); 
 }])
+.config(['$compileProvider', function($compileProvider) {
+        $compileProvider.aHrefSanitizationWhitelist(/^\s*(https?|ftp|mailto|app):/);
+        $compileProvider.imgSrcSanitizationWhitelist(/^\s*(https?|ftp|mailto|app):/);
+
+    }
+])
 .controller('TabsCrtl', ['$scope', '$state', '$ionicLoading', '$rootScope',
     function($scope, $state, $ionicLoading, $ionicNavBarDelegate, $rootScope) {
         $scope.conferenceId = $state.params.id;
