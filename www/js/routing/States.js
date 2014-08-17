@@ -51,6 +51,10 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         url: "/conference/:id/people/:key",
         templateUrl: "views/peoplePageView.html",
         controller: 'PeoplePageCtrl'
+    }).state('aboutPage', {
+        url: "/about",
+        templateUrl: "views/aboutPageView.html",
+        controller: 'AboutCtrl'
     });
     $urlRouterProvider.otherwise("/");
 });

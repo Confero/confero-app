@@ -59,4 +59,13 @@ angular.module('confero.app', [
         });
 
     }
+])
+.controller('AboutCtrl', ['$scope', '$state', '$ionicNavBarDelegate',
+    function($scope, $state, $ionicNavBarDelegate) {
+        $ionicNavBarDelegate.showBackButton(false);
+        $scope.backToEventsList = function() {
+            $state.go('eventspage');
+        };
+
+    }
 ]);
