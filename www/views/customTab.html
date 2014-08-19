@@ -11,6 +11,9 @@
         </label>
         
         <div class="card" ng-show="Sessions">
+            <div class="item item-divider">
+                Sessions
+            </div>
             <div class="list">
                 <div ng-repeat="session in Sessions | filter:q" on-last-list-item>
                     <div ng-show="showSessionDivider($index)" class="item item-divider">
@@ -21,6 +24,9 @@
             </div>
         </div>
         <div class="card" ng-show="People">
+            <div class="item item-divider">
+                People
+            </div>
             <div class="list">
                 <div ng-repeat="person in People | filter:q" on-last-list-item>
                     <people-item conference="conferenceId" person="person"></people-item>
@@ -28,6 +34,9 @@
             </div>
         </div>
         <div class="card" ng-show="Items">
+            <div class="item item-divider">
+                Papers
+            </div>
             <div class="list">
                 <paper-item ng-repeat="paper in Items | filter:q" conference="conferenceId" paper="paper" on-last-list-item></paper-item>
             </div>
