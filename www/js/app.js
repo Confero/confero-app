@@ -66,6 +66,12 @@ angular.module('confero.app', [
         $scope.backToEventsList = function() {
             $state.go('eventspage');
         };
+        
+        $scope.openInBroswer = function(url) {
+            if(url) {
+                window.open(url, '_blank', 'location=no');
+            }
+        };
 
     }
 ]);

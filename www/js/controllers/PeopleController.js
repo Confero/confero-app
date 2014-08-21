@@ -69,6 +69,12 @@ angular.module('confero.app')
             console.log(rejection);
         });
         
+        $scope.openInGoogleScholar = function(url) {
+            if(url) {
+                window.open(url, '_blank', 'location=no');
+            }
+        };
+        
         People.SessionsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
             $scope.Sessions = data;
         }, function(rejection){
