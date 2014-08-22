@@ -48,8 +48,8 @@ angular.module('confero.app')
         };
     }
 ])
-.controller('PeoplePageCtrl', ['$scope', '$state', 'People', 'Conference', 'Starred', 'Navigation',
-    function($scope, $state, People, Conference, Starred, Navigation) {
+.controller('PeoplePageCtrl', ['$scope', '$state', 'People', 'Session', 'Conference', 'Starred', 'Navigation',
+    function($scope, $state, People, Session, Conference, Starred, Navigation) {
         $scope.conferenceId = $state.params.id;
         $scope.peopleKey = $state.params.key;
         
@@ -75,14 +75,14 @@ angular.module('confero.app')
             }
         };
         
-        People.SessionsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
-            $scope.Sessions = data;
-        }, function(rejection){
-            console.log(rejection);
-        });
-        
         People.ItemsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
             $scope.Items = data;
+            angular.forEach($scope.Items, function(value, index){
+                Session.SessionByPaperKey($scope.conferenceId, value.Key).then(function(data){
+                    value.Session = data;
+                });    
+            });
+            
         }, function(rejection){
             console.log(rejection);
         });

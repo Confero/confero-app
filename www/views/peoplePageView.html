@@ -20,13 +20,9 @@
                 </a>
             </div>
             <div clas="item item-divider">
-                <session-item ng-repeat="session in Sessions" conference="conferenceId" session="session"></session-item>
-            </div>
-
-
-            <div clas="item item-divider">
-                <div class="list">
-                    <paper-item ng-repeat="item in Items" conference="conferenceId" paper="item"></paper-item>
+                <div ng-repeat="item in Items">
+                    <session-item  conference="conferenceId" session="item.Session"></session-item>
+                    <paper-item conference="conferenceId" paper="item"></paper-item>
                 </div>
             </div>
         </div>
