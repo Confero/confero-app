@@ -1,7 +1,21 @@
+angular.module('jm.i18next').config(['$i18nextProvider', function ($i18nextProvider) {
+    $i18nextProvider.options = {
+        lng: navigator.language,
+        useCookie: false,
+        useLocalStorage: false,
+        fallbackLng: 'en',
+        resGetPath: './locales/__lng__/__ns__.json',
+        defaultLoadingValue: '' // ng-i18next option, *NOT* directly supported by i18next
+    };
+}]);
+
+moment.locale(navigator.language);
+
 angular.module('confero.app', [
     'ionic', 
     'ngResource',
     'LocalForageModule', 
+    'jm.i18next',
     'confero.tabs', 
     'confero.ConferoDataObjects', 
     'confero.NavigationService',

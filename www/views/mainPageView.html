@@ -1,13 +1,13 @@
-<ion-view title="Confero">
+<ion-view ng-i18next="[title]app.name">
     <ion-nav-buttons side="right">
-      <button class="button icon button-clear ion-information-circled" ng-click="openAbout()">
+      <button class="button icon button-clear ion-information-circled" ng-click="openAbout()" ng-i18next="[aria-label]app.openabout">
       </button>
     </ion-nav-buttons>
     <ion-content>
         <div class="card">
             <div ng-if="upcomingEvents">
                 <div class="item item-divider">
-                    Upcoming
+                    <span ng-i18next="eventlist.upcoming"></span>
                 </div>
                 <div class="item">
                     <events-list events="upcomingEvents" location="locationWWW"></events-list>
@@ -15,7 +15,7 @@
             </div>
             <div ng-if="inProgressEvents">
                 <div class="item item-divider">
-                    In Progress
+                    <span ng-i18next="eventlist.inprogress"></span>
                 </div>
                 <div class="item">
                     <events-list events="inProgressEvents" location="locationWWW"></events-list>
@@ -23,7 +23,7 @@
             </div>
             <div ng-if="pastEvents">
                 <div class="item item-divider">
-                    Past
+                    <span ng-i18next="eventlist.past"></span>
                 </div>
                 <div class="item">
                     <events-list events="pastEvents" location="locationWWW"></events-list>

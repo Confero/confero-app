@@ -1,6 +1,6 @@
 <ion-view title="About Confero">
     <ion-nav-buttons side="left">
-        <button class="button icon button-clear ion-arrow-left-c" ng-click="backToEventsList()"></button>
+        <button class="button icon button-clear ion-arrow-left-c" ng-click="backToEventsList()" ng-i18next="[aria-label]app.goback"></button>
     </ion-nav-buttons>
 
     <ion-content>
@@ -9,27 +9,27 @@
 
 
             <div class="item item-text-wrap">
-                <p>Confero was built by <a ng-click="openInBrowser('https://cs.uwaterloo.ca/~rtholmes/')" href="">Reid Holmes</a> and <a ng-click="openInBrowser('http://ca.linkedin.com/in/rylancottrell')" href="">Rylan Cottrell</a> to make it easier for conference organizers to provide high quality mobile programs for academic conferences. Confero is actively maintained and can be easily extended to support additional conferences. Special thanks to <a ng-click="openInBrowser('https://twitter.com/JasonWeathersby')" href="">Jason Weathersby</a> and the Mozilla for their support with FireFox OS, and <a href="" ng-click="openInBrowser('http://www.linozemtseva.com/research/')">Laura Inozemtseva</a> and <a href="" ng-click="openInBrowser('https://cs.uwaterloo.ca/~okononen/')">Oleksii Kononenko</a> their suggestions and feedback. Confero was inspired by the Windows Phone <a href="" ng-click="openInBrowser('http://www.windowsphone.com/en-us/store/app/my-conference/cb5eba2d-6c82-482e-9310-c9864df0cd21')">My Conference</a> app developed by <a href="" ng-click="openInBrowser('http://research.microsoft.com/en-us/people/cbird/')">Chris Bird</a> and <a href="" ng-click="openInBrowser('http://research.microsoft.com/en-us/people/tzimmer/')">Thomas Zimmermann</a>.
+                <p><span ng-i18next="[html]about.builtby"></span>  <span ng-i18next="[html]about.thankyou"></span>  
                 </p>
 
-                <p>If you have any suggestions or encounter any problems, please let us know so we can continue to improve the app.</p>
+                <p ng-i18next="about.feedback"></p>
             </div>
         </div>
         <div class="card">
 
 
             <div class="item item-divider item-text-wrap">
-                Confero can be accessed on the web at <a ng-click="openInBrowser('http://conferoapp.com')" href="">http://conferoapp.com</a>, but is best experienced through mobile apps. These can be found for free at the following places:
+                <span ng-i18next="[html]about.getapp"></span>
             </div>
             <div class="row responsive-sm">
                 <div class="col">
                     <a class="item item-thumbnail-left" ng-click="openInBrowser('https://marketplace.firefox.com/app/confero/')" href="">
-                        <img src="./img/firefox-os_logo-wordmark_RGB-vertical.png">FireFox OS Marketplace
+                        <img src="./img/firefox-os_logo-wordmark_RGB-vertical.png"><span ng-i18next="about.firefoxos"></span>
                     </a>
                 </div>
                 <div class="col">
                     <a class="item item-thumbnail-left" ng-click="openInBrowser('https://itunes.apple.com/ca/app/confero/id572642586')" href="">
-                        <img src="./img/ios_logo.png">Apple App Store
+                        <img src="./img/ios_logo.png"><span ng-i18next="about.apple"></span>
                     </a>
                 </div>
             </div>
@@ -37,12 +37,12 @@
             <div class="row responsive-sm">
                 <div class="col">
                     <a class="item item-thumbnail-left" ng-click="openInBrowser('https://play.google.com/store/apps/details?id=org.ulti.dev.mobile.conf')" href="">
-                        <img src="./img/android_logo.png">Google Play
+                        <img src="./img/android_logo.png"><span ng-i18next="about.googleplay"></span>
                     </a>
                 </div>
                 <div class="col">
                     <a class="item item-thumbnail-left" ng-click="openInBrowser('https://appworld.blackberry.com/webstore/content/20322191/?countrycode=CA&lang=en')" href="">
-                        <img src="./img/bb_logo.png">BlackBerry World
+                        <img src="./img/bb_logo.png"><span ng-i18next="about.blackberry"></span>
                     </a>
                 </div>
             </div>

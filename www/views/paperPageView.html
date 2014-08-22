@@ -1,13 +1,13 @@
 <ion-view title="{{ConferenceInfo.Name}}" animation="slide-left-right">
     <ion-nav-buttons side="left">
-        <button class="button icon button-clear ion-arrow-left-c" ng-click="back()"></button>
+        <button class="button icon button-clear ion-arrow-left-c" ng-click="back()" ng-i18next="[aria-label]app.goback"></button>
     </ion-nav-buttons>
     <ion-content>
         <div class="card">
             <div class="item item-divider item-icon-left item-icon-right">
-                <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()"></i>
+                <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()" ng-i18next="[aria-label]paper.star"></i>
                 <h2 class="tablecell"><span class="middle" ng-bind-html="paperData.Title"></span></h2> 
-                <i class="icon ion-ribbon-b colorGold" ng-show="paperData.Award"></i>
+                <i class="icon ion-ribbon-b colorGold" ng-show="paperData.Award" ng-i18next="[aria-label]paper.award"></i>
             </div>
             <div clas="item item-divider">
                 <div class="list">
@@ -19,10 +19,10 @@
 
             </div>
             <div clas="item item-divider">
-                <a ng-click="openInBrowser(paperData.googleScholar)" href="" ng-show="paperData.googleScholar" class="padding">
+                <a ng-click="openInBrowser(paperData.googleScholar)" href="" ng-show="paperData.googleScholar"  ng-i18next="[aria-label]paper.gotogoogle" class="padding">
                     <img ng-src="./img/scholar.png">
                 </a>
-                <a ng-click="openInBrowser(paperData.urlDOI)" href="" ng-show="paperData.DOI" class="padding">
+                <a ng-click="openInBrowser(paperData.urlDOI)" href="" ng-show="paperData.DOI" class="padding" ng-i18next="[aria-label]paper.gotodoi">
                     <img ng-src="./img/doi.png">
                 </a>
             </div>

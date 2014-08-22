@@ -1,5 +1,5 @@
 <a href="#/conference/{{conferenceId}}/paper/{{paperData.KeyEncoded}}" class="item item-icon-left item-icon-right">
-    <i class="icon ion-ribbon-b colorGold" ng-show="paperData.Award"></i>
+    <i class="icon ion-ribbon-b colorGold" ng-show="paperData.Award" ng-i18next="[aria-label]paper.award"></i>
     <div class="item-content">
         <h2><span ng-bind-html="paperData.Title"></span></h2>
         <h3>{{ paperData.PersonsString }}</h3>

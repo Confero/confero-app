@@ -1,11 +1,11 @@
 <ion-view title="{{ConferenceInfo.Name}}" animation="slide-left-right">
     <ion-nav-buttons side="left">
-        <button class="button icon button-clear ion-arrow-left-c" ng-click="back()"></button>
+        <button class="button icon button-clear ion-arrow-left-c" ng-click="back()" ng-i18next="[aria-label]app.goback"></button>
     </ion-nav-buttons>
     <ion-content>
         <div class="card">
             <div class="item item-divider item-icon-left">
-                <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()"></i>
+                <i class="icon" ng-class="isStarredStyle" ng-click="clickStar()" ng-i18next="[aria-label]people.star"></i>
                 <div class="tablecell">
                     <div class="middle">
                         <h2 ng-bind-html="peopleData.Name"></h2> 
