@@ -32,17 +32,26 @@ angular.module('confero.app').controller('CustomTabCrtl', ['$scope', '$state', '
         };
         
         Starred.get($scope.conferenceId).then(function(keys) {
-            $scope.Sessions = [];
-            $scope.Items = [];
-            $scope.People = [];
+            $scope.Sessions = undefined;
+            $scope.Items = undefined;
+            $scope.People = undefined;
             var resolveKeys = function(key) {
                 ConferenceCache.get($scope.conferenceId).then(function(conf) {
                     var result = conf.resolveKey($scope.conferenceId, key);
                     if(result.session) {
+                        if(!$scope.Sessions){
+                            $scope.Sessions = [];
+                        }
                         $scope.Sessions.push(result.session);
                     } else if(result.item) {
+                        if(!$scope.Items){
+                            $scope.Items = [];
+                        }
                         $scope.Items.push(result.item);
                     } else if(result.person) {
+                        if(!$scope.People){
+                            $scope.People = [];
+                        }
                         $scope.People.push(result.person);
                     }
                 });
