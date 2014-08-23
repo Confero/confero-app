@@ -63,27 +63,12 @@ angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
             addConference: function(confId, data, version) {
                 var confData = data;
                 confData.Version = version;
-                confData.Sessions.sort(function compare(a, b) {
-                    var atime = a.Time.split('-');
-                    var btime = b.Time.split('-');
-                    var aStartTime = moment(a.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');
-                    var bStartTime = moment(b.Day + ' ' + btime[0].trim(), 'YYYY-MM-DD HH:mm');
-                    var aEndTime = moment(a.Day + ' ' + atime[1].trim(), 'YYYY-MM-DD HH:mm');
-                    var bEndTime = moment(b.Day + ' ' + btime[1].trim(), 'YYYY-MM-DD HH:mm');
-                    if(aStartTime.isAfter(bStartTime)) {
-                        return 1;
-                    } else if(aStartTime.isBefore(bStartTime)) {
-                        return -1;
-                    } else {
-                        if(aEndTime.isAfter(bEndTime)) {
-                            return 1;
-                        }
-                        if(aEndTime.isBefore(bEndTime)) {
-                            return -1;
-                        }
-                        return 0;
-                    }
+                angular.forEach(confData.Sessions, function(value, index){
+                     var atime = value.Time.split('-');
+                     value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');
+                     value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'YYYY-MM-DD HH:mm');
                 });
+                confData.Sessions.sort(SortByDate);
                 if(!confData.PeopleByKey) {
                     confData.PeopleByKey = {};
                     for(i = 0; confData.People[i]; i++) {

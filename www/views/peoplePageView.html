@@ -19,12 +19,13 @@
                     <img ng-src="./img/gs64.png" class="padding">
                 </a>
             </div>
-            <div clas="item item-divider">
-                <div ng-repeat="item in Items">
-                    <session-item  conference="conferenceId" session="item.Session"></session-item>
-                    <paper-item conference="conferenceId" paper="item"></paper-item>
-                </div>
+
+            <div class="item item-divider padding" ng-repeat="session in Sessions | orderBy:[StartDate, EndDate]">
+                <session-item conference="conferenceId" session="session"></session-item>
+                <paper-item ng-repeat="item in session.ItemsFull" conference="conferenceId" paper="item"></paper-item>
+
             </div>
+
         </div>
     </ion-content>
 </ion-view>

@@ -77,15 +77,26 @@ angular.module('confero.app')
         
         People.ItemsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
             $scope.Items = data;
+            $scope.Sessions = {};
+            
             angular.forEach($scope.Items, function(value, index){
-                Session.SessionByPaperKey($scope.conferenceId, value.Key).then(function(data){
-                    value.Session = data;
+                Session.SessionByPaperKey($scope.conferenceId, value.Key).then(function(sdata){
+                    if(!$scope.Sessions[sdata.Key]) {
+                        $scope.Sessions[sdata.Key] = sdata;
+                        $scope.Sessions[sdata.Key].StartDate = new Date($scope.Sessions[sdata.Key].StartTime.format());
+                        $scope.Sessions[sdata.Key].EndDate = new Date($scope.Sessions[sdata.Key].EndTime.format());
+                        $scope.Sessions[sdata.Key].ItemsFull = [];
+                        
+                    }
+                    $scope.Sessions[sdata.Key].ItemsFull.push(value);
                 });    
             });
-            
         }, function(rejection){
             console.log(rejection);
         });
+        
+        
+        
         
         $scope.starred = false;
 
