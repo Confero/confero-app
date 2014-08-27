@@ -1,5 +1,6 @@
 angular.module('confero.PeopleService', ['confero.ConferoDataService']).factory('People', ['ConferenceCache', '$q',
     function(ConferenceCache, $q) {
+        "use strict";
         return {
             Person: function(confId, personKey) {
                 var deferred = $q.defer();

@@ -1,6 +1,6 @@
 //https://github.com/Bill4Time/javascript-natural-sort
 
-function NaturalSort(a, b) {
+function naturalSort(a, b) {
     "use strict";
     var re = /(^([+\-]?(?:0|[1-9]\d*)(?:\.\d*)?(?:[eE][+\-]?\d+)?)?$|^0x[0-9a-f]+$|\d+)/gi,
         sre = /(^[ ]*|[ ]*$)/g,
@@ -8,7 +8,7 @@ function NaturalSort(a, b) {
         hre = /^0x[0-9a-f]+$/i,
         ore = /^0/,
         i = function(s) {
-            return NaturalSort.insensitive && ('' + s).toLowerCase() || '' + s;
+            return naturalSort.insensitive && ('' + s).toLowerCase() || '' + s;
         },
         // convert all to strings strip whitespace
         x = i(a).replace(sre, '') || '',
@@ -52,7 +52,8 @@ function NaturalSort(a, b) {
     return 0;
 }
 
-function SortByDate(a, b) {
+function sortByDate(a, b) {
+    "use strict";
     if(a.StartTime && a.EndTime) {
         var atime = a.Time.split('-');
         a.StartTime = moment(a.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');

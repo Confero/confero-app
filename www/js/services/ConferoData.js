@@ -1,5 +1,6 @@
 angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
     function() {
+        "use strict";
         var eventIndex, eventByKey;
         return {
             setEventsIndex: function(eventsData) {
@@ -58,17 +59,26 @@ angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
     }
 ]).factory('ConferenceData', [
     function() {
+        "use strict";
         var confDataCache = {};
         return {
             addConference: function(confId, data, version) {
                 var confData = data;
                 confData.Version = version;
-                angular.forEach(confData.Sessions, function(value, index){
-                     var atime = value.Time.split('-');
-                     value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');
-                     value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'YYYY-MM-DD HH:mm');
+                angular.forEach(confData.Sessions, function(value, index) {
+                    var atime = value.Time.split('-');
+                    if(atime[0].indexOf('m') > -1) { //old standard
+                        value.StartTime = moment(a.Day + ' ' + atime[0].trim(), 'MM-DD-YYYY HH:mm a');
+                        if(!atime[1]) {
+                            atime[1] = "11:59 pm";
+                        }
+                        value.EndTime = moment(a.Day + ' ' + atime[1].trim(), 'MM-DD-YYYY HH:mm a');
+                    } else { //new standard
+                        value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');
+                        value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'YYYY-MM-DD HH:mm');
+                    }
                 });
-                confData.Sessions.sort(SortByDate);
+                confData.Sessions.sort(sortByDate);
                 if(!confData.PeopleByKey) {
                     confData.PeopleByKey = {};
                     for(i = 0; confData.People[i]; i++) {

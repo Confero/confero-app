@@ -1,5 +1,6 @@
 angular.module('confero.app').controller('CustomTabCrtl', ['$scope', '$state', 'Conference', '$ionicNavBarDelegate', 'Starred', 'ConferenceCache',
     function($scope, $state, Conference, $ionicNavBarDelegate, Starred, ConferenceCache) {
+        "use strict";
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
         $ionicNavBarDelegate.showBackButton(false);
@@ -9,7 +10,7 @@ angular.module('confero.app').controller('CustomTabCrtl', ['$scope', '$state', '
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         }, function(rejection) {
-            console.log(rejection);
+           // console.log(rejection);
         });
         $scope.hasStarred = function() {
             return $scope.Sessions || $scope.Items || $scope.People;
@@ -27,7 +28,7 @@ angular.module('confero.app').controller('CustomTabCrtl', ['$scope', '$state', '
         };
         $scope.$watch('Sessions', function(newValue, oldValue) {
             if($scope.Sessions) {
-                $scope.Sessions.sort(SortByDate);
+                $scope.Sessions.sort(sortByDate);
             }
         });
         Starred.get($scope.conferenceId).then(function(keys) {
@@ -61,7 +62,7 @@ angular.module('confero.app').controller('CustomTabCrtl', ['$scope', '$state', '
                 }
             }
         }, function(rejection) {
-            console.log(rejection);
+           // console.log(rejection);
         });
     }
 ]);

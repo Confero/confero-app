@@ -1,5 +1,6 @@
 angular.module('confero.ConferenceService', ['confero.ConferoDataService']).factory('Conference', ['ConferenceCache', '$q',
     function(ConferenceCache, $q) {
+        "use strict";
         var confInfoCache = {};
         return {
             People: function(confId) {

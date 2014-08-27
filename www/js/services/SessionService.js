@@ -1,5 +1,6 @@
 angular.module('confero.SessionService', ['confero.ConferoDataService']).factory('Session', ['ConferenceCache', '$q',
     function(ConferenceCache, $q) {
+        "use strict";
         return {
             get: function(confId, sessionKey) {
                 var deferred = $q.defer();

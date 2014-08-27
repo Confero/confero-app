@@ -1,7 +1,7 @@
 angular.module('confero.app')
 .controller('PeopleTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
     function($scope, $state, Conference, $ionicLoading, $ionicNavBarDelegate) {
-        
+        "use strict";
 		$ionicLoading.show();
 		
         $scope.conferenceId = $state.params.id;
@@ -14,7 +14,7 @@ angular.module('confero.app')
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         }, function(rejection){
-            console.log(rejection);
+           // console.log(rejection);
         });
         
         Conference.People($scope.conferenceId).then(function(data) {
@@ -25,15 +25,15 @@ angular.module('confero.app')
                 value.lastName = name[name.length - 1];
             });
             data.sort(function(a, b) {
-                var s = NaturalSort(a.lastName, b.lastName);
+                var s = naturalSort(a.lastName, b.lastName);
                 if(s === 0) {
-                    s = NaturalSort(a.firstName, b.firstName);
+                    s = naturalSort(a.firstName, b.firstName);
                 }
                 return s;
             });
             $scope.people = data;
         }, function(rejection){
-            console.log(rejection);
+           // console.log(rejection);
         });
         
         $scope.dividerTitle = function($index) {
@@ -50,6 +50,7 @@ angular.module('confero.app')
 ])
 .controller('PeoplePageCtrl', ['$scope', '$state', 'People', 'Session', 'Conference', 'Starred', 'Navigation',
     function($scope, $state, People, Session, Conference, Starred, Navigation) {
+        "use strict";
         $scope.conferenceId = $state.params.id;
         $scope.peopleKey = $state.params.key;
         
@@ -66,7 +67,7 @@ angular.module('confero.app')
                    $scope.starred = value;
                 });
         }, function(rejection){
-            console.log(rejection);
+          //  console.log(rejection);
         });
         
         $scope.openInGoogleScholar = function(url) {
@@ -92,18 +93,15 @@ angular.module('confero.app')
                 });    
             });
         }, function(rejection){
-            console.log(rejection);
+          //  console.log(rejection);
         });
-        
-        
-        
         
         $scope.starred = false;
 
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         }, function(rejection){
-            console.log(rejection);
+           // console.log(rejection);
         });
         
         $scope.$watch('starred', function(newValue, oldValue) {

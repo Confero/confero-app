@@ -1,5 +1,6 @@
 angular.module('confero.app').controller('PapersTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading', '$ionicNavBarDelegate',
     function($scope, $state, Conference, $ionicLoading, $ionicNavBarDelegate) {
+        "use strict";
         $ionicLoading.show();
         $scope.conferenceId = $state.params.id;
         $scope.ConferenceName = "confero";
@@ -10,22 +11,23 @@ angular.module('confero.app').controller('PapersTabCrtl', ['$scope', '$state', '
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         }, function(rejection) {
-            console.log(rejection);
+           // console.log(rejection);
         });
         Conference.Papers($scope.conferenceId).then(function(data) {
             angular.forEach(data, function(value, key) {
                 value.KeyEncoded = encodeURIComponent(value.Key);
             });
             data.sort(function(a, b) {
-                return NaturalSort(a.Title, b.Title);
+                return naturalSort(a.Title, b.Title);
             });
             $scope.papers = data;
         }, function(rejection) {
-            console.log(rejection);
+            //console.log(rejection);
         });
     }
 ]).controller('PaperPageCtrl', ['$scope', '$state', 'Paper', 'Conference', 'Starred', 'Navigation',
     function($scope, $state, Paper, Conference, Starred, Navigation) {
+        "use strict";
         $scope.conferenceId = $state.params.id;
         $scope.paperKey = $state.params.key;
         $scope.items = {};
@@ -43,7 +45,7 @@ angular.module('confero.app').controller('PapersTabCrtl', ['$scope', '$state', '
                 $scope.starred = value;
             });
         }, function(rejection) {
-            console.log(rejection);
+            //console.log(rejection);
         });
          
         $scope.openInBrowser = function(url) {
@@ -55,7 +57,7 @@ angular.module('confero.app').controller('PapersTabCrtl', ['$scope', '$state', '
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         }, function(rejection) {
-            console.log(rejection);
+           // console.log(rejection);
         });
         $scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {

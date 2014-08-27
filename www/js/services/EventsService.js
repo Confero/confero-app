@@ -1,5 +1,6 @@
 angular.module('confero.EventsService', ['confero.ConferoDataService']).factory('EventsIndex', ['EventsCache', '$q',
     function(EventsCache, $q) {
+        "use strict";
         return {
             Past: function() {
                 var deferred = $q.defer();

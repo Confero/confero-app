@@ -1,8 +1,9 @@
 angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopleItem', function(People) {
+    "use strict";
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: './views/peopleItemView.html',
+        templateUrl: 'views/peopleItemView.html',
         scope: {
             person: "=",
             conferenceId: "=conference",

@@ -1,5 +1,6 @@
 angular.module('confero.PaperService', ['confero.ConferoDataService']).factory('Paper', ['ConferenceCache', '$q',
     function(ConferenceCache, $q) {
+        "use strict";
         return {
             get: function(confId, paperKey) {
                 var deferred = $q.defer();

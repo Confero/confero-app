@@ -1,11 +1,12 @@
 angular.module('confero.app').config(function($stateProvider, $urlRouterProvider) {
+    "use strict";
     $stateProvider.state('eventspage', {
         url: "/",
         templateUrl: "events-page.html",
         controller: 'EventsListCtrl'
     }).state('tabs', {
         url: '/conference/:id',
-        templateUrl: "./views/tabs.html",
+        templateUrl: "views/tabs.html",
         controller: "TabsCrtl",
     }).state('tabs.sessions', {
         url: '/sessions',

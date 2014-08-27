@@ -1,5 +1,6 @@
 angular.module('confero.StarredService', ['LocalForageModule']).factory('Starred', ['$localForage', '$q',
     function($localForage, $q) {
+        "use strict";
         var starred = {};
         var prefix = "starred_";
         return {

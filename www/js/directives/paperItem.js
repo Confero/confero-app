@@ -1,10 +1,12 @@
 angular.module('confero.paperItem', ['confero.PaperService'])
 
 .directive('paperItem', ['Paper', function(Paper) {
+    "use strict";
+    
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: './views/paperItemView.html',
+        templateUrl: 'views/paperItemView.html',
         scope: {
             paper: "=",
             conferenceId: "=conference",

@@ -1,8 +1,9 @@
 angular.module('confero.eventsList', []).directive('eventsList', function() {
+    "use strict";
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: './views/EventListView.html',
+        templateUrl: 'views/EventListView.html',
         scope: {
             events: "=events",
             locationWWW: "=location",
@@ -10,6 +11,7 @@ angular.module('confero.eventsList', []).directive('eventsList', function() {
         }
     };
 }).directive('errSrc', function() {
+    "use strict";
 	return {
         link: function(scope, element, attrs) {
             element.bind('error', function() {

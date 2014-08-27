@@ -2,6 +2,7 @@ angular.module('confero.app')
 
 .controller('EventsListCtrl', ['$scope', 'EventsIndex', '$state',
     function($scope, EventsIndex, $state) {
+        "use strict";
         $scope.locationWWW = 'http://ranche-exogen.codio.io:3000';
         $scope.pastEvents = [];
         $scope.upcomingEvents = [];
@@ -14,17 +15,17 @@ angular.module('confero.app')
         EventsIndex.Past().then(function(data) {
             $scope.pastEvents = data;
         }, function(rejection){
-            console.log(rejection);
+            //console.log(rejection);
         });
         EventsIndex.UpComing().then(function(data) {
             $scope.upcomingEvents = data;
         }, function(rejection){
-            console.log(rejection);
+            //console.log(rejection);
         });
         EventsIndex.InProgress().then(function(data) {
             $scope.inProgressEvents = data;
         }, function(rejection){
-            console.log(rejection);
+            //console.log(rejection);
         });
     }
 ]);

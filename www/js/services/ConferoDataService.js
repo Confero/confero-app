@@ -1,5 +1,6 @@
 angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule', 'confero.ConferoDataObjects']).factory('EventsCache', ['$resource', '$cacheFactory', '$localForage', 'EventsData', '$q',
     function($resource, $cacheFactory, $localForage, EventsData, $q) {
+        "use strict";
         var deferred = $q.defer();
         if(!EventsData.getEventIndex()) {
             var fetchFromServer = function() {

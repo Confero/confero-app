@@ -14,6 +14,7 @@ moment.locale(navigator.language);
 angular.module('confero.app', [
     'ionic', 
     'ngResource',
+    'ui.router',
     'LocalForageModule', 
     'jm.i18next',
     'confero.tabs', 

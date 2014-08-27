@@ -1,5 +1,6 @@
 angular.module('confero.NavigationService', []).factory('Navigation', ['$rootScope', '$state',
     function($rootScope, $state) {
+        "use strict";
         var navStack = [];
         $rootScope.$on('$stateChangeSuccess', function(event, toState, toParams, fromState, fromParams) {
             if(navStack && navStack[navStack.length - 1] === 0) {
