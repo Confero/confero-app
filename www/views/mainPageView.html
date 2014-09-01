@@ -5,20 +5,20 @@
     </ion-nav-buttons>
     <ion-content>
         <div class="card">
-            <div ng-if="upcomingEvents">
-                <div class="item item-divider">
-                    <span ng-i18next="eventlist.upcoming"></span>
-                </div>
-                <div class="item">
-                    <events-list events="upcomingEvents" location="locationWWW"></events-list>
-                </div>
-            </div>
             <div ng-if="inProgressEvents">
                 <div class="item item-divider">
                     <span ng-i18next="eventlist.inprogress"></span>
                 </div>
                 <div class="item">
                     <events-list events="inProgressEvents" location="locationWWW"></events-list>
+                </div>
+            </div>
+            <div ng-if="upcomingEvents">
+                <div class="item item-divider">
+                    <span ng-i18next="eventlist.upcoming"></span>
+                </div>
+                <div class="item">
+                    <events-list events="upcomingEvents" location="locationWWW"></events-list>
                 </div>
             </div>
             <div ng-if="pastEvents">
