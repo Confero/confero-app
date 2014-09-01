@@ -46,7 +46,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                     });
                 }
             }, function(rejection) {
-                console.log(rejection);
+                deferred.reject(rejection);
             });
         } else {
             deferred.resolve(EventsData);
@@ -89,7 +89,8 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                         id: confId
                     });
                     call.$promise.then(function(data) {
-                        var version = EventsData.getEventById(confId).Version;
+                        
+                        var version = EventsData.getEventById(confId)? EventsData.getEventById(confId).Version: 0;
                         ConferenceData.addConference(confId, data, version);
                         deferred.resolve(ConferenceData);
                         deferred.notify('server');
@@ -98,7 +99,7 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                     });
                 }
             }, function(rejection) {
-                console.log(rejection);
+                deferred.reject(rejection);
             });
         };
         return {
@@ -115,28 +116,33 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                             deferred.notify('storage');
                             fetchFromServer(confId, deferred, value.Version);
                         } else {
-                            var res = 'assets/conf-data/data/' + EventsData.getEventById(confId).File;
-                            var call = $resource(res, {}, {
-                                'get': {
-                                    method: 'GET',
-                                    cache: $cacheFactory
-                                }
-                            }).get();
-                            call.$promise.then(function(data) {
-                                var version = EventsData.getEventById(confId).Version;
-                                ConferenceData.addConference(confId, data, version);
-                                deferred.resolve(ConferenceData);
-                                deferred.notify('local');
-                                data.Version = version;
-                                $localForage.setItem(confId, data).then(function() {
-                                    fetchFromServer(confId, deferred, version);
+                            var eventData = EventsData.getEventById(confId);
+                            if( eventData ) {
+                                var res = 'assets/conf-data/data/' + eventData.File;
+                                var call = $resource(res, {}, {
+                                    'get': {
+                                        method: 'GET',
+                                        cache: $cacheFactory
+                                    }
+                                }).get();
+                                call.$promise.then(function(data) {
+                                    var version = EventsData.getEventById(confId).Version;
+                                    ConferenceData.addConference(confId, data, version);
+                                    deferred.resolve(ConferenceData);
+                                    deferred.notify('local');
+                                    data.Version = version;
+                                    $localForage.setItem(confId, data).then(function() {
+                                        fetchFromServer(confId, deferred, version);
+                                    });
+                                }, function(reason) {
+                                    fetchFromServer(confId, deferred);
                                 });
-                            }, function(reason) {
+                            } else {
                                 fetchFromServer(confId, deferred);
-                            });
+                            }
                         }
                     }, function(rejection) {
-                        console.log(rejection);
+                        deferred.reject(rejection);
                     });
                 }
                 return deferred.promise;

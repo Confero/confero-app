@@ -55,13 +55,13 @@ function naturalSort(a, b) {
 function sortByDate(a, b) {
     "use strict";
     if(a.StartTime && a.EndTime) {
-        var atime = a.Time.split('-');
+        var atime = a.Time?  a.Time.split('-'): ['00:00','23:59'];
         a.StartTime = moment(a.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');
         a.EndTime = moment(a.Day + ' ' + atime[1].trim(), 'YYYY-MM-DD HH:mm');
     }
     
     if(b.StartTime && b.EndTime) {
-        var btime = b.Time.split('-');
+        var btime = b.Time? b.Time.split('-'): ['00:00','23:59'];
         b.StartTime = moment(b.Day + ' ' + btime[0].trim(), 'YYYY-MM-DD HH:mm');
         b.EndTime = moment(b.Day + ' ' + btime[1].trim(), 'YYYY-MM-DD HH:mm');
     }

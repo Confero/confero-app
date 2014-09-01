@@ -10,19 +10,19 @@ angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopl
             key: "=key"
         },
         controller: function($scope) {
-			var setupData = function() {
-				$scope.personData.KeyEncoded = encodeURIComponent($scope.personData.Key);
-			};
+            $scope.$watch('personData', function(newValue, oldValue) {
+                if(newValue) {
+                    $scope.personData.KeyEncoded = encodeURIComponent($scope.personData.Key);
+                }
+            });
             if(!$scope.person && $scope.key) {
                 var k = encodeURIComponent($scope.key);
                 var personPromise = People.Person($scope.conferenceId, $scope.key);
                 personPromise.then(function(data) {
                     $scope.personData = data;
-					setupData();
                 });
             } else {
                 $scope.personData = $scope.person;
-				setupData();
             }
         }
     };

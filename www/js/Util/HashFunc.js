@@ -1,7 +1,9 @@
 function simpleHash(str) {
     "use strict";
     var i, strCode, hash = 0;
-    if (str.length === 0) return hash;
+    if (!str) {
+      return hash;  
+    } 
     for (i = 0; i < str.length; i++) {
         strCode = str.charCodeAt(i);
         hash = ((hash<<5)-hash)+strCode;

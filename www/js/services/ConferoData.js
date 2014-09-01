@@ -66,18 +66,19 @@ angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
                 var confData = data;
                 confData.Version = version;
                 angular.forEach(confData.Sessions, function(value, index) {
-                    var atime = value.Time.split('-');
+                    var atime = value.Time?  value.Time.split('-'): ['00:00','23:59'];
                     if(atime[0].indexOf('m') > -1) { //old standard
-                        value.StartTime = moment(a.Day + ' ' + atime[0].trim(), 'MM-DD-YYYY HH:mm a');
+                        value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'MM-DD-YYYY HH:mm a');
                         if(!atime[1]) {
                             atime[1] = "11:59 pm";
                         }
-                        value.EndTime = moment(a.Day + ' ' + atime[1].trim(), 'MM-DD-YYYY HH:mm a');
+                        value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'MM-DD-YYYY HH:mm a');
                     } else { //new standard
                         value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');
                         value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'YYYY-MM-DD HH:mm');
                     }
                 });
+                var i,j;
                 confData.Sessions.sort(sortByDate);
                 if(!confData.PeopleByKey) {
                     confData.PeopleByKey = {};
