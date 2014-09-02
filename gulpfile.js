@@ -1,13 +1,14 @@
-var gulp = require('gulp');
-var gutil = require('gulp-util');
-var bower = require('bower');
-var concat = require('gulp-concat');
-var sass = require('gulp-sass');
-var minifyCss = require('gulp-minify-css');
-var rename = require('gulp-rename');
-var sh = require('shelljs');
-var jshint = require('gulp-jshint');
-var karma = require('gulp-karma');
+var gulp = require('gulp'),
+	gutil = require('gulp-util'),
+	bower = require('bower'),
+	concat = require('gulp-concat'),
+	sass = require('gulp-sass'),
+	minifyCss = require('gulp-minify-css'),
+	rename = require('gulp-rename'),
+	sh = require('shelljs'),
+	jshint = require('gulp-jshint'),
+    uglify = require('gulp-uglify'),
+	karma = require('gulp-karma');
 
 var paths = {
   sass: ['./scss/**/*.scss']
@@ -68,5 +69,33 @@ gulp.task('test', ['scripts-test'], function (cb) {
 		.on('error', function (err) {
 			process.exit(1);
 		});
+});
+
+gulp.task('bundle', function(){
+    return gulp.src( [ 
+        'www/lib/angular/angular.js',
+        'www/lib/angular-animate/angular-animate.js',
+        'www/lib/angular-sanitize/angular-sanitize.js',
+        'www/lib/angular-resource/angular-resource.js',
+        'www/lib/angular-ui-router/release/angular-ui-router.js',
+        'www/lib/ionic/js/ionic.js',
+        'www/lib/ionic/js/ionic-angular.js',
+        'www/lib/moment/min/moment-with-locales.js',
+        'www/lib/i18next/i18next.js',
+        'www/lib/ng-i18next/dist/ng-i18next.js',
+        'www/lib/localforage/dist/localforage.js',
+        'www/lib/angular-localforage/dist/angular-localForage.js',
+        'www/js/**/*.js'
+    ])
+    .pipe(concat('conferoApp.js'))
+    .pipe(gulp.dest('www/dist'));
+    
+});
+
+gulp.task('minify', ['bundle'],function(){
+    return gulp.src('www/dist/conferoApp.js')
+    .pipe(uglify({ compress: true, mangle: false}))
+    .pipe(rename('conferoApp.min.js'))
+    .pipe(gulp.dest('www/dist'));
 });
 

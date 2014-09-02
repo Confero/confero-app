@@ -1,6 +1,6 @@
 /**
  * angular-localForage - Angular service & directive for https://github.com/mozilla/localForage (Offline storage, improved.)
- * @version v0.2.8
+ * @version v0.2.9
  * @link https://github.com/ocombe/angular-localForage
  * @license MIT
  * @author Olivier Combe <olivier.combe@gmail.com>
@@ -50,7 +50,7 @@
 			} else {
 				return localforage.config(config);
 			}
-		};
+		}
 
 		this.$get = ['$rootScope', '$q', '$parse', function($rootScope, $q, $parse) {
 			var notify = this.notify;
@@ -58,7 +58,7 @@
 
             var prefix = function() {
                 return driver() === 'localStorageWrapper' ? localforage.config().name + '.' : '';
-            };
+            }
 
 			var onError = function(err, args, fct, deferred) {
 				// test for private browsing errors in Firefox & Safari
@@ -76,7 +76,7 @@
 				} else {
 					deferred.reject(err);
 				}
-			};
+			}
 
 			// Directly adds a value to storage
 			var setItem = function(key, value) {
@@ -141,7 +141,7 @@
 					onError(data, args, clearAll, deferred);
 				});
 				return deferred.promise;
-			};
+			}
 
 			// Return the key for item at position n
 			var key = function(n) {
@@ -164,7 +164,7 @@
 					onError(data, args, length, deferred);
 				});
 				return deferred.promise;
-			};
+			}
 
 			// Return the list of keys stored for this application
 			var keys = function() {
@@ -184,7 +184,7 @@
 					onError(data, args, keys, deferred);
 				});
 				return deferred.promise;
-			};
+			}
 
 			/**
 			 * Bind - let's you directly bind a LocalForage value to a $scope variable
@@ -200,7 +200,7 @@
 				if(angular.isString(opts)) {
 					opts = {
 						key: opts
-					};
+					}
 				} else if(!angular.isObject(opts) || angular.isUndefined(opts.key)) {
 					throw "You must defined a key to bind";
 				}
@@ -236,7 +236,7 @@
 					}, true);
 					return item;
 				});
-			};
+			}
 
 			/**
 			 * Unbind - let's you unbind a variable from localForage while removing the value from both
@@ -253,7 +253,7 @@
 					delete watchers[key];
 				}
 				removeItem(storeName);
-			};
+			}
 
 			return {
 				setDriver: setDriver,
@@ -276,7 +276,7 @@
 				bind: bind,
 				unbind: unbind
 			};
-		}];
+		}]
 	});
 
 	angularLocalForage.directive('localForage', ['$localForage', function ($localForage) {
@@ -290,6 +290,6 @@
 					$localForage.bind($scope, $attrs.localForage);
 				}
 			}
-		};
+		}
 	}]);
 })(window, window.angular, window.localforage);
