@@ -4,7 +4,7 @@
         <img ng-src="assets/conf-data/icon200/{{event.Icon}}" err-src="{{locationWWW}}/conferences/event/{{event.Id}}/image">
 
         <h2>{{ event.Name }}</h2>
-        <h4>{{ event.Description }}</h4>
+        <h4><span ng-bind-html="event.Description"></span></h4>
         <h4>{{ event.StartDatePretty }} - {{event.EndDatePretty}}</h4>
     </a>
 
