@@ -1,6 +1,6 @@
 <div class="list">
 
-    <a ng-repeat="event in events" href="#/conference/{{event.Id}}/sessions" class="item item-thumbnail-left">
+    <a ng-repeat="event in events" href="#/conference/{{event.Id}}/sessions" class="item item-thumbnail-left" aria-label="{{event.Description}}">
         <img ng-src="assets/conf-data/icon200/{{event.Icon}}" err-src="{{locationWWW}}/conferences/event/{{event.Id}}/image">
 
         <h2>{{ event.Name }}</h2>

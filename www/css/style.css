@@ -189,3 +189,12 @@
 	display: inline-block;
 	vertical-align: top;
 }
+
+.offscreen {
+   position:absolute;
+   left:-999px;
+   width:1px;
+   height:1px;
+   top:auto;
+   overflow:hidden;
+}

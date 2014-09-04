@@ -7,26 +7,26 @@
         <div class="card">
             <div ng-if="inProgressEvents">
                 <div class="item item-divider">
-                    <span ng-i18next="eventlist.inprogress"></span>
+                    <h2 ng-i18next="eventlist.inprogress"></h2>
                 </div>
                 <div class="item">
-                    <events-list events="inProgressEvents" location="locationWWW"></events-list>
+                    <events-list role="list" events="inProgressEvents" location="locationWWW"></events-list>
                 </div>
             </div>
             <div ng-if="upcomingEvents">
                 <div class="item item-divider">
-                    <span ng-i18next="eventlist.upcoming"></span>
+                    <h2 ng-i18next="eventlist.upcoming"></h2>
                 </div>
-                <div class="item">
-                    <events-list events="upcomingEvents" location="locationWWW"></events-list>
+                <div class="item" >
+                    <events-list role="list" events="upcomingEvents" location="locationWWW"></events-list>
                 </div>
             </div>
             <div ng-if="pastEvents">
                 <div class="item item-divider">
-                    <span ng-i18next="eventlist.past"></span>
+                    <h2 ng-i18next="eventlist.past"></h2>
                 </div>
-                <div class="item">
-                    <events-list events="pastEvents" location="locationWWW"></events-list>
+                <div class="item" >
+                    <events-list role="list" events="pastEvents" location="locationWWW"></events-list>
                 </div>
             </div>
         </div>

@@ -14,19 +14,24 @@
         "inprogress": "In Progress"
     },
     "custom": {
-        "instructions": "Please star people, papers, and sessions to build your custom program. If you star a person, all of their papers will be added; if you star a session, all of its papers will be added."
+        "instructions": "Please star people, papers, and sessions to build your custom program. If you star a person, all of their papers will be added; if you star a session, all of its papers will be added.",
+        "tablabel": "Custom tab"
     },
     "paper" : {
         "gotodoi": "Open paper's DOI page in a browser.",
         "gotogoogle": "Lookup paper in Google Scholar.",
         "star": "Star the paper to show under custom event.",
-        "award": "This paper has recieved an award."
+        "award": "This paper has recieved an award.",
+        "tablabel": "Papers tab"
     },
     "session": {
-        "star": "Star the session to show under custom event."
+        "star": "Star the session to show under custom event.",
+        "sessiondates": "The following sessions are between",
+        "tablabel": "Sessions tab"
     },
     "people" : {
-        "star": "Star the person to show under custom event."
+        "star": "Star the person to show under custom event.",
+        "tablabel": "People tab"
     },
     "about": {
         "getapp": "Confero can be accessed on the web at <a ng-click=\"openInBrowser('http://conferoapp.com')\" href=\"\">http://conferoapp.com</a>, but is best experienced through mobile apps. These can be found for free at the following places:",
