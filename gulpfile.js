@@ -73,6 +73,7 @@ gulp.task('test', ['scripts-test'], function (cb) {
 
 gulp.task('bundle', function(){
     return gulp.src( [ 
+        'www/lib/i18next/i18next.js',
         'www/lib/angular/angular.js',
         'www/lib/angular-animate/angular-animate.js',
         'www/lib/angular-sanitize/angular-sanitize.js',
@@ -81,7 +82,6 @@ gulp.task('bundle', function(){
         'www/lib/ionic/js/ionic.js',
         'www/lib/ionic/js/ionic-angular.js',
         'www/lib/moment/min/moment-with-locales.js',
-        'www/lib/i18next/i18next.js',
         'www/lib/ng-i18next/dist/ng-i18next.js',
         'www/lib/localforage/dist/localforage.js',
         'www/lib/angular-localforage/dist/angular-localForage.js',
