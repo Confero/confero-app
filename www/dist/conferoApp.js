@@ -1,4 +1,4 @@
-// i18next, v1.7.3
+// i18next, v1.7.4
 // Copyright (c)2014 Jan Mühlemann (jamuhl).
 // Distributed under MIT license
 // http://i18next.com
@@ -83,13 +83,25 @@
       , currentLng
       , replacementCounter = 0
       , languages = []
-      , initialized = false;
+      , initialized = false
+      , sync = {};
+
 
 
     // Export the i18next object for **CommonJS**. 
     // If we're not in CommonJS, add `i18n` to the
     // global object or to jquery.
     if (typeof module !== 'undefined' && module.exports) {
+        if (!$) {
+          try {
+            $ = require('jquery');
+          } catch(e) {
+            // just ignore
+          }
+        }
+        if ($) {
+            $.i18n = $.i18n || i18n;
+        }
         module.exports = i18n;
     } else {
         if ($) {
@@ -98,6 +110,207 @@
         
         root.i18n = root.i18n || i18n;
     }
+    sync = {
+    
+        load: function(lngs, options, cb) {
+            if (options.useLocalStorage) {
+                sync._loadLocal(lngs, options, function(err, store) {
+                    var missingLngs = [];
+                    for (var i = 0, len = lngs.length; i < len; i++) {
+                        if (!store[lngs[i]]) missingLngs.push(lngs[i]);
+                    }
+    
+                    if (missingLngs.length > 0) {
+                        sync._fetch(missingLngs, options, function(err, fetched) {
+                            f.extend(store, fetched);
+                            sync._storeLocal(fetched);
+    
+                            cb(null, store);
+                        });
+                    } else {
+                        cb(null, store);
+                    }
+                });
+            } else {
+                sync._fetch(lngs, options, function(err, store){
+                    cb(null, store);
+                });
+            }
+        },
+    
+        _loadLocal: function(lngs, options, cb) {
+            var store = {}
+              , nowMS = new Date().getTime();
+    
+            if(window.localStorage) {
+    
+                var todo = lngs.length;
+    
+                f.each(lngs, function(key, lng) {
+                    var local = window.localStorage.getItem('res_' + lng);
+    
+                    if (local) {
+                        local = JSON.parse(local);
+    
+                        if (local.i18nStamp && local.i18nStamp + options.localStorageExpirationTime > nowMS) {
+                            store[lng] = local;
+                        }
+                    }
+    
+                    todo--; // wait for all done befor callback
+                    if (todo === 0) cb(null, store);
+                });
+            }
+        },
+    
+        _storeLocal: function(store) {
+            if(window.localStorage) {
+                for (var m in store) {
+                    store[m].i18nStamp = new Date().getTime();
+                    window.localStorage.setItem('res_' + m, JSON.stringify(store[m]));
+                }
+            }
+            return;
+        },
+    
+        _fetch: function(lngs, options, cb) {
+            var ns = options.ns
+              , store = {};
+            
+            if (!options.dynamicLoad) {
+                var todo = ns.namespaces.length * lngs.length
+                  , errors;
+    
+                // load each file individual
+                f.each(ns.namespaces, function(nsIndex, nsValue) {
+                    f.each(lngs, function(lngIndex, lngValue) {
+                        
+                        // Call this once our translation has returned.
+                        var loadComplete = function(err, data) {
+                            if (err) {
+                                errors = errors || [];
+                                errors.push(err);
+                            }
+                            store[lngValue] = store[lngValue] || {};
+                            store[lngValue][nsValue] = data;
+    
+                            todo--; // wait for all done befor callback
+                            if (todo === 0) cb(errors, store);
+                        };
+                        
+                        if(typeof options.customLoad == 'function'){
+                            // Use the specified custom callback.
+                            options.customLoad(lngValue, nsValue, options, loadComplete);
+                        } else {
+                            //~ // Use our inbuilt sync.
+                            sync._fetchOne(lngValue, nsValue, options, loadComplete);
+                        }
+                    });
+                });
+            } else {
+                // Call this once our translation has returned.
+                var loadComplete = function(err, data) {
+                    cb(null, data);
+                };
+    
+                if(typeof options.customLoad == 'function'){
+                    // Use the specified custom callback.
+                    options.customLoad(lngs, ns.namespaces, options, loadComplete);
+                } else {
+                    var url = applyReplacement(options.resGetPath, { lng: lngs.join('+'), ns: ns.namespaces.join('+') });
+                    // load all needed stuff once
+                    f.ajax({
+                        url: url,
+                        success: function(data, status, xhr) {
+                            f.log('loaded: ' + url);
+                            loadComplete(null, data);
+                        },
+                        error : function(xhr, status, error) {
+                            f.log('failed loading: ' + url);
+                            loadComplete('failed loading resource.json error: ' + error);
+                        },
+                        dataType: "json",
+                        async : options.getAsync
+                    });
+                }    
+            }
+        },
+    
+        _fetchOne: function(lng, ns, options, done) {
+            var url = applyReplacement(options.resGetPath, { lng: lng, ns: ns });
+            f.ajax({
+                url: url,
+                success: function(data, status, xhr) {
+                    f.log('loaded: ' + url);
+                    done(null, data);
+                },
+                error : function(xhr, status, error) {
+                    if ((status && status == 200) || (xhr && xhr.status && xhr.status == 200)) {
+                        // file loaded but invalid json, stop waste time !
+                        f.error('There is a typo in: ' + url);
+                    } else if ((status && status == 404) || (xhr && xhr.status && xhr.status == 404)) {
+                        f.log('Does not exist: ' + url);
+                    } else {
+                        var theStatus = status ? status : ((xhr && xhr.status) ? xhr.status : null);
+                        f.log(theStatus + ' when loading ' + url);
+                    }
+                    
+                    done(error, {});
+                },
+                dataType: "json",
+                async : options.getAsync
+            });
+        },
+    
+        postMissing: function(lng, ns, key, defaultValue, lngs) {
+            var payload = {};
+            payload[key] = defaultValue;
+    
+            var urls = [];
+    
+            if (o.sendMissingTo === 'fallback' && o.fallbackLng[0] !== false) {
+                for (var i = 0; i < o.fallbackLng.length; i++) {
+                    urls.push({lng: o.fallbackLng[i], url: applyReplacement(o.resPostPath, { lng: o.fallbackLng[i], ns: ns })});
+                }
+            } else if (o.sendMissingTo === 'current' || (o.sendMissingTo === 'fallback' && o.fallbackLng[0] === false) ) {
+                urls.push({lng: lng, url: applyReplacement(o.resPostPath, { lng: lng, ns: ns })});
+            } else if (o.sendMissingTo === 'all') {
+                for (var i = 0, l = lngs.length; i < l; i++) {
+                    urls.push({lng: lngs[i], url: applyReplacement(o.resPostPath, { lng: lngs[i], ns: ns })});
+                }
+            }
+    
+            for (var y = 0, len = urls.length; y < len; y++) {
+                var item = urls[y];
+                f.ajax({
+                    url: item.url,
+                    type: o.sendType,
+                    data: payload,
+                    success: function(data, status, xhr) {
+                        f.log('posted missing key \'' + key + '\' to: ' + item.url);
+    
+                        // add key to resStore
+                        var keys = key.split('.');
+                        var x = 0;
+                        var value = resStore[item.lng][ns];
+                        while (keys[x]) {
+                            if (x === keys.length - 1) {
+                                value = value[keys[x]] = defaultValue;
+                            } else {
+                                value = value[keys[x]] = value[keys[x]] || {};
+                            }
+                            x++;
+                        }
+                    },
+                    error : function(xhr, status, error) {
+                        f.log('failed posting missing key \'' + key + '\' to: ' + item.url);
+                    },
+                    dataType: "json",
+                    async : o.postAsync
+                });
+            }
+        }
+    };
     // defaults
     var o = {
         lng: undefined,
@@ -108,6 +321,7 @@
         fallbackLng: ['dev'],
         fallbackNS: [],
         detectLngQS: 'setLng',
+        detectLngFromLocalStorage: false,
         ns: 'translation',
         fallbackOnNull: true,
         fallbackOnEmpty: false,
@@ -140,6 +354,8 @@
         pluralNotFound: ['plural_not_found', Math.random()].join(''),
         contextNotFound: ['context_not_found', Math.random()].join(''),
         escapeInterpolation: false,
+        indefiniteSuffix: '_indefinite',
+        indefiniteNotFound: ['indefinite_not_found', Math.random()].join(''),
     
         setJqueryExt: true,
         defaultValueFromContent: true,
@@ -152,6 +368,7 @@
         objectTreeKeyHandler: undefined,
         postProcess: undefined,
         parseMissingKey: undefined,
+        missingKeyHandler: sync.postMissing,
     
         shortcutFunction: 'sprintf' // or: defaultValue
     };
@@ -161,6 +378,15 @@
         }
     
         for (var attr in source) { target[attr] = source[attr]; }
+        return target;
+    }
+    
+    function _deepExtend(target, source) {
+        for (var prop in source)
+            if (prop in target)
+                _deepExtend(target[prop], source[prop]);
+            else
+                target[prop] = source[prop];
         return target;
     }
     
@@ -504,7 +730,8 @@
         var methode = options.type ? options.type.toLowerCase() : 'get';
     
         http[methode](options.url, options, function (status, data) {
-            if (status === 200) {
+            // file: protocol always gives status code 0, so check for data
+            if (status === 200 || (status === 0 && data.text())) {
                 options.success(data.json(), status, null);
             } else {
                 options.error(data.text(), status, null);
@@ -553,6 +780,7 @@
     // they can be overriden easier in no jquery environment (node.js)
     var f = {
         extend: $ ? $.extend : _extend,
+        deepExtend: _deepExtend,
         each: $ ? $.each : _each,
         ajax: $ ? $.ajax : (typeof document !== 'undefined' ? _ajax : function() {}),
         cookie: typeof document !== 'undefined' ? _cookie : cookie_noop,
@@ -561,8 +789,27 @@
         log: function(str) {
             if (o.debug && typeof console !== "undefined") console.log(str);
         },
+        error: function(str) {
+            if (typeof console !== "undefined") console.error(str);
+        },
+        getCountyIndexOfLng: function(lng) {
+            var lng_index = 0;
+            if (lng === 'nb-NO' || lng === 'nn-NO') lng_index = 1;
+            return lng_index;
+        },
         toLanguages: function(lng) {
+            var log = this.log;
+    
             var languages = [];
+            var whitelist = o.lngWhitelist || false;
+            var addLanguage = function(language){
+              //reject langs not whitelisted
+              if(!whitelist || whitelist.indexOf(language) > -1){
+                languages.push(language);
+              }else{
+                log('rejecting non-whitelisted language: ' + language);
+              }
+            };
             if (typeof lng === 'string' && lng.indexOf('-') > -1) {
                 var parts = lng.split('-');
     
@@ -570,20 +817,26 @@
                     parts[0].toLowerCase() +  '-' + parts[1].toLowerCase() :
                     parts[0].toLowerCase() +  '-' + parts[1].toUpperCase();
     
-                if (o.load !== 'unspecific') languages.push(lng);
-                if (o.load !== 'current') languages.push(parts[0]);
+                if (o.load !== 'unspecific') addLanguage(lng);
+                if (o.load !== 'current') addLanguage(parts[this.getCountyIndexOfLng(lng)]);
             } else {
-                languages.push(lng);
+                addLanguage(lng);
             }
     
             for (var i = 0; i < o.fallbackLng.length; i++) {
                 if (languages.indexOf(o.fallbackLng[i]) === -1 && o.fallbackLng[i]) languages.push(o.fallbackLng[i]);
             }
-    
             return languages;
         },
         regexEscape: function(str) {
             return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
+        },
+        regexReplacementEscape: function(strOrFn) {
+            if (typeof strOrFn === 'string') {
+                return strOrFn.replace(/\$/g, "$$$$");
+            } else {
+                return strOrFn;
+            }
         }
     };
     function init(options, cb) {
@@ -617,18 +870,18 @@
         o.interpolationPrefixEscaped = f.regexEscape(o.interpolationPrefix);
         o.interpolationSuffixEscaped = f.regexEscape(o.interpolationSuffix);
     
-        if (!o.lng) o.lng = f.detectLanguage(); 
-        if (o.lng) {
-            // set cookie with lng set (as detectLanguage will set cookie on need)
-            if (o.useCookie) f.cookie.create(o.cookieName, o.lng, o.cookieExpirationTime, o.cookieDomain);
-        } else {
-            o.lng =  o.fallbackLng[0];
-            if (o.useCookie) f.cookie.remove(o.cookieName);
-        }
+        if (!o.lng) o.lng = f.detectLanguage();
     
         languages = f.toLanguages(o.lng);
         currentLng = languages[0];
         f.log('currentLng set to: ' + currentLng);
+    
+        if (o.useCookie && f.cookie.read(o.cookieName) !== currentLng){ //cookie is unset or invalid
+            f.cookie.create(o.cookieName, currentLng, o.cookieExpirationTime, o.cookieDomain);
+        }
+        if (o.detectLngFromLocalStorage && typeof document !== 'undefined' && window.localstorage) {
+            window.localStorage.setItem('i18next_lng', currentLng);
+        }
     
         var lngTranslate = translate;
         if (options.fixLng) {
@@ -694,7 +947,7 @@
         return init(cb);
     }
     
-    function addResourceBundle(lng, ns, resources) {
+    function addResourceBundle(lng, ns, resources, deep) {
         if (typeof ns !== 'string') {
             resources = ns;
             ns = o.ns.defaultNs;
@@ -705,7 +958,11 @@
         resStore[lng] = resStore[lng] || {};
         resStore[lng][ns] = resStore[lng][ns] || {};
     
-        f.extend(resStore[lng][ns], resources);
+        if (deep) {
+            f.deepExtend(resStore[lng][ns], resources);
+        } else {
+            f.extend(resStore[lng][ns], resources);
+        }
     }
     
     function removeResourceBundle(lng, ns) {
@@ -715,6 +972,48 @@
     
         resStore[lng] = resStore[lng] || {};
         resStore[lng][ns] = {};
+    }
+    
+    function addResource(lng, ns, key, value) {
+        if (typeof ns !== 'string') {
+            resource = ns;
+            ns = o.ns.defaultNs;
+        } else if (o.ns.namespaces.indexOf(ns) < 0) {
+            o.ns.namespaces.push(ns);
+        }
+    
+        resStore[lng] = resStore[lng] || {};
+        resStore[lng][ns] = resStore[lng][ns] || {};
+    
+        var keys = key.split(o.keyseparator);
+        var x = 0;
+        var node = resStore[o.lng][ns];
+        var origRef = node;
+    
+        while (keys[x]) {
+            if (x == keys.length - 1)
+                node[keys[x]] = value;
+            else {
+                if (node[keys[x]] == null)
+                    node[keys[x]] = {};
+    
+                node = node[keys[x]];
+            }
+            x++;
+        }
+    }
+    
+    function addResources(lng, ns, resources) {
+        if (typeof ns !== 'string') {
+            resource = ns;
+            ns = o.ns.defaultNs;
+        } else if (o.ns.namespaces.indexOf(ns) < 0) {
+            o.ns.namespaces.push(ns);
+        }
+    
+        for (var m in resources) {
+            if (typeof resources[m] === 'string') addResource(lng, ns, m, resources[m]);
+        }
     }
     
     function setDefaultNamespace(ns) {
@@ -906,16 +1205,17 @@
           , suffix = options.interpolationSuffix ? f.regexEscape(options.interpolationSuffix) : o.interpolationSuffixEscaped
           , unEscapingSuffix = 'HTML'+suffix;
     
-        f.each(replacementHash, function(key, value) {
+        var hash = replacementHash.replace && typeof replacementHash.replace === 'object' ? replacementHash.replace : replacementHash;
+        f.each(hash, function(key, value) {
             var nextKey = nestedKey ? nestedKey + o.keyseparator + key : key;
             if (typeof value === 'object' && value !== null) {
                 str = applyReplacement(str, value, nextKey, options);
             } else {
                 if (options.escapeInterpolation || o.escapeInterpolation) {
-                    str = str.replace(new RegExp([prefix, nextKey, unEscapingSuffix].join(''), 'g'), value);
-                    str = str.replace(new RegExp([prefix, nextKey, suffix].join(''), 'g'), f.escape(value));
+                    str = str.replace(new RegExp([prefix, nextKey, unEscapingSuffix].join(''), 'g'), f.regexReplacementEscape(value));
+                    str = str.replace(new RegExp([prefix, nextKey, suffix].join(''), 'g'), f.regexReplacementEscape(f.escape(value)));
                 } else {
-                    str = str.replace(new RegExp([prefix, nextKey, suffix].join(''), 'g'), value);
+                    str = str.replace(new RegExp([prefix, nextKey, suffix].join(''), 'g'), f.regexReplacementEscape(value));
                 }
                 // str = options.escapeInterpolation;
             }
@@ -942,6 +1242,10 @@
             var token = translated.substring(index_of_opening, index_of_end_of_closing);
             var token_without_symbols = token.replace(o.reusePrefix, '').replace(o.reuseSuffix, '');
     
+            if (index_of_end_of_closing <= index_of_opening) {
+                f.error('there is an missing closing in following translation value', translated);
+                return '';
+            }
     
             if (token_without_symbols.indexOf(comma) != -1) {
                 var index_of_token_end_of_closing = token_without_symbols.indexOf(comma);
@@ -957,7 +1261,7 @@
             }
     
             var translated_token = _translate(token_without_symbols, opts);
-            translated = translated.replace(token, translated_token);
+            translated = translated.replace(token, f.regexReplacementEscape(translated_token));
         }
         return translated;
     }
@@ -966,8 +1270,12 @@
         return (options.context && (typeof options.context == 'string' || typeof options.context == 'number'));
     }
     
-    function needsPlural(options) {
-        return (options.count !== undefined && typeof options.count != 'string' && options.count !== 1);
+    function needsPlural(options, lng) {
+        return (options.count !== undefined && typeof options.count != 'string' && pluralExtensions.needsPlural(lng, options.count));
+    }
+    
+    function needsIndefiniteArticle(options) {
+        return (options.indefinite_article !== undefined && typeof options.indefinite_article != 'string' && options.indefinite_article);
     }
     
     function exists(key, options) {
@@ -1023,7 +1331,7 @@
             options = options || {};
         }
     
-        if (potentialKeys === undefined || potentialKeys === null) return '';
+        if (potentialKeys === undefined || potentialKeys === null || potentialKeys === '') return '';
     
         if (typeof potentialKeys == 'string') {
             potentialKeys = [potentialKeys];
@@ -1042,7 +1350,7 @@
     
         var notFound = _getDefaultValue(key, options)
             , found = _find(key, options)
-            , lngs = options.lng ? f.toLanguages(options.lng) : languages
+            , lngs = options.lng ? f.toLanguages(options.lng, options.fallbackLng) : languages
             , ns = options.ns || o.ns.defaultNs
             , parts;
     
@@ -1053,11 +1361,11 @@
             key = parts[1];
         }
     
-        if (found === undefined && o.sendMissing) {
+        if (found === undefined && o.sendMissing && typeof o.missingKeyHandler === 'function') {
             if (options.lng) {
-                sync.postMissing(lngs[0], ns, key, notFound, lngs);
+                o.missingKeyHandler(lngs[0], ns, key, notFound, lngs);
             } else {
-                sync.postMissing(o.lng, ns, key, notFound, lngs);
+                o.missingKeyHandler(o.lng, ns, key, notFound, lngs);
             }
         }
     
@@ -1105,7 +1413,7 @@
     
         // passed in lng
         if (options.lng) {
-            lngs = f.toLanguages(options.lng);
+            lngs = f.toLanguages(options.lng, options.fallbackLng);
     
             if (!resStore[lngs[0]]) {
                 var oldAsync = o.getAsync;
@@ -1138,7 +1446,7 @@
             } // else continue translation with original/nonContext key
         }
     
-        if (needsPlural(options)) {
+        if (needsPlural(options, lngs[0])) {
             optionWithoutCount = f.extend({}, options);
             delete optionWithoutCount.count;
             optionWithoutCount.defaultValue = o.pluralNotFound;
@@ -1159,6 +1467,18 @@
                     interpolationSuffix: options.interpolationSuffix
                 }); // apply replacement for count only
             } // else continue translation with original/singular key
+        }
+    
+        if (needsIndefiniteArticle(options)) {
+            var optionsWithoutIndef = f.extend({}, options);
+            delete optionsWithoutIndef.indefinite_article;
+            optionsWithoutIndef.defaultValue = o.indefiniteNotFound;
+            // If we don't have a count, we want the indefinite, if we do have a count, and needsPlural is false
+            var indefiniteKey = ns + o.nsseparator + key + (((options.count && !needsPlural(options, lngs[0])) || !options.count) ? o.indefiniteSuffix : "");
+            translated = translate(indefiniteKey, optionsWithoutIndef);
+            if (translated != o.indefiniteNotFound) {
+                return translated;
+            }
         }
     
         var found;
@@ -1230,6 +1550,7 @@
             } else {
                 found = _find(key, options); // fallback to default NS
             }
+            options.isFallbackLookup = false;
         }
     
         return found;
@@ -1263,214 +1584,23 @@
             if (c) detectedLng = c;
         }
     
+        // get from localstorage
+        if (!detectedLng && typeof document !== 'undefined' && window.localstorage && o.detectLngFromLocalStorage) {
+            detectedLng = window.localStorage.getItem('i18next_lng');
+        }
+    
         // get from navigator
         if (!detectedLng && typeof navigator !== 'undefined') {
-            detectedLng =  (navigator.language) ? navigator.language : navigator.userLanguage;
+            detectedLng = (navigator.language) ? navigator.language : navigator.userLanguage;
+        }
+    
+        //fallback
+        if(!detectedLng){
+          detectedLng = o.fallbackLng[0];
         }
         
         return detectedLng;
     }
-    var sync = {
-    
-        load: function(lngs, options, cb) {
-            if (options.useLocalStorage) {
-                sync._loadLocal(lngs, options, function(err, store) {
-                    var missingLngs = [];
-                    for (var i = 0, len = lngs.length; i < len; i++) {
-                        if (!store[lngs[i]]) missingLngs.push(lngs[i]);
-                    }
-    
-                    if (missingLngs.length > 0) {
-                        sync._fetch(missingLngs, options, function(err, fetched) {
-                            f.extend(store, fetched);
-                            sync._storeLocal(fetched);
-    
-                            cb(null, store);
-                        });
-                    } else {
-                        cb(null, store);
-                    }
-                });
-            } else {
-                sync._fetch(lngs, options, function(err, store){
-                    cb(null, store);
-                });
-            }
-        },
-    
-        _loadLocal: function(lngs, options, cb) {
-            var store = {}
-              , nowMS = new Date().getTime();
-    
-            if(window.localStorage) {
-    
-                var todo = lngs.length;
-    
-                f.each(lngs, function(key, lng) {
-                    var local = window.localStorage.getItem('res_' + lng);
-    
-                    if (local) {
-                        local = JSON.parse(local);
-    
-                        if (local.i18nStamp && local.i18nStamp + options.localStorageExpirationTime > nowMS) {
-                            store[lng] = local;
-                        }
-                    }
-    
-                    todo--; // wait for all done befor callback
-                    if (todo === 0) cb(null, store);
-                });
-            }
-        },
-    
-        _storeLocal: function(store) {
-            if(window.localStorage) {
-                for (var m in store) {
-                    store[m].i18nStamp = new Date().getTime();
-                    window.localStorage.setItem('res_' + m, JSON.stringify(store[m]));
-                }
-            }
-            return;
-        },
-    
-        _fetch: function(lngs, options, cb) {
-            var ns = options.ns
-              , store = {};
-            
-            if (!options.dynamicLoad) {
-                var todo = ns.namespaces.length * lngs.length
-                  , errors;
-    
-                // load each file individual
-                f.each(ns.namespaces, function(nsIndex, nsValue) {
-                    f.each(lngs, function(lngIndex, lngValue) {
-                        
-                        // Call this once our translation has returned.
-                        var loadComplete = function(err, data) {
-                            if (err) {
-                                errors = errors || [];
-                                errors.push(err);
-                            }
-                            store[lngValue] = store[lngValue] || {};
-                            store[lngValue][nsValue] = data;
-    
-                            todo--; // wait for all done befor callback
-                            if (todo === 0) cb(errors, store);
-                        };
-                        
-                        if(typeof options.customLoad == 'function'){
-                            // Use the specified custom callback.
-                            options.customLoad(lngValue, nsValue, options, loadComplete);
-                        } else {
-                            //~ // Use our inbuilt sync.
-                            sync._fetchOne(lngValue, nsValue, options, loadComplete);
-                        }
-                    });
-                });
-            } else {
-                // Call this once our translation has returned.
-                var loadComplete = function(err, data) {
-                    cb(null, data);
-                };
-    
-                if(typeof options.customLoad == 'function'){
-                    // Use the specified custom callback.
-                    options.customLoad(lngs, ns.namespaces, options, loadComplete);
-                } else {
-                    var url = applyReplacement(options.resGetPath, { lng: lngs.join('+'), ns: ns.namespaces.join('+') });
-                    // load all needed stuff once
-                    f.ajax({
-                        url: url,
-                        success: function(data, status, xhr) {
-                            f.log('loaded: ' + url);
-                            loadComplete(null, data);
-                        },
-                        error : function(xhr, status, error) {
-                            f.log('failed loading: ' + url);
-                            loadComplete('failed loading resource.json error: ' + error);
-                        },
-                        dataType: "json",
-                        async : options.getAsync
-                    });
-                }    
-            }
-        },
-    
-        _fetchOne: function(lng, ns, options, done) {
-            var url = applyReplacement(options.resGetPath, { lng: lng, ns: ns });
-            f.ajax({
-                url: url,
-                success: function(data, status, xhr) {
-                    f.log('loaded: ' + url);
-                    done(null, data);
-                },
-                error : function(xhr, status, error) {
-                    if ((status && status == 200) || (xhr && xhr.status && xhr.status == 200)) {
-                        // file loaded but invalid json, stop waste time !
-                        f.log('There is a typo in: ' + url);
-                    } else if ((status && status == 404) || (xhr && xhr.status && xhr.status == 404)) {
-                        f.log('Does not exist: ' + url);
-                    } else {
-                        var theStatus = status ? status : ((xhr && xhr.status) ? xhr.status : null);
-                        f.log(theStatus + ' when loading ' + url);
-                    }
-                    
-                    done(error, {});
-                },
-                dataType: "json",
-                async : options.getAsync
-            });
-        },
-    
-        postMissing: function(lng, ns, key, defaultValue, lngs) {
-            var payload = {};
-            payload[key] = defaultValue;
-    
-            var urls = [];
-    
-            if (o.sendMissingTo === 'fallback' && o.fallbackLng[0] !== false) {
-                for (var i = 0; i < o.fallbackLng.length; i++) {
-                    urls.push({lng: o.fallbackLng[i], url: applyReplacement(o.resPostPath, { lng: o.fallbackLng[i], ns: ns })});
-                }
-            } else if (o.sendMissingTo === 'current' || (o.sendMissingTo === 'fallback' && o.fallbackLng[0] === false) ) {
-                urls.push({lng: lng, url: applyReplacement(o.resPostPath, { lng: lng, ns: ns })});
-            } else if (o.sendMissingTo === 'all') {
-                for (var i = 0, l = lngs.length; i < l; i++) {
-                    urls.push({lng: lngs[i], url: applyReplacement(o.resPostPath, { lng: lngs[i], ns: ns })});
-                }
-            }
-    
-            for (var y = 0, len = urls.length; y < len; y++) {
-                var item = urls[y];
-                f.ajax({
-                    url: item.url,
-                    type: o.sendType,
-                    data: payload,
-                    success: function(data, status, xhr) {
-                        f.log('posted missing key \'' + key + '\' to: ' + item.url);
-    
-                        // add key to resStore
-                        var keys = key.split('.');
-                        var x = 0;
-                        var value = resStore[item.lng][ns];
-                        while (keys[x]) {
-                            if (x === keys.length - 1) {
-                                value = value[keys[x]] = defaultValue;
-                            } else {
-                                value = value[keys[x]] = value[keys[x]] || {};
-                            }
-                            x++;
-                        }
-                    },
-                    error : function(xhr, status, error) {
-                        f.log('failed posting missing key \'' + key + '\' to: ' + item.url);
-                    },
-                    dataType: "json",
-                    async : o.postAsync
-                });
-            }
-        }
-    };
     // definition http://translate.sourceforge.net/wiki/l10n/pluralforms
     var pluralExtensions = {
     
@@ -1766,7 +1896,7 @@
                     1, 
                     2
                 ], 
-                "plurals": function(n) { return Number(n > 1); }
+                "plurals": function(n) { return Number(n >= 2); }
             }, 
             "fur": {
                 "name": "Friulian", 
@@ -2541,6 +2671,23 @@
             }
         },
     
+        needsPlural: function(lng, count) {
+            var parts = lng.split('-');
+    
+            var ext;
+            if (pluralExtensions.currentRule && pluralExtensions.currentRule.lng === lng) {
+                ext = pluralExtensions.currentRule.rule; 
+            } else {
+                ext = pluralExtensions.rules[parts[f.getCountyIndexOfLng(lng)]];
+            }
+    
+            if (ext && ext.numbers.length <= 1) {
+                return false;
+            } else {
+                return this.get(lng, count) !== 1;
+            }
+        },
+    
         get: function(lng, count) {
             var parts = lng.split('-');
     
@@ -2552,7 +2699,13 @@
                     ext = pluralExtensions.rules[l];
                 }
                 if (ext) {
-                    var i = ext.plurals(c);
+                    var i;
+                    if (ext.noAbs) {
+                        i = ext.plurals(c);
+                    } else {
+                        i = ext.plurals(Math.abs(c));
+                    }
+                    
                     var number = ext.numbers[i];
                     if (ext.numbers.length === 2 && ext.numbers[0] === 1) {
                         if (number === 2) { 
@@ -2567,7 +2720,7 @@
                 }
             }
                         
-            return getResult(parts[0], count);
+            return getResult(parts[f.getCountyIndexOfLng(lng)], count);
         }
     
     };
@@ -2716,6 +2869,8 @@
     i18n.setLng = setLng;
     i18n.preload = preload;
     i18n.addResourceBundle = addResourceBundle;
+    i18n.addResource = addResource;
+    i18n.addResources = addResources;
     i18n.removeResourceBundle = removeResourceBundle;
     i18n.loadNamespace = loadNamespace;
     i18n.loadNamespaces = loadNamespaces;
@@ -2732,6 +2887,2234 @@
     i18n.options = o;
 
 })();
+/*!
+    localForage -- Offline Storage, Improved
+    Version 0.9.2
+    http://mozilla.github.io/localForage
+    (c) 2013-2014 Mozilla, Apache License 2.0
+*/
+(function() {
+var define, requireModule, require, requirejs;
+
+(function() {
+  var registry = {}, seen = {};
+
+  define = function(name, deps, callback) {
+    registry[name] = { deps: deps, callback: callback };
+  };
+
+  requirejs = require = requireModule = function(name) {
+  requirejs._eak_seen = registry;
+
+    if (seen[name]) { return seen[name]; }
+    seen[name] = {};
+
+    if (!registry[name]) {
+      throw new Error("Could not find module " + name);
+    }
+
+    var mod = registry[name],
+        deps = mod.deps,
+        callback = mod.callback,
+        reified = [],
+        exports;
+
+    for (var i=0, l=deps.length; i<l; i++) {
+      if (deps[i] === 'exports') {
+        reified.push(exports = {});
+      } else {
+        reified.push(requireModule(resolve(deps[i])));
+      }
+    }
+
+    var value = callback.apply(this, reified);
+    return seen[name] = exports || value;
+
+    function resolve(child) {
+      if (child.charAt(0) !== '.') { return child; }
+      var parts = child.split("/");
+      var parentBase = name.split("/").slice(0, -1);
+
+      for (var i=0, l=parts.length; i<l; i++) {
+        var part = parts[i];
+
+        if (part === '..') { parentBase.pop(); }
+        else if (part === '.') { continue; }
+        else { parentBase.push(part); }
+      }
+
+      return parentBase.join("/");
+    }
+  };
+})();
+
+define("promise/all", 
+  ["./utils","exports"],
+  function(__dependency1__, __exports__) {
+    "use strict";
+    /* global toString */
+
+    var isArray = __dependency1__.isArray;
+    var isFunction = __dependency1__.isFunction;
+
+    /**
+      Returns a promise that is fulfilled when all the given promises have been
+      fulfilled, or rejected if any of them become rejected. The return promise
+      is fulfilled with an array that gives all the values in the order they were
+      passed in the `promises` array argument.
+
+      Example:
+
+      ```javascript
+      var promise1 = RSVP.resolve(1);
+      var promise2 = RSVP.resolve(2);
+      var promise3 = RSVP.resolve(3);
+      var promises = [ promise1, promise2, promise3 ];
+
+      RSVP.all(promises).then(function(array){
+        // The array here would be [ 1, 2, 3 ];
+      });
+      ```
+
+      If any of the `promises` given to `RSVP.all` are rejected, the first promise
+      that is rejected will be given as an argument to the returned promises's
+      rejection handler. For example:
+
+      Example:
+
+      ```javascript
+      var promise1 = RSVP.resolve(1);
+      var promise2 = RSVP.reject(new Error("2"));
+      var promise3 = RSVP.reject(new Error("3"));
+      var promises = [ promise1, promise2, promise3 ];
+
+      RSVP.all(promises).then(function(array){
+        // Code here never runs because there are rejected promises!
+      }, function(error) {
+        // error.message === "2"
+      });
+      ```
+
+      @method all
+      @for RSVP
+      @param {Array} promises
+      @param {String} label
+      @return {Promise} promise that is fulfilled when all `promises` have been
+      fulfilled, or rejected if any of them become rejected.
+    */
+    function all(promises) {
+      /*jshint validthis:true */
+      var Promise = this;
+
+      if (!isArray(promises)) {
+        throw new TypeError('You must pass an array to all.');
+      }
+
+      return new Promise(function(resolve, reject) {
+        var results = [], remaining = promises.length,
+        promise;
+
+        if (remaining === 0) {
+          resolve([]);
+        }
+
+        function resolver(index) {
+          return function(value) {
+            resolveAll(index, value);
+          };
+        }
+
+        function resolveAll(index, value) {
+          results[index] = value;
+          if (--remaining === 0) {
+            resolve(results);
+          }
+        }
+
+        for (var i = 0; i < promises.length; i++) {
+          promise = promises[i];
+
+          if (promise && isFunction(promise.then)) {
+            promise.then(resolver(i), reject);
+          } else {
+            resolveAll(i, promise);
+          }
+        }
+      });
+    }
+
+    __exports__.all = all;
+  });
+define("promise/asap", 
+  ["exports"],
+  function(__exports__) {
+    "use strict";
+    var browserGlobal = (typeof window !== 'undefined') ? window : {};
+    var BrowserMutationObserver = browserGlobal.MutationObserver || browserGlobal.WebKitMutationObserver;
+    var local = (typeof global !== 'undefined') ? global : (this === undefined? window:this);
+
+    // node
+    function useNextTick() {
+      return function() {
+        process.nextTick(flush);
+      };
+    }
+
+    function useMutationObserver() {
+      var iterations = 0;
+      var observer = new BrowserMutationObserver(flush);
+      var node = document.createTextNode('');
+      observer.observe(node, { characterData: true });
+
+      return function() {
+        node.data = (iterations = ++iterations % 2);
+      };
+    }
+
+    function useSetTimeout() {
+      return function() {
+        local.setTimeout(flush, 1);
+      };
+    }
+
+    var queue = [];
+    function flush() {
+      for (var i = 0; i < queue.length; i++) {
+        var tuple = queue[i];
+        var callback = tuple[0], arg = tuple[1];
+        callback(arg);
+      }
+      queue = [];
+    }
+
+    var scheduleFlush;
+
+    // Decide what async method to use to triggering processing of queued callbacks:
+    if (typeof process !== 'undefined' && {}.toString.call(process) === '[object process]') {
+      scheduleFlush = useNextTick();
+    } else if (BrowserMutationObserver) {
+      scheduleFlush = useMutationObserver();
+    } else {
+      scheduleFlush = useSetTimeout();
+    }
+
+    function asap(callback, arg) {
+      var length = queue.push([callback, arg]);
+      if (length === 1) {
+        // If length is 1, that means that we need to schedule an async flush.
+        // If additional callbacks are queued before the queue is flushed, they
+        // will be processed by this flush that we are scheduling.
+        scheduleFlush();
+      }
+    }
+
+    __exports__.asap = asap;
+  });
+define("promise/config", 
+  ["exports"],
+  function(__exports__) {
+    "use strict";
+    var config = {
+      instrument: false
+    };
+
+    function configure(name, value) {
+      if (arguments.length === 2) {
+        config[name] = value;
+      } else {
+        return config[name];
+      }
+    }
+
+    __exports__.config = config;
+    __exports__.configure = configure;
+  });
+define("promise/polyfill", 
+  ["./promise","./utils","exports"],
+  function(__dependency1__, __dependency2__, __exports__) {
+    "use strict";
+    /*global self*/
+    var RSVPPromise = __dependency1__.Promise;
+    var isFunction = __dependency2__.isFunction;
+
+    function polyfill() {
+      var local;
+
+      if (typeof global !== 'undefined') {
+        local = global;
+      } else if (typeof window !== 'undefined' && window.document) {
+        local = window;
+      } else {
+        local = self;
+      }
+
+      var es6PromiseSupport = 
+        "Promise" in local &&
+        // Some of these methods are missing from
+        // Firefox/Chrome experimental implementations
+        "resolve" in local.Promise &&
+        "reject" in local.Promise &&
+        "all" in local.Promise &&
+        "race" in local.Promise &&
+        // Older version of the spec had a resolver object
+        // as the arg rather than a function
+        (function() {
+          var resolve;
+          new local.Promise(function(r) { resolve = r; });
+          return isFunction(resolve);
+        }());
+
+      if (!es6PromiseSupport) {
+        local.Promise = RSVPPromise;
+      }
+    }
+
+    __exports__.polyfill = polyfill;
+  });
+define("promise/promise", 
+  ["./config","./utils","./all","./race","./resolve","./reject","./asap","exports"],
+  function(__dependency1__, __dependency2__, __dependency3__, __dependency4__, __dependency5__, __dependency6__, __dependency7__, __exports__) {
+    "use strict";
+    var config = __dependency1__.config;
+    var configure = __dependency1__.configure;
+    var objectOrFunction = __dependency2__.objectOrFunction;
+    var isFunction = __dependency2__.isFunction;
+    var now = __dependency2__.now;
+    var all = __dependency3__.all;
+    var race = __dependency4__.race;
+    var staticResolve = __dependency5__.resolve;
+    var staticReject = __dependency6__.reject;
+    var asap = __dependency7__.asap;
+
+    var counter = 0;
+
+    config.async = asap; // default async is asap;
+
+    function Promise(resolver) {
+      if (!isFunction(resolver)) {
+        throw new TypeError('You must pass a resolver function as the first argument to the promise constructor');
+      }
+
+      if (!(this instanceof Promise)) {
+        throw new TypeError("Failed to construct 'Promise': Please use the 'new' operator, this object constructor cannot be called as a function.");
+      }
+
+      this._subscribers = [];
+
+      invokeResolver(resolver, this);
+    }
+
+    function invokeResolver(resolver, promise) {
+      function resolvePromise(value) {
+        resolve(promise, value);
+      }
+
+      function rejectPromise(reason) {
+        reject(promise, reason);
+      }
+
+      try {
+        resolver(resolvePromise, rejectPromise);
+      } catch(e) {
+        rejectPromise(e);
+      }
+    }
+
+    function invokeCallback(settled, promise, callback, detail) {
+      var hasCallback = isFunction(callback),
+          value, error, succeeded, failed;
+
+      if (hasCallback) {
+        try {
+          value = callback(detail);
+          succeeded = true;
+        } catch(e) {
+          failed = true;
+          error = e;
+        }
+      } else {
+        value = detail;
+        succeeded = true;
+      }
+
+      if (handleThenable(promise, value)) {
+        return;
+      } else if (hasCallback && succeeded) {
+        resolve(promise, value);
+      } else if (failed) {
+        reject(promise, error);
+      } else if (settled === FULFILLED) {
+        resolve(promise, value);
+      } else if (settled === REJECTED) {
+        reject(promise, value);
+      }
+    }
+
+    var PENDING   = void 0;
+    var SEALED    = 0;
+    var FULFILLED = 1;
+    var REJECTED  = 2;
+
+    function subscribe(parent, child, onFulfillment, onRejection) {
+      var subscribers = parent._subscribers;
+      var length = subscribers.length;
+
+      subscribers[length] = child;
+      subscribers[length + FULFILLED] = onFulfillment;
+      subscribers[length + REJECTED]  = onRejection;
+    }
+
+    function publish(promise, settled) {
+      var child, callback, subscribers = promise._subscribers, detail = promise._detail;
+
+      for (var i = 0; i < subscribers.length; i += 3) {
+        child = subscribers[i];
+        callback = subscribers[i + settled];
+
+        invokeCallback(settled, child, callback, detail);
+      }
+
+      promise._subscribers = null;
+    }
+
+    Promise.prototype = {
+      constructor: Promise,
+
+      _state: undefined,
+      _detail: undefined,
+      _subscribers: undefined,
+
+      then: function(onFulfillment, onRejection) {
+        var promise = this;
+
+        var thenPromise = new this.constructor(function() {});
+
+        if (this._state) {
+          var callbacks = arguments;
+          config.async(function invokePromiseCallback() {
+            invokeCallback(promise._state, thenPromise, callbacks[promise._state - 1], promise._detail);
+          });
+        } else {
+          subscribe(this, thenPromise, onFulfillment, onRejection);
+        }
+
+        return thenPromise;
+      },
+
+      'catch': function(onRejection) {
+        return this.then(null, onRejection);
+      }
+    };
+
+    Promise.all = all;
+    Promise.race = race;
+    Promise.resolve = staticResolve;
+    Promise.reject = staticReject;
+
+    function handleThenable(promise, value) {
+      var then = null,
+      resolved;
+
+      try {
+        if (promise === value) {
+          throw new TypeError("A promises callback cannot return that same promise.");
+        }
+
+        if (objectOrFunction(value)) {
+          then = value.then;
+
+          if (isFunction(then)) {
+            then.call(value, function(val) {
+              if (resolved) { return true; }
+              resolved = true;
+
+              if (value !== val) {
+                resolve(promise, val);
+              } else {
+                fulfill(promise, val);
+              }
+            }, function(val) {
+              if (resolved) { return true; }
+              resolved = true;
+
+              reject(promise, val);
+            });
+
+            return true;
+          }
+        }
+      } catch (error) {
+        if (resolved) { return true; }
+        reject(promise, error);
+        return true;
+      }
+
+      return false;
+    }
+
+    function resolve(promise, value) {
+      if (promise === value) {
+        fulfill(promise, value);
+      } else if (!handleThenable(promise, value)) {
+        fulfill(promise, value);
+      }
+    }
+
+    function fulfill(promise, value) {
+      if (promise._state !== PENDING) { return; }
+      promise._state = SEALED;
+      promise._detail = value;
+
+      config.async(publishFulfillment, promise);
+    }
+
+    function reject(promise, reason) {
+      if (promise._state !== PENDING) { return; }
+      promise._state = SEALED;
+      promise._detail = reason;
+
+      config.async(publishRejection, promise);
+    }
+
+    function publishFulfillment(promise) {
+      publish(promise, promise._state = FULFILLED);
+    }
+
+    function publishRejection(promise) {
+      publish(promise, promise._state = REJECTED);
+    }
+
+    __exports__.Promise = Promise;
+  });
+define("promise/race", 
+  ["./utils","exports"],
+  function(__dependency1__, __exports__) {
+    "use strict";
+    /* global toString */
+    var isArray = __dependency1__.isArray;
+
+    /**
+      `RSVP.race` allows you to watch a series of promises and act as soon as the
+      first promise given to the `promises` argument fulfills or rejects.
+
+      Example:
+
+      ```javascript
+      var promise1 = new RSVP.Promise(function(resolve, reject){
+        setTimeout(function(){
+          resolve("promise 1");
+        }, 200);
+      });
+
+      var promise2 = new RSVP.Promise(function(resolve, reject){
+        setTimeout(function(){
+          resolve("promise 2");
+        }, 100);
+      });
+
+      RSVP.race([promise1, promise2]).then(function(result){
+        // result === "promise 2" because it was resolved before promise1
+        // was resolved.
+      });
+      ```
+
+      `RSVP.race` is deterministic in that only the state of the first completed
+      promise matters. For example, even if other promises given to the `promises`
+      array argument are resolved, but the first completed promise has become
+      rejected before the other promises became fulfilled, the returned promise
+      will become rejected:
+
+      ```javascript
+      var promise1 = new RSVP.Promise(function(resolve, reject){
+        setTimeout(function(){
+          resolve("promise 1");
+        }, 200);
+      });
+
+      var promise2 = new RSVP.Promise(function(resolve, reject){
+        setTimeout(function(){
+          reject(new Error("promise 2"));
+        }, 100);
+      });
+
+      RSVP.race([promise1, promise2]).then(function(result){
+        // Code here never runs because there are rejected promises!
+      }, function(reason){
+        // reason.message === "promise2" because promise 2 became rejected before
+        // promise 1 became fulfilled
+      });
+      ```
+
+      @method race
+      @for RSVP
+      @param {Array} promises array of promises to observe
+      @param {String} label optional string for describing the promise returned.
+      Useful for tooling.
+      @return {Promise} a promise that becomes fulfilled with the value the first
+      completed promises is resolved with if the first completed promise was
+      fulfilled, or rejected with the reason that the first completed promise
+      was rejected with.
+    */
+    function race(promises) {
+      /*jshint validthis:true */
+      var Promise = this;
+
+      if (!isArray(promises)) {
+        throw new TypeError('You must pass an array to race.');
+      }
+      return new Promise(function(resolve, reject) {
+        var results = [], promise;
+
+        for (var i = 0; i < promises.length; i++) {
+          promise = promises[i];
+
+          if (promise && typeof promise.then === 'function') {
+            promise.then(resolve, reject);
+          } else {
+            resolve(promise);
+          }
+        }
+      });
+    }
+
+    __exports__.race = race;
+  });
+define("promise/reject", 
+  ["exports"],
+  function(__exports__) {
+    "use strict";
+    /**
+      `RSVP.reject` returns a promise that will become rejected with the passed
+      `reason`. `RSVP.reject` is essentially shorthand for the following:
+
+      ```javascript
+      var promise = new RSVP.Promise(function(resolve, reject){
+        reject(new Error('WHOOPS'));
+      });
+
+      promise.then(function(value){
+        // Code here doesn't run because the promise is rejected!
+      }, function(reason){
+        // reason.message === 'WHOOPS'
+      });
+      ```
+
+      Instead of writing the above, your code now simply becomes the following:
+
+      ```javascript
+      var promise = RSVP.reject(new Error('WHOOPS'));
+
+      promise.then(function(value){
+        // Code here doesn't run because the promise is rejected!
+      }, function(reason){
+        // reason.message === 'WHOOPS'
+      });
+      ```
+
+      @method reject
+      @for RSVP
+      @param {Any} reason value that the returned promise will be rejected with.
+      @param {String} label optional string for identifying the returned promise.
+      Useful for tooling.
+      @return {Promise} a promise that will become rejected with the given
+      `reason`.
+    */
+    function reject(reason) {
+      /*jshint validthis:true */
+      var Promise = this;
+
+      return new Promise(function (resolve, reject) {
+        reject(reason);
+      });
+    }
+
+    __exports__.reject = reject;
+  });
+define("promise/resolve", 
+  ["exports"],
+  function(__exports__) {
+    "use strict";
+    function resolve(value) {
+      /*jshint validthis:true */
+      if (value && typeof value === 'object' && value.constructor === this) {
+        return value;
+      }
+
+      var Promise = this;
+
+      return new Promise(function(resolve) {
+        resolve(value);
+      });
+    }
+
+    __exports__.resolve = resolve;
+  });
+define("promise/utils", 
+  ["exports"],
+  function(__exports__) {
+    "use strict";
+    function objectOrFunction(x) {
+      return isFunction(x) || (typeof x === "object" && x !== null);
+    }
+
+    function isFunction(x) {
+      return typeof x === "function";
+    }
+
+    function isArray(x) {
+      return Object.prototype.toString.call(x) === "[object Array]";
+    }
+
+    // Date.now is not available in browsers < IE9
+    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/now#Compatibility
+    var now = Date.now || function() { return new Date().getTime(); };
+
+
+    __exports__.objectOrFunction = objectOrFunction;
+    __exports__.isFunction = isFunction;
+    __exports__.isArray = isArray;
+    __exports__.now = now;
+  });
+requireModule('promise/polyfill').polyfill();
+}());// Some code originally from async_storage.js in
+// [Gaia](https://github.com/mozilla-b2g/gaia).
+(function() {
+    'use strict';
+
+    // Originally found in https://github.com/mozilla-b2g/gaia/blob/e8f624e4cc9ea945727278039b3bc9bcb9f8667a/shared/js/async_storage.js
+
+    // Promises!
+    var Promise = (typeof module !== 'undefined' && module.exports) ?
+                  require('promise') : this.Promise;
+
+    var db = null;
+    var dbInfo = {};
+
+    // Initialize IndexedDB; fall back to vendor-prefixed versions if needed.
+    var indexedDB = indexedDB || this.indexedDB || this.webkitIndexedDB ||
+                    this.mozIndexedDB || this.OIndexedDB ||
+                    this.msIndexedDB;
+
+    // If IndexedDB isn't available, we get outta here!
+    if (!indexedDB) {
+        return;
+    }
+
+    // Open the IndexedDB database (automatically creates one if one didn't
+    // previously exist), using any options set in the config.
+    function _initStorage(options) {
+        if (options) {
+            for (var i in options) {
+                dbInfo[i] = options[i];
+            }
+        }
+
+        return new Promise(function(resolve, reject) {
+            var openreq = indexedDB.open(dbInfo.name, dbInfo.version);
+            openreq.onerror = function() {
+                reject(openreq.error);
+            };
+            openreq.onupgradeneeded = function() {
+                // First time setup: create an empty object store
+                openreq.result.createObjectStore(dbInfo.storeName);
+            };
+            openreq.onsuccess = function() {
+                db = openreq.result;
+                resolve();
+            };
+        });
+    }
+
+    function getItem(key, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var store = db.transaction(dbInfo.storeName, 'readonly')
+                              .objectStore(dbInfo.storeName);
+                var req = store.get(key);
+
+                req.onsuccess = function() {
+                    var value = req.result;
+                    if (value === undefined) {
+                        value = null;
+                    }
+
+                    deferCallback(callback,value);
+
+                    resolve(value);
+                };
+
+                req.onerror = function() {
+                    if (callback) {
+                        callback(null, req.error);
+                    }
+
+                    reject(req.error);
+                };
+            }, reject);
+        });
+    }
+
+    function setItem(key, value, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var store = db.transaction(dbInfo.storeName, 'readwrite')
+                              .objectStore(dbInfo.storeName);
+
+                // The reason we don't _save_ null is because IE 10 does
+                // not support saving the `null` type in IndexedDB. How
+                // ironic, given the bug below!
+                // See: https://github.com/mozilla/localForage/issues/161
+                if (value === null) {
+                    value = undefined;
+                }
+
+                var req = store.put(value, key);
+                req.onsuccess = function() {
+                    // Cast to undefined so the value passed to
+                    // callback/promise is the same as what one would get out
+                    // of `getItem()` later. This leads to some weirdness
+                    // (setItem('foo', undefined) will return `null`), but
+                    // it's not my fault localStorage is our baseline and that
+                    // it's weird.
+                    if (value === undefined) {
+                        value = null;
+                    }
+
+                    deferCallback(callback, value);
+
+                    resolve(value);
+                };
+                req.onerror = function() {
+                    if (callback) {
+                        callback(null, req.error);
+                    }
+
+                    reject(req.error);
+                };
+            }, reject);
+        });
+    }
+
+    function removeItem(key, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var store = db.transaction(dbInfo.storeName, 'readwrite')
+                              .objectStore(dbInfo.storeName);
+
+                // We use a Grunt task to make this safe for IE and some
+                // versions of Android (including those used by Cordova).
+                // Normally IE won't like `.delete()` and will insist on
+                // using `['delete']()`, but we have a build step that
+                // fixes this for us now.
+                var req = store["delete"](key);
+                req.onsuccess = function() {
+
+                    deferCallback(callback);
+
+                    resolve();
+                };
+
+                req.onerror = function() {
+                    if (callback) {
+                        callback(req.error);
+                    }
+
+                    reject(req.error);
+                };
+
+                // The request will be aborted if we've exceeded our storage
+                // space. In this case, we will reject with a specific
+                // "QuotaExceededError".
+                req.onabort = function(event) {
+                    var error = event.target.error;
+                    if (error === 'QuotaExceededError') {
+                        if (callback) {
+                            callback(error);
+                        }
+
+                        reject(error);
+                    }
+                };
+            }, reject);
+        });
+    }
+
+    function clear(callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var store = db.transaction(dbInfo.storeName, 'readwrite')
+                              .objectStore(dbInfo.storeName);
+                var req = store.clear();
+
+                req.onsuccess = function() {
+                    deferCallback(callback);
+
+                    resolve();
+                };
+
+                req.onerror = function() {
+                    if (callback) {
+                        callback(null, req.error);
+                    }
+
+                    reject(req.error);
+                };
+            }, reject);
+        });
+    }
+
+    function length(callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var store = db.transaction(dbInfo.storeName, 'readonly')
+                              .objectStore(dbInfo.storeName);
+                var req = store.count();
+
+                req.onsuccess = function() {
+                    if (callback) {
+                        callback(req.result);
+                    }
+
+                    resolve(req.result);
+                };
+
+                req.onerror = function() {
+                    if (callback) {
+                        callback(null, req.error);
+                    }
+
+                    reject(req.error);
+                };
+            }, reject);
+        });
+    }
+
+    function key(n, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            if (n < 0) {
+                if (callback) {
+                    callback(null);
+                }
+
+                resolve(null);
+
+                return;
+            }
+
+            _this.ready().then(function() {
+                var store = db.transaction(dbInfo.storeName, 'readonly')
+                              .objectStore(dbInfo.storeName);
+
+                var advanced = false;
+                var req = store.openCursor();
+                req.onsuccess = function() {
+                    var cursor = req.result;
+                    if (!cursor) {
+                        // this means there weren't enough keys
+                        if (callback) {
+                            callback(null);
+                        }
+
+                        resolve(null);
+
+                        return;
+                    }
+
+                    if (n === 0) {
+                        // We have the first key, return it if that's what they
+                        // wanted.
+                        if (callback) {
+                            callback(cursor.key);
+                        }
+
+                        resolve(cursor.key);
+                    } else {
+                        if (!advanced) {
+                            // Otherwise, ask the cursor to skip ahead n
+                            // records.
+                            advanced = true;
+                            cursor.advance(n);
+                        } else {
+                            // When we get here, we've got the nth key.
+                            if (callback) {
+                                callback(cursor.key);
+                            }
+
+                            resolve(cursor.key);
+                        }
+                    }
+                };
+
+                req.onerror = function() {
+                    if (callback) {
+                        callback(null, req.error);
+                    }
+
+                    reject(req.error);
+                };
+            }, reject);
+        });
+    }
+
+    function keys(callback) {
+        var _this = this;
+
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var store = db.transaction(dbInfo.storeName, 'readonly')
+                              .objectStore(dbInfo.storeName);
+
+                var req = store.openCursor();
+                var keys = [];
+
+                req.onsuccess = function() {
+                    var cursor = req.result;
+
+                    if (!cursor) {
+                        if (callback) {
+                            callback(keys);
+                        }
+
+                        resolve(keys);
+                        return;
+                    }
+
+                    keys.push(cursor.key);
+                    cursor["continue"]();
+                };
+
+                req.onerror = function() {
+                    if (callback) {
+                        callback(null, req.error);
+                    }
+
+                    reject(req.error);
+                };
+            }, reject);
+        });
+    }
+
+    // Under Chrome the callback is called before the changes (save, clear)
+    // are actually made. So we use a defer function which wait that the
+    // call stack to be empty.
+    // For more info : https://github.com/mozilla/localForage/issues/175
+    // Pull request : https://github.com/mozilla/localForage/pull/178
+    function deferCallback(callback, value) {
+        if (callback) {
+            return setTimeout(function() {
+                return callback(value);
+            }, 0);
+        }
+    }
+
+    var asyncStorage = {
+        _driver: 'asyncStorage',
+        _initStorage: _initStorage,
+        getItem: getItem,
+        setItem: setItem,
+        removeItem: removeItem,
+        clear: clear,
+        length: length,
+        key: key,
+        keys: keys
+    };
+
+    if (typeof define === 'function' && define.amd) {
+        define('asyncStorage', function() {
+            return asyncStorage;
+        });
+    } else if (typeof module !== 'undefined' && module.exports) {
+        module.exports = asyncStorage;
+    } else {
+        this.asyncStorage = asyncStorage;
+    }
+}).call(this);
+// If IndexedDB isn't available, we'll fall back to localStorage.
+// Note that this will have considerable performance and storage
+// side-effects (all data will be serialized on save and only data that
+// can be converted to a string via `JSON.stringify()` will be saved).
+(function() {
+    'use strict';
+
+    var keyPrefix = '';
+    var dbInfo = {};
+    // Promises!
+    var Promise = (typeof module !== 'undefined' && module.exports) ?
+                  require('promise') : this.Promise;
+    var localStorage = null;
+
+    // If the app is running inside a Google Chrome packaged webapp, or some
+    // other context where localStorage isn't available, we don't use
+    // localStorage. This feature detection is preferred over the old
+    // `if (window.chrome && window.chrome.runtime)` code.
+    // See: https://github.com/mozilla/localForage/issues/68
+    try {
+        // If localStorage isn't available, we get outta here!
+        // This should be inside a try catch
+        if (!this.localStorage || !('setItem' in this.localStorage)) {
+            return;
+        }
+        // Initialize localStorage and create a variable to use throughout
+        // the code.
+        localStorage = this.localStorage;
+    } catch (e) {
+        return;
+    }
+
+    // Config the localStorage backend, using options set in the config.
+    function _initStorage(options) {
+        if (options) {
+            for (var i in options) {
+                dbInfo[i] = options[i];
+            }
+        }
+
+        keyPrefix = dbInfo.name + '/';
+
+        return Promise.resolve();
+    }
+
+    var SERIALIZED_MARKER = '__lfsc__:';
+    var SERIALIZED_MARKER_LENGTH = SERIALIZED_MARKER.length;
+
+    // OMG the serializations!
+    var TYPE_ARRAYBUFFER = 'arbf';
+    var TYPE_BLOB = 'blob';
+    var TYPE_INT8ARRAY = 'si08';
+    var TYPE_UINT8ARRAY = 'ui08';
+    var TYPE_UINT8CLAMPEDARRAY = 'uic8';
+    var TYPE_INT16ARRAY = 'si16';
+    var TYPE_INT32ARRAY = 'si32';
+    var TYPE_UINT16ARRAY = 'ur16';
+    var TYPE_UINT32ARRAY = 'ui32';
+    var TYPE_FLOAT32ARRAY = 'fl32';
+    var TYPE_FLOAT64ARRAY = 'fl64';
+    var TYPE_SERIALIZED_MARKER_LENGTH = SERIALIZED_MARKER_LENGTH +
+                                        TYPE_ARRAYBUFFER.length;
+
+    // Remove all keys from the datastore, effectively destroying all data in
+    // the app's key/value store!
+    function clear(callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                localStorage.clear();
+
+                if (callback) {
+                    callback();
+                }
+
+                resolve();
+            }, reject);
+        });
+    }
+
+    // Retrieve an item from the store. Unlike the original async_storage
+    // library in Gaia, we don't modify return values at all. If a key's value
+    // is `undefined`, we pass that value to the callback function.
+    function getItem(key, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                try {
+                    var result = localStorage.getItem(keyPrefix + key);
+
+                    // If a result was found, parse it from the serialized
+                    // string into a JS object. If result isn't truthy, the key
+                    // is likely undefined and we'll pass it straight to the
+                    // callback.
+                    if (result) {
+                        result = _deserialize(result);
+                    }
+
+                    if (callback) {
+                        callback(result);
+                    }
+
+                    resolve(result);
+                } catch (e) {
+                    if (callback) {
+                        callback(null, e);
+                    }
+
+                    reject(e);
+                }
+            }, reject);
+        });
+    }
+
+    // Same as localStorage's key() method, except takes a callback.
+    function key(n, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var result;
+                try {
+                    result = localStorage.key(n);
+                } catch (error) {
+                    result = null;
+                }
+
+                // Remove the prefix from the key, if a key is found.
+                if (result) {
+                    result = result.substring(keyPrefix.length);
+                }
+
+                if (callback) {
+                    callback(result);
+                }
+                resolve(result);
+            }, reject);
+        });
+    }
+
+    function keys(callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var length = localStorage.length;
+                var keys = [];
+
+                for (var i = 0; i < length; i++) {
+                    keys.push(localStorage.key(i).substring(keyPrefix.length));
+                }
+
+                if (callback) {
+                    callback(keys);
+                }
+
+                resolve(keys);
+            }, reject);
+        });
+    }
+
+    // Supply the number of keys in the datastore to the callback function.
+    function length(callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                var result = localStorage.length;
+
+                if (callback) {
+                    callback(result);
+                }
+
+                resolve(result);
+            }, reject);
+        });
+    }
+
+    // Remove an item from the store, nice and simple.
+    function removeItem(key, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                localStorage.removeItem(keyPrefix + key);
+
+                if (callback) {
+                    callback();
+                }
+
+                resolve();
+            }, reject);
+        });
+    }
+
+    // Deserialize data we've inserted into a value column/field. We place
+    // special markers into our strings to mark them as encoded; this isn't
+    // as nice as a meta field, but it's the only sane thing we can do whilst
+    // keeping localStorage support intact.
+    //
+    // Oftentimes this will just deserialize JSON content, but if we have a
+    // special marker (SERIALIZED_MARKER, defined above), we will extract
+    // some kind of arraybuffer/binary data/typed array out of the string.
+    function _deserialize(value) {
+        // If we haven't marked this string as being specially serialized (i.e.
+        // something other than serialized JSON), we can just return it and be
+        // done with it.
+        if (value.substring(0,
+            SERIALIZED_MARKER_LENGTH) !== SERIALIZED_MARKER) {
+            return JSON.parse(value);
+        }
+
+        // The following code deals with deserializing some kind of Blob or
+        // TypedArray. First we separate out the type of data we're dealing
+        // with from the data itself.
+        var serializedString = value.substring(TYPE_SERIALIZED_MARKER_LENGTH);
+        var type = value.substring(SERIALIZED_MARKER_LENGTH,
+                                   TYPE_SERIALIZED_MARKER_LENGTH);
+
+        // Fill the string into a ArrayBuffer.
+        // 2 bytes for each char.
+        var buffer = new ArrayBuffer(serializedString.length * 2);
+        var bufferView = new Uint16Array(buffer);
+        for (var i = serializedString.length - 1; i >= 0; i--) {
+            bufferView[i] = serializedString.charCodeAt(i);
+        }
+
+        // Return the right type based on the code/type set during
+        // serialization.
+        switch (type) {
+            case TYPE_ARRAYBUFFER:
+                return buffer;
+            case TYPE_BLOB:
+                return new Blob([buffer]);
+            case TYPE_INT8ARRAY:
+                return new Int8Array(buffer);
+            case TYPE_UINT8ARRAY:
+                return new Uint8Array(buffer);
+            case TYPE_UINT8CLAMPEDARRAY:
+                return new Uint8ClampedArray(buffer);
+            case TYPE_INT16ARRAY:
+                return new Int16Array(buffer);
+            case TYPE_UINT16ARRAY:
+                return new Uint16Array(buffer);
+            case TYPE_INT32ARRAY:
+                return new Int32Array(buffer);
+            case TYPE_UINT32ARRAY:
+                return new Uint32Array(buffer);
+            case TYPE_FLOAT32ARRAY:
+                return new Float32Array(buffer);
+            case TYPE_FLOAT64ARRAY:
+                return new Float64Array(buffer);
+            default:
+                throw new Error('Unkown type: ' + type);
+        }
+    }
+
+    // Converts a buffer to a string to store, serialized, in the backend
+    // storage library.
+    function _bufferToString(buffer) {
+        var str = '';
+        var uint16Array = new Uint16Array(buffer);
+
+        try {
+            str = String.fromCharCode.apply(null, uint16Array);
+        } catch (e) {
+            // This is a fallback implementation in case the first one does
+            // not work. This is required to get the phantomjs passing...
+            for (var i = 0; i < uint16Array.length; i++) {
+                str += String.fromCharCode(uint16Array[i]);
+            }
+        }
+
+        return str;
+    }
+
+    // Serialize a value, afterwards executing a callback (which usually
+    // instructs the `setItem()` callback/promise to be executed). This is how
+    // we store binary data with localStorage.
+    function _serialize(value, callback) {
+        var valueString = '';
+        if (value) {
+            valueString = value.toString();
+        }
+
+        // Cannot use `value instanceof ArrayBuffer` or such here, as these
+        // checks fail when running the tests using casper.js...
+        //
+        // TODO: See why those tests fail and use a better solution.
+        if (value && (value.toString() === '[object ArrayBuffer]' ||
+                      value.buffer && value.buffer.toString() === '[object ArrayBuffer]')) {
+            // Convert binary arrays to a string and prefix the string with
+            // a special marker.
+            var buffer;
+            var marker = SERIALIZED_MARKER;
+
+            if (value instanceof ArrayBuffer) {
+                buffer = value;
+                marker += TYPE_ARRAYBUFFER;
+            } else {
+                buffer = value.buffer;
+
+                if (valueString === '[object Int8Array]') {
+                    marker += TYPE_INT8ARRAY;
+                } else if (valueString === '[object Uint8Array]') {
+                    marker += TYPE_UINT8ARRAY;
+                } else if (valueString === '[object Uint8ClampedArray]') {
+                    marker += TYPE_UINT8CLAMPEDARRAY;
+                } else if (valueString === '[object Int16Array]') {
+                    marker += TYPE_INT16ARRAY;
+                } else if (valueString === '[object Uint16Array]') {
+                    marker += TYPE_UINT16ARRAY;
+                } else if (valueString === '[object Int32Array]') {
+                    marker += TYPE_INT32ARRAY;
+                } else if (valueString === '[object Uint32Array]') {
+                    marker += TYPE_UINT32ARRAY;
+                } else if (valueString === '[object Float32Array]') {
+                    marker += TYPE_FLOAT32ARRAY;
+                } else if (valueString === '[object Float64Array]') {
+                    marker += TYPE_FLOAT64ARRAY;
+                } else {
+                    callback(new Error("Failed to get type for BinaryArray"));
+                }
+            }
+
+            callback(marker + _bufferToString(buffer));
+        } else if (valueString === "[object Blob]") {
+            // Conver the blob to a binaryArray and then to a string.
+            var fileReader = new FileReader();
+
+            fileReader.onload = function() {
+                var str = _bufferToString(this.result);
+
+                callback(SERIALIZED_MARKER + TYPE_BLOB + str);
+            };
+
+            fileReader.readAsArrayBuffer(value);
+        } else {
+            try {
+                callback(JSON.stringify(value));
+            } catch (e) {
+                if (this.console && this.console.error) {
+                    this.console.error("Couldn't convert value into a JSON string: ", value);
+                }
+
+                callback(null, e);
+            }
+        }
+    }
+
+    // Set a key's value and run an optional callback once the value is set.
+    // Unlike Gaia's implementation, the callback function is passed the value,
+    // in case you want to operate on that value only after you're sure it
+    // saved, or something like that.
+    function setItem(key, value, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                // Convert undefined values to null.
+                // https://github.com/mozilla/localForage/pull/42
+                if (value === undefined) {
+                    value = null;
+                }
+
+                // Save the original value to pass to the callback.
+                var originalValue = value;
+
+                _serialize(value, function(value, error) {
+                    if (error) {
+                        if (callback) {
+                            callback(null, error);
+                        }
+
+                        reject(error);
+                    } else {
+                        try {
+                            localStorage.setItem(keyPrefix + key, value);
+                        } catch (e) {
+                            // localStorage capacity exceeded.
+                            // TODO: Make this a specific error/event.
+                            if (e.name === 'QuotaExceededError' ||
+                                e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
+                                if (callback) {
+                                    callback(null, e);
+                                }
+
+                                reject(e);
+                            }
+                        }
+
+                        if (callback) {
+                            callback(originalValue);
+                        }
+
+                        resolve(originalValue);
+                    }
+                });
+            }, reject);
+        });
+    }
+
+    var localStorageWrapper = {
+        _driver: 'localStorageWrapper',
+        _initStorage: _initStorage,
+        // Default API, from Gaia/localStorage.
+        getItem: getItem,
+        setItem: setItem,
+        removeItem: removeItem,
+        clear: clear,
+        length: length,
+        key: key,
+        keys: keys
+    };
+
+    if (typeof define === 'function' && define.amd) {
+        define('localStorageWrapper', function() {
+            return localStorageWrapper;
+        });
+    } else if (typeof module !== 'undefined' && module.exports) {
+        module.exports = localStorageWrapper;
+    } else {
+        this.localStorageWrapper = localStorageWrapper;
+    }
+}).call(this);
+/*
+ * Includes code from:
+ *
+ * base64-arraybuffer
+ * https://github.com/niklasvh/base64-arraybuffer
+ *
+ * Copyright (c) 2012 Niklas von Hertzen
+ * Licensed under the MIT license.
+ */
+(function() {
+    'use strict';
+
+    // Sadly, the best way to save binary data in WebSQL is Base64 serializing
+    // it, so this is how we store it to prevent very strange errors with less
+    // verbose ways of binary <-> string data storage.
+    var BASE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+
+    // Promises!
+    var Promise = (typeof module !== 'undefined' && module.exports) ?
+                  require('promise') : this.Promise;
+
+    var openDatabase = this.openDatabase;
+    var db = null;
+    var dbInfo = {};
+
+    var SERIALIZED_MARKER = '__lfsc__:';
+    var SERIALIZED_MARKER_LENGTH = SERIALIZED_MARKER.length;
+
+    // OMG the serializations!
+    var TYPE_ARRAYBUFFER = 'arbf';
+    var TYPE_BLOB = 'blob';
+    var TYPE_INT8ARRAY = 'si08';
+    var TYPE_UINT8ARRAY = 'ui08';
+    var TYPE_UINT8CLAMPEDARRAY = 'uic8';
+    var TYPE_INT16ARRAY = 'si16';
+    var TYPE_INT32ARRAY = 'si32';
+    var TYPE_UINT16ARRAY = 'ur16';
+    var TYPE_UINT32ARRAY = 'ui32';
+    var TYPE_FLOAT32ARRAY = 'fl32';
+    var TYPE_FLOAT64ARRAY = 'fl64';
+    var TYPE_SERIALIZED_MARKER_LENGTH = SERIALIZED_MARKER_LENGTH + TYPE_ARRAYBUFFER.length;
+
+    // If WebSQL methods aren't available, we can stop now.
+    if (!openDatabase) {
+        return;
+    }
+
+    // Open the WebSQL database (automatically creates one if one didn't
+    // previously exist), using any options set in the config.
+    function _initStorage(options) {
+        var _this = this;
+
+        if (options) {
+            for (var i in options) {
+                dbInfo[i] = typeof(options[i]) !== 'string' ? options[i].toString() : options[i];
+            }
+        }
+
+        return new Promise(function(resolve, reject) {
+            // Open the database; the openDatabase API will automatically
+            // create it for us if it doesn't exist.
+            try {
+                db = openDatabase(dbInfo.name, dbInfo.version,
+                                  dbInfo.description, dbInfo.size);
+            } catch (e) {
+                return _this.setDriver('localStorageWrapper').then(resolve, reject);
+            }
+
+            // Create our key/value table if it doesn't exist.
+            db.transaction(function(t) {
+                t.executeSql('CREATE TABLE IF NOT EXISTS ' + dbInfo.storeName +
+                             ' (id INTEGER PRIMARY KEY, key unique, value)', [], function() {
+                    resolve();
+                }, function(t, error) {
+                    reject(error);
+                });
+            });
+        });
+    }
+
+    function getItem(key, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                db.transaction(function(t) {
+                    t.executeSql('SELECT * FROM ' + dbInfo.storeName +
+                                 ' WHERE key = ? LIMIT 1', [key], function(t, results) {
+                        var result = results.rows.length ? results.rows.item(0).value : null;
+
+                        // Check to see if this is serialized content we need to
+                        // unpack.
+                        if (result) {
+                            result = _deserialize(result);
+                        }
+
+                        if (callback) {
+                            callback(result);
+                        }
+
+                        resolve(result);
+                    }, function(t, error) {
+                        if (callback) {
+                            callback(null, error);
+                        }
+
+                        reject(error);
+                    });
+                });
+            }, reject);
+        });
+    }
+
+    function setItem(key, value, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                // The localStorage API doesn't return undefined values in an
+                // "expected" way, so undefined is always cast to null in all
+                // drivers. See: https://github.com/mozilla/localForage/pull/42
+                if (value === undefined) {
+                    value = null;
+                }
+
+                // Save the original value to pass to the callback.
+                var originalValue = value;
+
+                _serialize(value, function(value, error) {
+                    if (error) {
+                        reject(error);
+                    } else {
+                        db.transaction(function(t) {
+                            t.executeSql('INSERT OR REPLACE INTO ' + dbInfo.storeName +
+                                         ' (key, value) VALUES (?, ?)', [key, value], function() {
+                                if (callback) {
+                                    callback(originalValue);
+                                }
+
+                                resolve(originalValue);
+                            }, function(t, error) {
+                                if (callback) {
+                                    callback(null, error);
+                                }
+
+                                reject(error);
+                            });
+                        }, function(sqlError) { // The transaction failed; check
+                                                // to see if it's a quota error.
+                            if (sqlError.code === sqlError.QUOTA_ERR) {
+                                // We reject the callback outright for now, but
+                                // it's worth trying to re-run the transaction.
+                                // Even if the user accepts the prompt to use
+                                // more storage on Safari, this error will
+                                // be called.
+                                //
+                                // TODO: Try to re-run the transaction.
+                                if (callback) {
+                                    callback(null, sqlError);
+                                }
+
+                                reject(sqlError);
+                            }
+                        });
+                    }
+                });
+            }, reject);
+        });
+    }
+
+    function removeItem(key, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                db.transaction(function(t) {
+                    t.executeSql('DELETE FROM ' + dbInfo.storeName +
+                                 ' WHERE key = ?', [key], function() {
+                        if (callback) {
+                            callback();
+                        }
+
+                        resolve();
+                    }, function(t, error) {
+                        if (callback) {
+                            callback(error);
+                        }
+
+                        reject(error);
+                    });
+                });
+            }, reject);
+        });
+    }
+
+    // Deletes every item in the table.
+    // TODO: Find out if this resets the AUTO_INCREMENT number.
+    function clear(callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                db.transaction(function(t) {
+                    t.executeSql('DELETE FROM ' + dbInfo.storeName, [], function() {
+                        if (callback) {
+                            callback();
+                        }
+
+                        resolve();
+                    }, function(t, error) {
+                        if (callback) {
+                            callback(error);
+                        }
+
+                        reject(error);
+                    });
+                });
+            }, reject);
+        });
+    }
+
+    // Does a simple `COUNT(key)` to get the number of items stored in
+    // localForage.
+    function length(callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                db.transaction(function(t) {
+                    // Ahhh, SQL makes this one soooooo easy.
+                    t.executeSql('SELECT COUNT(key) as c FROM ' +
+                                 dbInfo.storeName, [], function(t, results) {
+                        var result = results.rows.item(0).c;
+
+                        if (callback) {
+                            callback(result);
+                        }
+
+                        resolve(result);
+                    }, function(t, error) {
+                        if (callback) {
+                            callback(null, error);
+                        }
+
+                        reject(error);
+                    });
+                });
+            }, reject);
+        });
+    }
+
+    // Return the key located at key index X; essentially gets the key from a
+    // `WHERE id = ?`. This is the most efficient way I can think to implement
+    // this rarely-used (in my experience) part of the API, but it can seem
+    // inconsistent, because we do `INSERT OR REPLACE INTO` on `setItem()`, so
+    // the ID of each key will change every time it's updated. Perhaps a stored
+    // procedure for the `setItem()` SQL would solve this problem?
+    // TODO: Don't change ID on `setItem()`.
+    function key(n, callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                db.transaction(function(t) {
+                    t.executeSql('SELECT key FROM ' + dbInfo.storeName +
+                                 ' WHERE id = ? LIMIT 1', [n + 1], function(t, results) {
+                        var result = results.rows.length ? results.rows.item(0).key : null;
+
+                        if (callback) {
+                            callback(result);
+                        }
+
+                        resolve(result);
+                    }, function(t, error) {
+                        if (callback) {
+                            callback(null, error);
+                        }
+
+                        reject(error);
+                    });
+                });
+            }, reject);
+        });
+    }
+
+    function keys(callback) {
+        var _this = this;
+        return new Promise(function(resolve, reject) {
+            _this.ready().then(function() {
+                db.transaction(function(t) {
+                    t.executeSql('SELECT key FROM ' + dbInfo.storeName, [],
+                                 function(t, results) {
+                        var length = results.rows.length;
+                        var keys = [];
+
+                        for (var i = 0; i < length; i++) {
+                            keys.push(results.rows.item(i).key);
+                        }
+
+                        if (callback) {
+                            callback(keys);
+                        }
+
+                        resolve(keys);
+                    }, function(t, error) {
+                        if (callback) {
+                            callback(null, error);
+                        }
+
+                        reject(error);
+                    });
+                });
+            }, reject);
+        });
+    }
+
+    // Converts a buffer to a string to store, serialized, in the backend
+    // storage library.
+    function _bufferToString(buffer) {
+        // base64-arraybuffer
+        var bytes = new Uint8Array(buffer);
+        var i;
+        var base64String = '';
+
+        for (i = 0; i < bytes.length; i += 3) {
+            /*jslint bitwise: true */
+            base64String += BASE_CHARS[bytes[i] >> 2];
+            base64String += BASE_CHARS[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
+            base64String += BASE_CHARS[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
+            base64String += BASE_CHARS[bytes[i + 2] & 63];
+        }
+
+        if ((bytes.length % 3) === 2) {
+            base64String = base64String.substring(0, base64String.length - 1) + "=";
+        } else if (bytes.length % 3 === 1) {
+            base64String = base64String.substring(0, base64String.length - 2) + "==";
+        }
+
+        return base64String;
+    }
+
+    // Deserialize data we've inserted into a value column/field. We place
+    // special markers into our strings to mark them as encoded; this isn't
+    // as nice as a meta field, but it's the only sane thing we can do whilst
+    // keeping localStorage support intact.
+    //
+    // Oftentimes this will just deserialize JSON content, but if we have a
+    // special marker (SERIALIZED_MARKER, defined above), we will extract
+    // some kind of arraybuffer/binary data/typed array out of the string.
+    function _deserialize(value) {
+        // If we haven't marked this string as being specially serialized (i.e.
+        // something other than serialized JSON), we can just return it and be
+        // done with it.
+        if (value.substring(0, SERIALIZED_MARKER_LENGTH) !== SERIALIZED_MARKER) {
+            return JSON.parse(value);
+        }
+
+        // The following code deals with deserializing some kind of Blob or
+        // TypedArray. First we separate out the type of data we're dealing
+        // with from the data itself.
+        var serializedString = value.substring(TYPE_SERIALIZED_MARKER_LENGTH);
+        var type = value.substring(SERIALIZED_MARKER_LENGTH, TYPE_SERIALIZED_MARKER_LENGTH);
+
+        // Fill the string into a ArrayBuffer.
+        var bufferLength = serializedString.length * 0.75;
+        var len = serializedString.length;
+        var i;
+        var p = 0;
+        var encoded1, encoded2, encoded3, encoded4;
+
+        if (serializedString[serializedString.length - 1] === "=") {
+            bufferLength--;
+            if (serializedString[serializedString.length - 2] === "=") {
+                bufferLength--;
+            }
+        }
+
+        var buffer = new ArrayBuffer(bufferLength);
+        var bytes = new Uint8Array(buffer);
+
+        for (i = 0; i < len; i+=4) {
+            encoded1 = BASE_CHARS.indexOf(serializedString[i]);
+            encoded2 = BASE_CHARS.indexOf(serializedString[i+1]);
+            encoded3 = BASE_CHARS.indexOf(serializedString[i+2]);
+            encoded4 = BASE_CHARS.indexOf(serializedString[i+3]);
+
+            /*jslint bitwise: true */
+            bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+            bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+            bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
+        }
+
+        // Return the right type based on the code/type set during
+        // serialization.
+        switch (type) {
+            case TYPE_ARRAYBUFFER:
+                return buffer;
+            case TYPE_BLOB:
+                return new Blob([buffer]);
+            case TYPE_INT8ARRAY:
+                return new Int8Array(buffer);
+            case TYPE_UINT8ARRAY:
+                return new Uint8Array(buffer);
+            case TYPE_UINT8CLAMPEDARRAY:
+                return new Uint8ClampedArray(buffer);
+            case TYPE_INT16ARRAY:
+                return new Int16Array(buffer);
+            case TYPE_UINT16ARRAY:
+                return new Uint16Array(buffer);
+            case TYPE_INT32ARRAY:
+                return new Int32Array(buffer);
+            case TYPE_UINT32ARRAY:
+                return new Uint32Array(buffer);
+            case TYPE_FLOAT32ARRAY:
+                return new Float32Array(buffer);
+            case TYPE_FLOAT64ARRAY:
+                return new Float64Array(buffer);
+            default:
+                throw new Error('Unkown type: ' + type);
+        }
+    }
+
+    // Serialize a value, afterwards executing a callback (which usually
+    // instructs the `setItem()` callback/promise to be executed). This is how
+    // we store binary data with localStorage.
+    function _serialize(value, callback) {
+        var valueString = '';
+        if (value) {
+            valueString = value.toString();
+        }
+
+        // Cannot use `value instanceof ArrayBuffer` or such here, as these
+        // checks fail when running the tests using casper.js...
+        //
+        // TODO: See why those tests fail and use a better solution.
+        if (value && (value.toString() === '[object ArrayBuffer]' ||
+                      value.buffer && value.buffer.toString() === '[object ArrayBuffer]')) {
+            // Convert binary arrays to a string and prefix the string with
+            // a special marker.
+            var buffer;
+            var marker = SERIALIZED_MARKER;
+
+            if (value instanceof ArrayBuffer) {
+                buffer = value;
+                marker += TYPE_ARRAYBUFFER;
+            } else {
+                buffer = value.buffer;
+
+                if (valueString === '[object Int8Array]') {
+                    marker += TYPE_INT8ARRAY;
+                } else if (valueString === '[object Uint8Array]') {
+                    marker += TYPE_UINT8ARRAY;
+                } else if (valueString === '[object Uint8ClampedArray]') {
+                    marker += TYPE_UINT8CLAMPEDARRAY;
+                } else if (valueString === '[object Int16Array]') {
+                    marker += TYPE_INT16ARRAY;
+                } else if (valueString === '[object Uint16Array]') {
+                    marker += TYPE_UINT16ARRAY;
+                } else if (valueString === '[object Int32Array]') {
+                    marker += TYPE_INT32ARRAY;
+                } else if (valueString === '[object Uint32Array]') {
+                    marker += TYPE_UINT32ARRAY;
+                } else if (valueString === '[object Float32Array]') {
+                    marker += TYPE_FLOAT32ARRAY;
+                } else if (valueString === '[object Float64Array]') {
+                    marker += TYPE_FLOAT64ARRAY;
+                } else {
+                    callback(new Error("Failed to get type for BinaryArray"));
+                }
+            }
+
+            callback(marker + _bufferToString(buffer));
+        } else if (valueString === "[object Blob]") {
+            // Conver the blob to a binaryArray and then to a string.
+            var fileReader = new FileReader();
+
+            fileReader.onload = function() {
+                var str = _bufferToString(this.result);
+
+                callback(SERIALIZED_MARKER + TYPE_BLOB + str);
+            };
+
+            fileReader.readAsArrayBuffer(value);
+        } else {
+            try {
+                callback(JSON.stringify(value));
+            } catch (e) {
+                if (this.console && this.console.error) {
+                    this.console.error("Couldn't convert value into a JSON string: ", value);
+                }
+
+                callback(null, e);
+            }
+        }
+    }
+
+    var webSQLStorage = {
+        _driver: 'webSQLStorage',
+        _initStorage: _initStorage,
+        getItem: getItem,
+        setItem: setItem,
+        removeItem: removeItem,
+        clear: clear,
+        length: length,
+        key: key,
+        keys: keys
+    };
+
+    if (typeof define === 'function' && define.amd) {
+        define('webSQLStorage', function() {
+            return webSQLStorage;
+        });
+    } else if (typeof module !== 'undefined' && module.exports) {
+        module.exports = webSQLStorage;
+    } else {
+        this.webSQLStorage = webSQLStorage;
+    }
+}).call(this);
+(function() {
+    'use strict';
+
+    // Promises!
+    var Promise = (typeof module !== 'undefined' && module.exports) ?
+                  require('promise') : this.Promise;
+
+    // Avoid those magic constants!
+    var MODULE_TYPE_DEFINE = 1;
+    var MODULE_TYPE_EXPORT = 2;
+    var MODULE_TYPE_WINDOW = 3;
+
+    // Attaching to window (i.e. no module loader) is the assumed,
+    // simple default.
+    var moduleType = MODULE_TYPE_WINDOW;
+
+    // Find out what kind of module setup we have; if none, we'll just attach
+    // localForage to the main window.
+    if (typeof define === 'function' && define.amd) {
+        moduleType = MODULE_TYPE_DEFINE;
+    } else if (typeof module !== 'undefined' && module.exports) {
+        moduleType = MODULE_TYPE_EXPORT;
+    }
+
+    // The actual localForage object that we expose as a module or via a
+    // global. It's extended by pulling in one of our other libraries.
+    var _this = this;
+    var localForage = {
+        INDEXEDDB: 'asyncStorage',
+        LOCALSTORAGE: 'localStorageWrapper',
+        WEBSQL: 'webSQLStorage',
+
+        _config: {
+            description: '',
+            name: 'localforage',
+            // Default DB size is _JUST UNDER_ 5MB, as it's the highest size
+            // we can use without a prompt.
+            size: 4980736,
+            storeName: 'keyvaluepairs',
+            version: 1.0
+        },
+
+        // Set any config values for localForage; can be called anytime before
+        // the first API call (e.g. `getItem`, `setItem`).
+        // We loop through options so we don't overwrite existing config
+        // values.
+        config: function(options) {
+            // If the options argument is an object, we use it to set values.
+            // Otherwise, we return either a specified config value or all
+            // config values.
+            if (typeof(options) === 'object') {
+                // If localforage is ready and fully initialized, we can't set
+                // any new configuration values. Instead, we return an error.
+                if (this._ready) {
+                    return new Error("Can't call config() after localforage " +
+                                     "has been used.");
+                }
+
+                for (var i in options) {
+                    this._config[i] = options[i];
+                }
+
+                return true;
+            } else if (typeof(options) === 'string') {
+                return this._config[options];
+            } else {
+                return this._config;
+            }
+        },
+
+        driver: function() {
+            return this._driver || null;
+        },
+
+        _ready: false,
+
+        _driverSet: null,
+
+        setDriver: function(drivers, callback, errorCallback) {
+            var self = this;
+
+            var isArray = Array.isArray || function(arg) {
+                return Object.prototype.toString.call(arg) === '[object Array]';
+            };
+
+            if (!isArray(drivers) && typeof drivers === 'string') {
+                drivers = [drivers];
+            }
+
+            this._driverSet = new Promise(function(resolve, reject) {
+                var driverName = self._getFirstSupportedDriver(drivers);
+
+                if (!driverName) {
+                    var error = new Error('No available storage method found.');
+                    self._driverSet = Promise.reject(error);
+
+                    if (errorCallback) {
+                        errorCallback(error);
+                    }
+
+                    reject(error);
+
+                    return;
+                }
+
+                self._ready = null;
+
+                // We allow localForage to be declared as a module or as a
+                // library available without AMD/require.js.
+                if (moduleType === MODULE_TYPE_DEFINE) {
+                    require([driverName], function(lib) {
+                        self._extend(lib);
+
+                        if (callback) {
+                            callback();
+                        }
+                        resolve();
+                    });
+
+                    return;
+                } else if (moduleType === MODULE_TYPE_EXPORT) {
+                    // Making it browserify friendly
+                    var driver;
+                    switch (driverName) {
+                        case self.INDEXEDDB:
+                            driver = require('./drivers/indexeddb');
+                            break;
+                        case self.LOCALSTORAGE:
+                            driver = require('./drivers/localstorage');
+                            break;
+                        case self.WEBSQL:
+                            driver = require('./drivers/websql');
+                    }
+
+                    self._extend(driver);
+                } else {
+                    self._extend(_this[driverName]);
+                }
+
+                if (callback) {
+                    callback();
+                }
+
+                resolve();
+            });
+
+            return this._driverSet;
+        },
+
+        _getFirstSupportedDriver: function(drivers) {
+            if (drivers) {
+                for (var i = 0; i < drivers.length; i++) {
+                    var driver = drivers[i];
+
+                    if (this.supports(driver)) {
+                        return driver;
+                    }
+                }
+            }
+
+            return null;
+        },
+
+        supports: function(driverName) {
+            return !!driverSupport[driverName];
+        },
+
+        ready: function(callback) {
+            var ready = new Promise(function(resolve, reject) {
+                localForage._driverSet.then(function() {
+                    if (localForage._ready === null) {
+                        localForage._ready = localForage._initStorage(
+                            localForage._config);
+                    }
+
+                    localForage._ready.then(resolve, reject);
+                }, reject);
+            });
+
+            ready.then(callback, callback);
+
+            return ready;
+        },
+
+        _extend: function(libraryMethodsAndProperties) {
+            for (var i in libraryMethodsAndProperties) {
+                if (libraryMethodsAndProperties.hasOwnProperty(i)) {
+                    this[i] = libraryMethodsAndProperties[i];
+                }
+            }
+        }
+    };
+
+    // Check to see if IndexedDB is available and if it is the latest
+    // implementation; it's our preferred backend library. We use "_spec_test"
+    // as the name of the database because it's not the one we'll operate on,
+    // but it's useful to make sure its using the right spec.
+    // See: https://github.com/mozilla/localForage/issues/128
+    var driverSupport = (function(_this) {
+        // Initialize IndexedDB; fall back to vendor-prefixed versions
+        // if needed.
+        var indexedDB = indexedDB || _this.indexedDB || _this.webkitIndexedDB ||
+                        _this.mozIndexedDB || _this.OIndexedDB ||
+                        _this.msIndexedDB;
+
+        var result = {};
+
+        result[localForage.WEBSQL] = !!_this.openDatabase;
+        result[localForage.INDEXEDDB] = !!(
+            indexedDB &&
+            typeof indexedDB.open === 'function' &&
+            indexedDB.open('_localforage_spec_test', 1)
+                     .onupgradeneeded === null
+        );
+
+        result[localForage.LOCALSTORAGE] = !!(function() {
+            try {
+                return (localStorage &&
+                        typeof localStorage.setItem === 'function');
+            } catch (e) {
+                return false;
+            }
+        })();
+
+        return result;
+    })(this);
+
+    var driverTestOrder = [
+        localForage.INDEXEDDB,
+        localForage.WEBSQL,
+        localForage.LOCALSTORAGE
+    ];
+
+    localForage.setDriver(driverTestOrder);
+
+    // We allow localForage to be declared as a module or as a library
+    // available without AMD/require.js.
+    if (moduleType === MODULE_TYPE_DEFINE) {
+        define(function() {
+            return localForage;
+        });
+    } else if (moduleType === MODULE_TYPE_EXPORT) {
+        module.exports = localForage;
+    } else {
+        this.localforage = localForage;
+    }
+}).call(this);
+
 /**
  * @license AngularJS v1.2.23
  * (c) 2010-2014 Google, Inc. http://angularjs.org
@@ -24687,7 +27070,7 @@ var styleDirective = valueFn({
 
 !window.angular.$$csp() && window.angular.element(document).find('head').prepend('<style type="text/css">@charset "UTF-8";[ng\\:cloak],[ng-cloak],[data-ng-cloak],[x-ng-cloak],.ng-cloak,.x-ng-cloak,.ng-hide{display:none !important;}ng\\:form{display:block;}.ng-animate-block-transitions{transition:0s all!important;-webkit-transition:0s all!important;}.ng-hide-add-active,.ng-hide-remove{display:block!important;}</style>');
 /**
- * @license AngularJS v1.2.22
+ * @license AngularJS v1.2.23
  * (c) 2010-2014 Google, Inc. http://angularjs.org
  * License: MIT
  */
@@ -26377,7 +28760,7 @@ angular.module('ngAnimate', ['ng'])
 })(window, window.angular);
 
 /**
- * @license AngularJS v1.2.22
+ * @license AngularJS v1.2.23
  * (c) 2010-2014 Google, Inc. http://angularjs.org
  * License: MIT
  */
@@ -26975,7 +29358,7 @@ angular.module('ngSanitize', []).provider('$sanitize', $SanitizeProvider);
  */
 angular.module('ngSanitize').filter('linky', ['$sanitize', function($sanitize) {
   var LINKY_URL_REGEXP =
-        /((ftp|https?):\/\/|(mailto:)?[A-Za-z0-9._%+-]+@)\S*[^\s.;,(){}<>]/,
+        /((ftp|https?):\/\/|(mailto:)?[A-Za-z0-9._%+-]+@)\S*[^\s.;,(){}<>"]/,
       MAILTO_REGEXP = /^mailto:/;
 
   return function(text, target) {
@@ -27025,7 +29408,7 @@ angular.module('ngSanitize').filter('linky', ['$sanitize', function($sanitize) {
 })(window, window.angular);
 
 /**
- * @license AngularJS v1.2.21
+ * @license AngularJS v1.2.23
  * (c) 2010-2014 Google, Inc. http://angularjs.org
  * License: MIT
  */
@@ -27125,8 +29508,10 @@ function shallowClearAndCopy(src, dst) {
  *   Given a template `/path/:verb` and parameter `{verb:'greet', salutation:'Hello'}` results in
  *   URL `/path/greet?salutation=Hello`.
  *
- *   If the parameter value is prefixed with `@` then the value of that parameter will be taken
- *   from the corresponding key on the data object (useful for non-GET operations).
+ *   If the parameter value is prefixed with `@` then the value for that parameter will be extracted
+ *   from the corresponding property on the `data` object (provided when calling an action method).  For
+ *   example, if the `defaultParam` object is `{someParam: '@someProp'}` then the value of `someParam`
+ *   will be `data.someProp`.
  *
  * @param {Object.<Object>=} actions Hash with declaration of custom action that should extend
  *   the default set of resource actions. The declaration should be created in the format of {@link
@@ -27644,3229 +30029,6 @@ angular.module('ngResource', ['ng']).
 
 })(window, window.angular);
 
-/**
- * State-based routing for AngularJS
- * @version v0.2.10
- * @link http://angular-ui.github.com/
- * @license MIT License, http://www.opensource.org/licenses/MIT
- */
-
-/* commonjs package manager support (eg componentjs) */
-if (typeof module !== "undefined" && typeof exports !== "undefined" && module.exports === exports){
-  module.exports = 'ui.router';
-}
-
-(function (window, angular, undefined) {
-/*jshint globalstrict:true*/
-/*global angular:false*/
-'use strict';
-
-var isDefined = angular.isDefined,
-    isFunction = angular.isFunction,
-    isString = angular.isString,
-    isObject = angular.isObject,
-    isArray = angular.isArray,
-    forEach = angular.forEach,
-    extend = angular.extend,
-    copy = angular.copy;
-
-function inherit(parent, extra) {
-  return extend(new (extend(function() {}, { prototype: parent }))(), extra);
-}
-
-function merge(dst) {
-  forEach(arguments, function(obj) {
-    if (obj !== dst) {
-      forEach(obj, function(value, key) {
-        if (!dst.hasOwnProperty(key)) dst[key] = value;
-      });
-    }
-  });
-  return dst;
-}
-
-/**
- * Finds the common ancestor path between two states.
- *
- * @param {Object} first The first state.
- * @param {Object} second The second state.
- * @return {Array} Returns an array of state names in descending order, not including the root.
- */
-function ancestors(first, second) {
-  var path = [];
-
-  for (var n in first.path) {
-    if (first.path[n] !== second.path[n]) break;
-    path.push(first.path[n]);
-  }
-  return path;
-}
-
-/**
- * IE8-safe wrapper for `Object.keys()`.
- *
- * @param {Object} object A JavaScript object.
- * @return {Array} Returns the keys of the object as an array.
- */
-function keys(object) {
-  if (Object.keys) {
-    return Object.keys(object);
-  }
-  var result = [];
-
-  angular.forEach(object, function(val, key) {
-    result.push(key);
-  });
-  return result;
-}
-
-/**
- * IE8-safe wrapper for `Array.prototype.indexOf()`.
- *
- * @param {Array} array A JavaScript array.
- * @param {*} value A value to search the array for.
- * @return {Number} Returns the array index value of `value`, or `-1` if not present.
- */
-function arraySearch(array, value) {
-  if (Array.prototype.indexOf) {
-    return array.indexOf(value, Number(arguments[2]) || 0);
-  }
-  var len = array.length >>> 0, from = Number(arguments[2]) || 0;
-  from = (from < 0) ? Math.ceil(from) : Math.floor(from);
-
-  if (from < 0) from += len;
-
-  for (; from < len; from++) {
-    if (from in array && array[from] === value) return from;
-  }
-  return -1;
-}
-
-/**
- * Merges a set of parameters with all parameters inherited between the common parents of the
- * current state and a given destination state.
- *
- * @param {Object} currentParams The value of the current state parameters ($stateParams).
- * @param {Object} newParams The set of parameters which will be composited with inherited params.
- * @param {Object} $current Internal definition of object representing the current state.
- * @param {Object} $to Internal definition of object representing state to transition to.
- */
-function inheritParams(currentParams, newParams, $current, $to) {
-  var parents = ancestors($current, $to), parentParams, inherited = {}, inheritList = [];
-
-  for (var i in parents) {
-    if (!parents[i].params || !parents[i].params.length) continue;
-    parentParams = parents[i].params;
-
-    for (var j in parentParams) {
-      if (arraySearch(inheritList, parentParams[j]) >= 0) continue;
-      inheritList.push(parentParams[j]);
-      inherited[parentParams[j]] = currentParams[parentParams[j]];
-    }
-  }
-  return extend({}, inherited, newParams);
-}
-
-/**
- * Normalizes a set of values to string or `null`, filtering them by a list of keys.
- *
- * @param {Array} keys The list of keys to normalize/return.
- * @param {Object} values An object hash of values to normalize.
- * @return {Object} Returns an object hash of normalized string values.
- */
-function normalize(keys, values) {
-  var normalized = {};
-
-  forEach(keys, function (name) {
-    var value = values[name];
-    normalized[name] = (value != null) ? String(value) : null;
-  });
-  return normalized;
-}
-
-/**
- * Performs a non-strict comparison of the subset of two objects, defined by a list of keys.
- *
- * @param {Object} a The first object.
- * @param {Object} b The second object.
- * @param {Array} keys The list of keys within each object to compare. If the list is empty or not specified,
- *                     it defaults to the list of keys in `a`.
- * @return {Boolean} Returns `true` if the keys match, otherwise `false`.
- */
-function equalForKeys(a, b, keys) {
-  if (!keys) {
-    keys = [];
-    for (var n in a) keys.push(n); // Used instead of Object.keys() for IE8 compatibility
-  }
-
-  for (var i=0; i<keys.length; i++) {
-    var k = keys[i];
-    if (a[k] != b[k]) return false; // Not '===', values aren't necessarily normalized
-  }
-  return true;
-}
-
-/**
- * Returns the subset of an object, based on a list of keys.
- *
- * @param {Array} keys
- * @param {Object} values
- * @return {Boolean} Returns a subset of `values`.
- */
-function filterByKeys(keys, values) {
-  var filtered = {};
-
-  forEach(keys, function (name) {
-    filtered[name] = values[name];
-  });
-  return filtered;
-}
-/**
- * @ngdoc overview
- * @name ui.router.util
- *
- * @description
- * # ui.router.util sub-module
- *
- * This module is a dependency of other sub-modules. Do not include this module as a dependency
- * in your angular app (use {@link ui.router} module instead).
- *
- */
-angular.module('ui.router.util', ['ng']);
-
-/**
- * @ngdoc overview
- * @name ui.router.router
- * 
- * @requires ui.router.util
- *
- * @description
- * # ui.router.router sub-module
- *
- * This module is a dependency of other sub-modules. Do not include this module as a dependency
- * in your angular app (use {@link ui.router} module instead).
- */
-angular.module('ui.router.router', ['ui.router.util']);
-
-/**
- * @ngdoc overview
- * @name ui.router.state
- * 
- * @requires ui.router.router
- * @requires ui.router.util
- *
- * @description
- * # ui.router.state sub-module
- *
- * This module is a dependency of the main ui.router module. Do not include this module as a dependency
- * in your angular app (use {@link ui.router} module instead).
- * 
- */
-angular.module('ui.router.state', ['ui.router.router', 'ui.router.util']);
-
-/**
- * @ngdoc overview
- * @name ui.router
- *
- * @requires ui.router.state
- *
- * @description
- * # ui.router
- * 
- * ## The main module for ui.router 
- * There are several sub-modules included with the ui.router module, however only this module is needed
- * as a dependency within your angular app. The other modules are for organization purposes. 
- *
- * The modules are:
- * * ui.router - the main "umbrella" module
- * * ui.router.router - 
- * 
- * *You'll need to include **only** this module as the dependency within your angular app.*
- * 
- * <pre>
- * <!doctype html>
- * <html ng-app="myApp">
- * <head>
- *   <script src="js/angular.js"></script>
- *   <!-- Include the ui-router script -->
- *   <script src="js/angular-ui-router.min.js"></script>
- *   <script>
- *     // ...and add 'ui.router' as a dependency
- *     var myApp = angular.module('myApp', ['ui.router']);
- *   </script>
- * </head>
- * <body>
- * </body>
- * </html>
- * </pre>
- */
-angular.module('ui.router', ['ui.router.state']);
-
-angular.module('ui.router.compat', ['ui.router']);
-
-/**
- * @ngdoc object
- * @name ui.router.util.$resolve
- *
- * @requires $q
- * @requires $injector
- *
- * @description
- * Manages resolution of (acyclic) graphs of promises.
- */
-$Resolve.$inject = ['$q', '$injector'];
-function $Resolve(  $q,    $injector) {
-  
-  var VISIT_IN_PROGRESS = 1,
-      VISIT_DONE = 2,
-      NOTHING = {},
-      NO_DEPENDENCIES = [],
-      NO_LOCALS = NOTHING,
-      NO_PARENT = extend($q.when(NOTHING), { $$promises: NOTHING, $$values: NOTHING });
-  
-
-  /**
-   * @ngdoc function
-   * @name ui.router.util.$resolve#study
-   * @methodOf ui.router.util.$resolve
-   *
-   * @description
-   * Studies a set of invocables that are likely to be used multiple times.
-   * <pre>
-   * $resolve.study(invocables)(locals, parent, self)
-   * </pre>
-   * is equivalent to
-   * <pre>
-   * $resolve.resolve(invocables, locals, parent, self)
-   * </pre>
-   * but the former is more efficient (in fact `resolve` just calls `study` 
-   * internally).
-   *
-   * @param {object} invocables Invocable objects
-   * @return {function} a function to pass in locals, parent and self
-   */
-  this.study = function (invocables) {
-    if (!isObject(invocables)) throw new Error("'invocables' must be an object");
-    
-    // Perform a topological sort of invocables to build an ordered plan
-    var plan = [], cycle = [], visited = {};
-    function visit(value, key) {
-      if (visited[key] === VISIT_DONE) return;
-      
-      cycle.push(key);
-      if (visited[key] === VISIT_IN_PROGRESS) {
-        cycle.splice(0, cycle.indexOf(key));
-        throw new Error("Cyclic dependency: " + cycle.join(" -> "));
-      }
-      visited[key] = VISIT_IN_PROGRESS;
-      
-      if (isString(value)) {
-        plan.push(key, [ function() { return $injector.get(value); }], NO_DEPENDENCIES);
-      } else {
-        var params = $injector.annotate(value);
-        forEach(params, function (param) {
-          if (param !== key && invocables.hasOwnProperty(param)) visit(invocables[param], param);
-        });
-        plan.push(key, value, params);
-      }
-      
-      cycle.pop();
-      visited[key] = VISIT_DONE;
-    }
-    forEach(invocables, visit);
-    invocables = cycle = visited = null; // plan is all that's required
-    
-    function isResolve(value) {
-      return isObject(value) && value.then && value.$$promises;
-    }
-    
-    return function (locals, parent, self) {
-      if (isResolve(locals) && self === undefined) {
-        self = parent; parent = locals; locals = null;
-      }
-      if (!locals) locals = NO_LOCALS;
-      else if (!isObject(locals)) {
-        throw new Error("'locals' must be an object");
-      }       
-      if (!parent) parent = NO_PARENT;
-      else if (!isResolve(parent)) {
-        throw new Error("'parent' must be a promise returned by $resolve.resolve()");
-      }
-      
-      // To complete the overall resolution, we have to wait for the parent
-      // promise and for the promise for each invokable in our plan.
-      var resolution = $q.defer(),
-          result = resolution.promise,
-          promises = result.$$promises = {},
-          values = extend({}, locals),
-          wait = 1 + plan.length/3,
-          merged = false;
-          
-      function done() {
-        // Merge parent values we haven't got yet and publish our own $$values
-        if (!--wait) {
-          if (!merged) merge(values, parent.$$values); 
-          result.$$values = values;
-          result.$$promises = true; // keep for isResolve()
-          resolution.resolve(values);
-        }
-      }
-      
-      function fail(reason) {
-        result.$$failure = reason;
-        resolution.reject(reason);
-      }
-      
-      // Short-circuit if parent has already failed
-      if (isDefined(parent.$$failure)) {
-        fail(parent.$$failure);
-        return result;
-      }
-      
-      // Merge parent values if the parent has already resolved, or merge
-      // parent promises and wait if the parent resolve is still in progress.
-      if (parent.$$values) {
-        merged = merge(values, parent.$$values);
-        done();
-      } else {
-        extend(promises, parent.$$promises);
-        parent.then(done, fail);
-      }
-      
-      // Process each invocable in the plan, but ignore any where a local of the same name exists.
-      for (var i=0, ii=plan.length; i<ii; i+=3) {
-        if (locals.hasOwnProperty(plan[i])) done();
-        else invoke(plan[i], plan[i+1], plan[i+2]);
-      }
-      
-      function invoke(key, invocable, params) {
-        // Create a deferred for this invocation. Failures will propagate to the resolution as well.
-        var invocation = $q.defer(), waitParams = 0;
-        function onfailure(reason) {
-          invocation.reject(reason);
-          fail(reason);
-        }
-        // Wait for any parameter that we have a promise for (either from parent or from this
-        // resolve; in that case study() will have made sure it's ordered before us in the plan).
-        forEach(params, function (dep) {
-          if (promises.hasOwnProperty(dep) && !locals.hasOwnProperty(dep)) {
-            waitParams++;
-            promises[dep].then(function (result) {
-              values[dep] = result;
-              if (!(--waitParams)) proceed();
-            }, onfailure);
-          }
-        });
-        if (!waitParams) proceed();
-        function proceed() {
-          if (isDefined(result.$$failure)) return;
-          try {
-            invocation.resolve($injector.invoke(invocable, self, values));
-            invocation.promise.then(function (result) {
-              values[key] = result;
-              done();
-            }, onfailure);
-          } catch (e) {
-            onfailure(e);
-          }
-        }
-        // Publish promise synchronously; invocations further down in the plan may depend on it.
-        promises[key] = invocation.promise;
-      }
-      
-      return result;
-    };
-  };
-  
-  /**
-   * @ngdoc function
-   * @name ui.router.util.$resolve#resolve
-   * @methodOf ui.router.util.$resolve
-   *
-   * @description
-   * Resolves a set of invocables. An invocable is a function to be invoked via 
-   * `$injector.invoke()`, and can have an arbitrary number of dependencies. 
-   * An invocable can either return a value directly,
-   * or a `$q` promise. If a promise is returned it will be resolved and the 
-   * resulting value will be used instead. Dependencies of invocables are resolved 
-   * (in this order of precedence)
-   *
-   * - from the specified `locals`
-   * - from another invocable that is part of this `$resolve` call
-   * - from an invocable that is inherited from a `parent` call to `$resolve` 
-   *   (or recursively
-   * - from any ancestor `$resolve` of that parent).
-   *
-   * The return value of `$resolve` is a promise for an object that contains 
-   * (in this order of precedence)
-   *
-   * - any `locals` (if specified)
-   * - the resolved return values of all injectables
-   * - any values inherited from a `parent` call to `$resolve` (if specified)
-   *
-   * The promise will resolve after the `parent` promise (if any) and all promises 
-   * returned by injectables have been resolved. If any invocable 
-   * (or `$injector.invoke`) throws an exception, or if a promise returned by an 
-   * invocable is rejected, the `$resolve` promise is immediately rejected with the 
-   * same error. A rejection of a `parent` promise (if specified) will likewise be 
-   * propagated immediately. Once the `$resolve` promise has been rejected, no 
-   * further invocables will be called.
-   * 
-   * Cyclic dependencies between invocables are not permitted and will caues `$resolve`
-   * to throw an error. As a special case, an injectable can depend on a parameter 
-   * with the same name as the injectable, which will be fulfilled from the `parent` 
-   * injectable of the same name. This allows inherited values to be decorated. 
-   * Note that in this case any other injectable in the same `$resolve` with the same
-   * dependency would see the decorated value, not the inherited value.
-   *
-   * Note that missing dependencies -- unlike cyclic dependencies -- will cause an 
-   * (asynchronous) rejection of the `$resolve` promise rather than a (synchronous) 
-   * exception.
-   *
-   * Invocables are invoked eagerly as soon as all dependencies are available. 
-   * This is true even for dependencies inherited from a `parent` call to `$resolve`.
-   *
-   * As a special case, an invocable can be a string, in which case it is taken to 
-   * be a service name to be passed to `$injector.get()`. This is supported primarily 
-   * for backwards-compatibility with the `resolve` property of `$routeProvider` 
-   * routes.
-   *
-   * @param {object} invocables functions to invoke or 
-   * `$injector` services to fetch.
-   * @param {object} locals  values to make available to the injectables
-   * @param {object} parent  a promise returned by another call to `$resolve`.
-   * @param {object} self  the `this` for the invoked methods
-   * @return {object} Promise for an object that contains the resolved return value
-   * of all invocables, as well as any inherited and local values.
-   */
-  this.resolve = function (invocables, locals, parent, self) {
-    return this.study(invocables)(locals, parent, self);
-  };
-}
-
-angular.module('ui.router.util').service('$resolve', $Resolve);
-
-
-/**
- * @ngdoc object
- * @name ui.router.util.$templateFactory
- *
- * @requires $http
- * @requires $templateCache
- * @requires $injector
- *
- * @description
- * Service. Manages loading of templates.
- */
-$TemplateFactory.$inject = ['$http', '$templateCache', '$injector'];
-function $TemplateFactory(  $http,   $templateCache,   $injector) {
-
-  /**
-   * @ngdoc function
-   * @name ui.router.util.$templateFactory#fromConfig
-   * @methodOf ui.router.util.$templateFactory
-   *
-   * @description
-   * Creates a template from a configuration object. 
-   *
-   * @param {object} config Configuration object for which to load a template. 
-   * The following properties are search in the specified order, and the first one 
-   * that is defined is used to create the template:
-   *
-   * @param {string|object} config.template html string template or function to 
-   * load via {@link ui.router.util.$templateFactory#fromString fromString}.
-   * @param {string|object} config.templateUrl url to load or a function returning 
-   * the url to load via {@link ui.router.util.$templateFactory#fromUrl fromUrl}.
-   * @param {Function} config.templateProvider function to invoke via 
-   * {@link ui.router.util.$templateFactory#fromProvider fromProvider}.
-   * @param {object} params  Parameters to pass to the template function.
-   * @param {object} locals Locals to pass to `invoke` if the template is loaded 
-   * via a `templateProvider`. Defaults to `{ params: params }`.
-   *
-   * @return {string|object}  The template html as a string, or a promise for 
-   * that string,or `null` if no template is configured.
-   */
-  this.fromConfig = function (config, params, locals) {
-    return (
-      isDefined(config.template) ? this.fromString(config.template, params) :
-      isDefined(config.templateUrl) ? this.fromUrl(config.templateUrl, params) :
-      isDefined(config.templateProvider) ? this.fromProvider(config.templateProvider, params, locals) :
-      null
-    );
-  };
-
-  /**
-   * @ngdoc function
-   * @name ui.router.util.$templateFactory#fromString
-   * @methodOf ui.router.util.$templateFactory
-   *
-   * @description
-   * Creates a template from a string or a function returning a string.
-   *
-   * @param {string|object} template html template as a string or function that 
-   * returns an html template as a string.
-   * @param {object} params Parameters to pass to the template function.
-   *
-   * @return {string|object} The template html as a string, or a promise for that 
-   * string.
-   */
-  this.fromString = function (template, params) {
-    return isFunction(template) ? template(params) : template;
-  };
-
-  /**
-   * @ngdoc function
-   * @name ui.router.util.$templateFactory#fromUrl
-   * @methodOf ui.router.util.$templateFactory
-   * 
-   * @description
-   * Loads a template from the a URL via `$http` and `$templateCache`.
-   *
-   * @param {string|Function} url url of the template to load, or a function 
-   * that returns a url.
-   * @param {Object} params Parameters to pass to the url function.
-   * @return {string|Promise.<string>} The template html as a string, or a promise 
-   * for that string.
-   */
-  this.fromUrl = function (url, params) {
-    if (isFunction(url)) url = url(params);
-    if (url == null) return null;
-    else return $http
-        .get(url, { cache: $templateCache })
-        .then(function(response) { return response.data; });
-  };
-
-  /**
-   * @ngdoc function
-   * @name ui.router.util.$templateFactory#fromUrl
-   * @methodOf ui.router.util.$templateFactory
-   *
-   * @description
-   * Creates a template by invoking an injectable provider function.
-   *
-   * @param {Function} provider Function to invoke via `$injector.invoke`
-   * @param {Object} params Parameters for the template.
-   * @param {Object} locals Locals to pass to `invoke`. Defaults to 
-   * `{ params: params }`.
-   * @return {string|Promise.<string>} The template html as a string, or a promise 
-   * for that string.
-   */
-  this.fromProvider = function (provider, params, locals) {
-    return $injector.invoke(provider, null, locals || { params: params });
-  };
-}
-
-angular.module('ui.router.util').service('$templateFactory', $TemplateFactory);
-
-/**
- * @ngdoc object
- * @name ui.router.util.type:UrlMatcher
- *
- * @description
- * Matches URLs against patterns and extracts named parameters from the path or the search
- * part of the URL. A URL pattern consists of a path pattern, optionally followed by '?' and a list
- * of search parameters. Multiple search parameter names are separated by '&'. Search parameters
- * do not influence whether or not a URL is matched, but their values are passed through into
- * the matched parameters returned by {@link ui.router.util.type:UrlMatcher#methods_exec exec}.
- * 
- * Path parameter placeholders can be specified using simple colon/catch-all syntax or curly brace
- * syntax, which optionally allows a regular expression for the parameter to be specified:
- *
- * * `':'` name - colon placeholder
- * * `'*'` name - catch-all placeholder
- * * `'{' name '}'` - curly placeholder
- * * `'{' name ':' regexp '}'` - curly placeholder with regexp. Should the regexp itself contain
- *   curly braces, they must be in matched pairs or escaped with a backslash.
- *
- * Parameter names may contain only word characters (latin letters, digits, and underscore) and
- * must be unique within the pattern (across both path and search parameters). For colon 
- * placeholders or curly placeholders without an explicit regexp, a path parameter matches any
- * number of characters other than '/'. For catch-all placeholders the path parameter matches
- * any number of characters.
- * 
- * Examples:
- * 
- * * `'/hello/'` - Matches only if the path is exactly '/hello/'. There is no special treatment for
- *   trailing slashes, and patterns have to match the entire path, not just a prefix.
- * * `'/user/:id'` - Matches '/user/bob' or '/user/1234!!!' or even '/user/' but not '/user' or
- *   '/user/bob/details'. The second path segment will be captured as the parameter 'id'.
- * * `'/user/{id}'` - Same as the previous example, but using curly brace syntax.
- * * `'/user/{id:[^/]*}'` - Same as the previous example.
- * * `'/user/{id:[0-9a-fA-F]{1,8}}'` - Similar to the previous example, but only matches if the id
- *   parameter consists of 1 to 8 hex digits.
- * * `'/files/{path:.*}'` - Matches any URL starting with '/files/' and captures the rest of the
- *   path into the parameter 'path'.
- * * `'/files/*path'` - ditto.
- *
- * @param {string} pattern  the pattern to compile into a matcher.
- *
- * @property {string} prefix  A static prefix of this pattern. The matcher guarantees that any
- *   URL matching this matcher (i.e. any string for which {@link ui.router.util.type:UrlMatcher#methods_exec exec()} returns
- *   non-null) will start with this prefix.
- *
- * @property {string} source  The pattern that was passed into the contructor
- *
- * @property {string} sourcePath  The path portion of the source property
- *
- * @property {string} sourceSearch  The search portion of the source property
- *
- * @property {string} regex  The constructed regex that will be used to match against the url when 
- *   it is time to determine which url will match.
- *
- * @returns {Object}  New UrlMatcher object
- */
-function UrlMatcher(pattern) {
-
-  // Find all placeholders and create a compiled pattern, using either classic or curly syntax:
-  //   '*' name
-  //   ':' name
-  //   '{' name '}'
-  //   '{' name ':' regexp '}'
-  // The regular expression is somewhat complicated due to the need to allow curly braces
-  // inside the regular expression. The placeholder regexp breaks down as follows:
-  //    ([:*])(\w+)               classic placeholder ($1 / $2)
-  //    \{(\w+)(?:\:( ... ))?\}   curly brace placeholder ($3) with optional regexp ... ($4)
-  //    (?: ... | ... | ... )+    the regexp consists of any number of atoms, an atom being either
-  //    [^{}\\]+                  - anything other than curly braces or backslash
-  //    \\.                       - a backslash escape
-  //    \{(?:[^{}\\]+|\\.)*\}     - a matched set of curly braces containing other atoms
-  var placeholder = /([:*])(\w+)|\{(\w+)(?:\:((?:[^{}\\]+|\\.|\{(?:[^{}\\]+|\\.)*\})+))?\}/g,
-      names = {}, compiled = '^', last = 0, m,
-      segments = this.segments = [],
-      params = this.params = [];
-
-  function addParameter(id) {
-    if (!/^\w+(-+\w+)*$/.test(id)) throw new Error("Invalid parameter name '" + id + "' in pattern '" + pattern + "'");
-    if (names[id]) throw new Error("Duplicate parameter name '" + id + "' in pattern '" + pattern + "'");
-    names[id] = true;
-    params.push(id);
-  }
-
-  function quoteRegExp(string) {
-    return string.replace(/[\\\[\]\^$*+?.()|{}]/g, "\\$&");
-  }
-
-  this.source = pattern;
-
-  // Split into static segments separated by path parameter placeholders.
-  // The number of segments is always 1 more than the number of parameters.
-  var id, regexp, segment;
-  while ((m = placeholder.exec(pattern))) {
-    id = m[2] || m[3]; // IE[78] returns '' for unmatched groups instead of null
-    regexp = m[4] || (m[1] == '*' ? '.*' : '[^/]*');
-    segment = pattern.substring(last, m.index);
-    if (segment.indexOf('?') >= 0) break; // we're into the search part
-    compiled += quoteRegExp(segment) + '(' + regexp + ')';
-    addParameter(id);
-    segments.push(segment);
-    last = placeholder.lastIndex;
-  }
-  segment = pattern.substring(last);
-
-  // Find any search parameter names and remove them from the last segment
-  var i = segment.indexOf('?');
-  if (i >= 0) {
-    var search = this.sourceSearch = segment.substring(i);
-    segment = segment.substring(0, i);
-    this.sourcePath = pattern.substring(0, last+i);
-
-    // Allow parameters to be separated by '?' as well as '&' to make concat() easier
-    forEach(search.substring(1).split(/[&?]/), addParameter);
-  } else {
-    this.sourcePath = pattern;
-    this.sourceSearch = '';
-  }
-
-  compiled += quoteRegExp(segment) + '$';
-  segments.push(segment);
-  this.regexp = new RegExp(compiled);
-  this.prefix = segments[0];
-}
-
-/**
- * @ngdoc function
- * @name ui.router.util.type:UrlMatcher#concat
- * @methodOf ui.router.util.type:UrlMatcher
- *
- * @description
- * Returns a new matcher for a pattern constructed by appending the path part and adding the
- * search parameters of the specified pattern to this pattern. The current pattern is not
- * modified. This can be understood as creating a pattern for URLs that are relative to (or
- * suffixes of) the current pattern.
- *
- * @example
- * The following two matchers are equivalent:
- * ```
- * new UrlMatcher('/user/{id}?q').concat('/details?date');
- * new UrlMatcher('/user/{id}/details?q&date');
- * ```
- *
- * @param {string} pattern  The pattern to append.
- * @returns {ui.router.util.type:UrlMatcher}  A matcher for the concatenated pattern.
- */
-UrlMatcher.prototype.concat = function (pattern) {
-  // Because order of search parameters is irrelevant, we can add our own search
-  // parameters to the end of the new pattern. Parse the new pattern by itself
-  // and then join the bits together, but it's much easier to do this on a string level.
-  return new UrlMatcher(this.sourcePath + pattern + this.sourceSearch);
-};
-
-UrlMatcher.prototype.toString = function () {
-  return this.source;
-};
-
-/**
- * @ngdoc function
- * @name ui.router.util.type:UrlMatcher#exec
- * @methodOf ui.router.util.type:UrlMatcher
- *
- * @description
- * Tests the specified path against this matcher, and returns an object containing the captured
- * parameter values, or null if the path does not match. The returned object contains the values
- * of any search parameters that are mentioned in the pattern, but their value may be null if
- * they are not present in `searchParams`. This means that search parameters are always treated
- * as optional.
- *
- * @example
- * ```
- * new UrlMatcher('/user/{id}?q&r').exec('/user/bob', { x:'1', q:'hello' });
- * // returns { id:'bob', q:'hello', r:null }
- * ```
- *
- * @param {string} path  The URL path to match, e.g. `$location.path()`.
- * @param {Object} searchParams  URL search parameters, e.g. `$location.search()`.
- * @returns {Object}  The captured parameter values.
- */
-UrlMatcher.prototype.exec = function (path, searchParams) {
-  var m = this.regexp.exec(path);
-  if (!m) return null;
-
-  var params = this.params, nTotal = params.length,
-    nPath = this.segments.length-1,
-    values = {}, i;
-
-  if (nPath !== m.length - 1) throw new Error("Unbalanced capture group in route '" + this.source + "'");
-
-  for (i=0; i<nPath; i++) values[params[i]] = m[i+1];
-  for (/**/; i<nTotal; i++) values[params[i]] = searchParams[params[i]];
-
-  return values;
-};
-
-/**
- * @ngdoc function
- * @name ui.router.util.type:UrlMatcher#parameters
- * @methodOf ui.router.util.type:UrlMatcher
- *
- * @description
- * Returns the names of all path and search parameters of this pattern in an unspecified order.
- * 
- * @returns {Array.<string>}  An array of parameter names. Must be treated as read-only. If the
- *    pattern has no parameters, an empty array is returned.
- */
-UrlMatcher.prototype.parameters = function () {
-  return this.params;
-};
-
-/**
- * @ngdoc function
- * @name ui.router.util.type:UrlMatcher#format
- * @methodOf ui.router.util.type:UrlMatcher
- *
- * @description
- * Creates a URL that matches this pattern by substituting the specified values
- * for the path and search parameters. Null values for path parameters are
- * treated as empty strings.
- *
- * @example
- * ```
- * new UrlMatcher('/user/{id}?q').format({ id:'bob', q:'yes' });
- * // returns '/user/bob?q=yes'
- * ```
- *
- * @param {Object} values  the values to substitute for the parameters in this pattern.
- * @returns {string}  the formatted URL (path and optionally search part).
- */
-UrlMatcher.prototype.format = function (values) {
-  var segments = this.segments, params = this.params;
-  if (!values) return segments.join('');
-
-  var nPath = segments.length-1, nTotal = params.length,
-    result = segments[0], i, search, value;
-
-  for (i=0; i<nPath; i++) {
-    value = values[params[i]];
-    // TODO: Maybe we should throw on null here? It's not really good style to use '' and null interchangeabley
-    if (value != null) result += encodeURIComponent(value);
-    result += segments[i+1];
-  }
-  for (/**/; i<nTotal; i++) {
-    value = values[params[i]];
-    if (value != null) {
-      result += (search ? '&' : '?') + params[i] + '=' + encodeURIComponent(value);
-      search = true;
-    }
-  }
-
-  return result;
-};
-
-
-
-/**
- * @ngdoc object
- * @name ui.router.util.$urlMatcherFactory
- *
- * @description
- * Factory for {@link ui.router.util.type:UrlMatcher} instances. The factory is also available to providers
- * under the name `$urlMatcherFactoryProvider`.
- */
-function $UrlMatcherFactory() {
-
-  /**
-   * @ngdoc function
-   * @name ui.router.util.$urlMatcherFactory#compile
-   * @methodOf ui.router.util.$urlMatcherFactory
-   *
-   * @description
-   * Creates a {@link ui.router.util.type:UrlMatcher} for the specified pattern.
-   *   
-   * @param {string} pattern  The URL pattern.
-   * @returns {ui.router.util.type:UrlMatcher}  The UrlMatcher.
-   */
-  this.compile = function (pattern) {
-    return new UrlMatcher(pattern);
-  };
-
-  /**
-   * @ngdoc function
-   * @name ui.router.util.$urlMatcherFactory#isMatcher
-   * @methodOf ui.router.util.$urlMatcherFactory
-   *
-   * @description
-   * Returns true if the specified object is a UrlMatcher, or false otherwise.
-   *
-   * @param {Object} object  The object to perform the type check against.
-   * @returns {Boolean}  Returns `true` if the object has the following functions: `exec`, `format`, and `concat`.
-   */
-  this.isMatcher = function (o) {
-    return isObject(o) && isFunction(o.exec) && isFunction(o.format) && isFunction(o.concat);
-  };
-  
-  /* No need to document $get, since it returns this */
-  this.$get = function () {
-    return this;
-  };
-}
-
-// Register as a provider so it's available to other providers
-angular.module('ui.router.util').provider('$urlMatcherFactory', $UrlMatcherFactory);
-
-/**
- * @ngdoc object
- * @name ui.router.router.$urlRouterProvider
- *
- * @requires ui.router.util.$urlMatcherFactoryProvider
- *
- * @description
- * `$urlRouterProvider` has the responsibility of watching `$location`. 
- * When `$location` changes it runs through a list of rules one by one until a 
- * match is found. `$urlRouterProvider` is used behind the scenes anytime you specify 
- * a url in a state configuration. All urls are compiled into a UrlMatcher object.
- *
- * There are several methods on `$urlRouterProvider` that make it useful to use directly
- * in your module config.
- */
-$UrlRouterProvider.$inject = ['$urlMatcherFactoryProvider'];
-function $UrlRouterProvider(  $urlMatcherFactory) {
-  var rules = [], 
-      otherwise = null;
-
-  // Returns a string that is a prefix of all strings matching the RegExp
-  function regExpPrefix(re) {
-    var prefix = /^\^((?:\\[^a-zA-Z0-9]|[^\\\[\]\^$*+?.()|{}]+)*)/.exec(re.source);
-    return (prefix != null) ? prefix[1].replace(/\\(.)/g, "$1") : '';
-  }
-
-  // Interpolates matched values into a String.replace()-style pattern
-  function interpolate(pattern, match) {
-    return pattern.replace(/\$(\$|\d{1,2})/, function (m, what) {
-      return match[what === '$' ? 0 : Number(what)];
-    });
-  }
-
-  /**
-   * @ngdoc function
-   * @name ui.router.router.$urlRouterProvider#rule
-   * @methodOf ui.router.router.$urlRouterProvider
-   *
-   * @description
-   * Defines rules that are used by `$urlRouterProvider to find matches for
-   * specific URLs.
-   *
-   * @example
-   * <pre>
-   * var app = angular.module('app', ['ui.router.router']);
-   *
-   * app.config(function ($urlRouterProvider) {
-   *   // Here's an example of how you might allow case insensitive urls
-   *   $urlRouterProvider.rule(function ($injector, $location) {
-   *     var path = $location.path(),
-   *         normalized = path.toLowerCase();
-   *
-   *     if (path !== normalized) {
-   *       return normalized;
-   *     }
-   *   });
-   * });
-   * </pre>
-   *
-   * @param {object} rule Handler function that takes `$injector` and `$location`
-   * services as arguments. You can use them to return a valid path as a string.
-   *
-   * @return {object} $urlRouterProvider - $urlRouterProvider instance
-   */
-  this.rule =
-    function (rule) {
-      if (!isFunction(rule)) throw new Error("'rule' must be a function");
-      rules.push(rule);
-      return this;
-    };
-
-  /**
-   * @ngdoc object
-   * @name ui.router.router.$urlRouterProvider#otherwise
-   * @methodOf ui.router.router.$urlRouterProvider
-   *
-   * @description
-   * Defines a path that is used when an invalied route is requested.
-   *
-   * @example
-   * <pre>
-   * var app = angular.module('app', ['ui.router.router']);
-   *
-   * app.config(function ($urlRouterProvider) {
-   *   // if the path doesn't match any of the urls you configured
-   *   // otherwise will take care of routing the user to the
-   *   // specified url
-   *   $urlRouterProvider.otherwise('/index');
-   *
-   *   // Example of using function rule as param
-   *   $urlRouterProvider.otherwise(function ($injector, $location) {
-   *     ...
-   *   });
-   * });
-   * </pre>
-   *
-   * @param {string|object} rule The url path you want to redirect to or a function 
-   * rule that returns the url path. The function version is passed two params: 
-   * `$injector` and `$location` services.
-   *
-   * @return {object} $urlRouterProvider - $urlRouterProvider instance
-   */
-  this.otherwise =
-    function (rule) {
-      if (isString(rule)) {
-        var redirect = rule;
-        rule = function () { return redirect; };
-      }
-      else if (!isFunction(rule)) throw new Error("'rule' must be a function");
-      otherwise = rule;
-      return this;
-    };
-
-
-  function handleIfMatch($injector, handler, match) {
-    if (!match) return false;
-    var result = $injector.invoke(handler, handler, { $match: match });
-    return isDefined(result) ? result : true;
-  }
-
-  /**
-   * @ngdoc function
-   * @name ui.router.router.$urlRouterProvider#when
-   * @methodOf ui.router.router.$urlRouterProvider
-   *
-   * @description
-   * Registers a handler for a given url matching. if handle is a string, it is
-   * treated as a redirect, and is interpolated according to the syyntax of match
-   * (i.e. like String.replace() for RegExp, or like a UrlMatcher pattern otherwise).
-   *
-   * If the handler is a function, it is injectable. It gets invoked if `$location`
-   * matches. You have the option of inject the match object as `$match`.
-   *
-   * The handler can return
-   *
-   * - **falsy** to indicate that the rule didn't match after all, then `$urlRouter`
-   *   will continue trying to find another one that matches.
-   * - **string** which is treated as a redirect and passed to `$location.url()`
-   * - **void** or any **truthy** value tells `$urlRouter` that the url was handled.
-   *
-   * @example
-   * <pre>
-   * var app = angular.module('app', ['ui.router.router']);
-   *
-   * app.config(function ($urlRouterProvider) {
-   *   $urlRouterProvider.when($state.url, function ($match, $stateParams) {
-   *     if ($state.$current.navigable !== state ||
-   *         !equalForKeys($match, $stateParams) {
-   *      $state.transitionTo(state, $match, false);
-   *     }
-   *   });
-   * });
-   * </pre>
-   *
-   * @param {string|object} what The incoming path that you want to redirect.
-   * @param {string|object} handler The path you want to redirect your user to.
-   */
-  this.when =
-    function (what, handler) {
-      var redirect, handlerIsString = isString(handler);
-      if (isString(what)) what = $urlMatcherFactory.compile(what);
-
-      if (!handlerIsString && !isFunction(handler) && !isArray(handler))
-        throw new Error("invalid 'handler' in when()");
-
-      var strategies = {
-        matcher: function (what, handler) {
-          if (handlerIsString) {
-            redirect = $urlMatcherFactory.compile(handler);
-            handler = ['$match', function ($match) { return redirect.format($match); }];
-          }
-          return extend(function ($injector, $location) {
-            return handleIfMatch($injector, handler, what.exec($location.path(), $location.search()));
-          }, {
-            prefix: isString(what.prefix) ? what.prefix : ''
-          });
-        },
-        regex: function (what, handler) {
-          if (what.global || what.sticky) throw new Error("when() RegExp must not be global or sticky");
-
-          if (handlerIsString) {
-            redirect = handler;
-            handler = ['$match', function ($match) { return interpolate(redirect, $match); }];
-          }
-          return extend(function ($injector, $location) {
-            return handleIfMatch($injector, handler, what.exec($location.path()));
-          }, {
-            prefix: regExpPrefix(what)
-          });
-        }
-      };
-
-      var check = { matcher: $urlMatcherFactory.isMatcher(what), regex: what instanceof RegExp };
-
-      for (var n in check) {
-        if (check[n]) {
-          return this.rule(strategies[n](what, handler));
-        }
-      }
-
-      throw new Error("invalid 'what' in when()");
-    };
-
-  /**
-   * @ngdoc object
-   * @name ui.router.router.$urlRouter
-   *
-   * @requires $location
-   * @requires $rootScope
-   * @requires $injector
-   *
-   * @description
-   *
-   */
-  this.$get =
-    [        '$location', '$rootScope', '$injector',
-    function ($location,   $rootScope,   $injector) {
-      // TODO: Optimize groups of rules with non-empty prefix into some sort of decision tree
-      function update(evt) {
-        if (evt && evt.defaultPrevented) return;
-        function check(rule) {
-          var handled = rule($injector, $location);
-          if (handled) {
-            if (isString(handled)) $location.replace().url(handled);
-            return true;
-          }
-          return false;
-        }
-        var n=rules.length, i;
-        for (i=0; i<n; i++) {
-          if (check(rules[i])) return;
-        }
-        // always check otherwise last to allow dynamic updates to the set of rules
-        if (otherwise) check(otherwise);
-      }
-
-      $rootScope.$on('$locationChangeSuccess', update);
-
-      return {
-        /**
-         * @ngdoc function
-         * @name ui.router.router.$urlRouter#sync
-         * @methodOf ui.router.router.$urlRouter
-         *
-         * @description
-         * Triggers an update; the same update that happens when the address bar url changes, aka `$locationChangeSuccess`.
-         * This method is useful when you need to use `preventDefault()` on the `$locationChangeSuccess` event, 
-         * perform some custom logic (route protection, auth, config, redirection, etc) and then finally proceed 
-         * with the transition by calling `$urlRouter.sync()`.
-         *
-         * @example
-         * <pre>
-         * angular.module('app', ['ui.router']);
-         *   .run(function($rootScope, $urlRouter) {
-         *     $rootScope.$on('$locationChangeSuccess', function(evt) {
-         *       // Halt state change from even starting
-         *       evt.preventDefault();
-         *       // Perform custom logic
-         *       var meetsRequirement = ...
-         *       // Continue with the update and state transition if logic allows
-         *       if (meetsRequirement) $urlRouter.sync();
-         *     });
-         * });
-         * </pre>
-         */
-        sync: function () {
-          update();
-        }
-      };
-    }];
-}
-
-angular.module('ui.router.router').provider('$urlRouter', $UrlRouterProvider);
-
-/**
- * @ngdoc object
- * @name ui.router.state.$stateProvider
- *
- * @requires ui.router.router.$urlRouterProvider
- * @requires ui.router.util.$urlMatcherFactoryProvider
- * @requires $locationProvider
- *
- * @description
- * The new `$stateProvider` works similar to Angular's v1 router, but it focuses purely
- * on state.
- *
- * A state corresponds to a "place" in the application in terms of the overall UI and
- * navigation. A state describes (via the controller / template / view properties) what
- * the UI looks like and does at that place.
- *
- * States often have things in common, and the primary way of factoring out these
- * commonalities in this model is via the state hierarchy, i.e. parent/child states aka
- * nested states.
- *
- * The `$stateProvider` provides interfaces to declare these states for your app.
- */
-$StateProvider.$inject = ['$urlRouterProvider', '$urlMatcherFactoryProvider', '$locationProvider'];
-function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory,           $locationProvider) {
-
-  var root, states = {}, $state, queue = {}, abstractKey = 'abstract';
-
-  // Builds state properties from definition passed to registerState()
-  var stateBuilder = {
-
-    // Derive parent state from a hierarchical name only if 'parent' is not explicitly defined.
-    // state.children = [];
-    // if (parent) parent.children.push(state);
-    parent: function(state) {
-      if (isDefined(state.parent) && state.parent) return findState(state.parent);
-      // regex matches any valid composite state name
-      // would match "contact.list" but not "contacts"
-      var compositeName = /^(.+)\.[^.]+$/.exec(state.name);
-      return compositeName ? findState(compositeName[1]) : root;
-    },
-
-    // inherit 'data' from parent and override by own values (if any)
-    data: function(state) {
-      if (state.parent && state.parent.data) {
-        state.data = state.self.data = extend({}, state.parent.data, state.data);
-      }
-      return state.data;
-    },
-
-    // Build a URLMatcher if necessary, either via a relative or absolute URL
-    url: function(state) {
-      var url = state.url;
-
-      if (isString(url)) {
-        if (url.charAt(0) == '^') {
-          return $urlMatcherFactory.compile(url.substring(1));
-        }
-        return (state.parent.navigable || root).url.concat(url);
-      }
-
-      if ($urlMatcherFactory.isMatcher(url) || url == null) {
-        return url;
-      }
-      throw new Error("Invalid url '" + url + "' in state '" + state + "'");
-    },
-
-    // Keep track of the closest ancestor state that has a URL (i.e. is navigable)
-    navigable: function(state) {
-      return state.url ? state : (state.parent ? state.parent.navigable : null);
-    },
-
-    // Derive parameters for this state and ensure they're a super-set of parent's parameters
-    params: function(state) {
-      if (!state.params) {
-        return state.url ? state.url.parameters() : state.parent.params;
-      }
-      if (!isArray(state.params)) throw new Error("Invalid params in state '" + state + "'");
-      if (state.url) throw new Error("Both params and url specicified in state '" + state + "'");
-      return state.params;
-    },
-
-    // If there is no explicit multi-view configuration, make one up so we don't have
-    // to handle both cases in the view directive later. Note that having an explicit
-    // 'views' property will mean the default unnamed view properties are ignored. This
-    // is also a good time to resolve view names to absolute names, so everything is a
-    // straight lookup at link time.
-    views: function(state) {
-      var views = {};
-
-      forEach(isDefined(state.views) ? state.views : { '': state }, function (view, name) {
-        if (name.indexOf('@') < 0) name += '@' + state.parent.name;
-        views[name] = view;
-      });
-      return views;
-    },
-
-    ownParams: function(state) {
-      if (!state.parent) {
-        return state.params;
-      }
-      var paramNames = {}; forEach(state.params, function (p) { paramNames[p] = true; });
-
-      forEach(state.parent.params, function (p) {
-        if (!paramNames[p]) {
-          throw new Error("Missing required parameter '" + p + "' in state '" + state.name + "'");
-        }
-        paramNames[p] = false;
-      });
-      var ownParams = [];
-
-      forEach(paramNames, function (own, p) {
-        if (own) ownParams.push(p);
-      });
-      return ownParams;
-    },
-
-    // Keep a full path from the root down to this state as this is needed for state activation.
-    path: function(state) {
-      return state.parent ? state.parent.path.concat(state) : []; // exclude root from path
-    },
-
-    // Speed up $state.contains() as it's used a lot
-    includes: function(state) {
-      var includes = state.parent ? extend({}, state.parent.includes) : {};
-      includes[state.name] = true;
-      return includes;
-    },
-
-    $delegates: {}
-  };
-
-  function isRelative(stateName) {
-    return stateName.indexOf(".") === 0 || stateName.indexOf("^") === 0;
-  }
-
-  function findState(stateOrName, base) {
-    var isStr = isString(stateOrName),
-        name  = isStr ? stateOrName : stateOrName.name,
-        path  = isRelative(name);
-
-    if (path) {
-      if (!base) throw new Error("No reference point given for path '"  + name + "'");
-      var rel = name.split("."), i = 0, pathLength = rel.length, current = base;
-
-      for (; i < pathLength; i++) {
-        if (rel[i] === "" && i === 0) {
-          current = base;
-          continue;
-        }
-        if (rel[i] === "^") {
-          if (!current.parent) throw new Error("Path '" + name + "' not valid for state '" + base.name + "'");
-          current = current.parent;
-          continue;
-        }
-        break;
-      }
-      rel = rel.slice(i).join(".");
-      name = current.name + (current.name && rel ? "." : "") + rel;
-    }
-    var state = states[name];
-
-    if (state && (isStr || (!isStr && (state === stateOrName || state.self === stateOrName)))) {
-      return state;
-    }
-    return undefined;
-  }
-
-  function queueState(parentName, state) {
-    if (!queue[parentName]) {
-      queue[parentName] = [];
-    }
-    queue[parentName].push(state);
-  }
-
-  function registerState(state) {
-    // Wrap a new object around the state so we can store our private details easily.
-    state = inherit(state, {
-      self: state,
-      resolve: state.resolve || {},
-      toString: function() { return this.name; }
-    });
-
-    var name = state.name;
-    if (!isString(name) || name.indexOf('@') >= 0) throw new Error("State must have a valid name");
-    if (states.hasOwnProperty(name)) throw new Error("State '" + name + "'' is already defined");
-
-    // Get parent name
-    var parentName = (name.indexOf('.') !== -1) ? name.substring(0, name.lastIndexOf('.'))
-        : (isString(state.parent)) ? state.parent
-        : '';
-
-    // If parent is not registered yet, add state to queue and register later
-    if (parentName && !states[parentName]) {
-      return queueState(parentName, state.self);
-    }
-
-    for (var key in stateBuilder) {
-      if (isFunction(stateBuilder[key])) state[key] = stateBuilder[key](state, stateBuilder.$delegates[key]);
-    }
-    states[name] = state;
-
-    // Register the state in the global state list and with $urlRouter if necessary.
-    if (!state[abstractKey] && state.url) {
-      $urlRouterProvider.when(state.url, ['$match', '$stateParams', function ($match, $stateParams) {
-        if ($state.$current.navigable != state || !equalForKeys($match, $stateParams)) {
-          $state.transitionTo(state, $match, { location: false });
-        }
-      }]);
-    }
-
-    // Register any queued children
-    if (queue[name]) {
-      for (var i = 0; i < queue[name].length; i++) {
-        registerState(queue[name][i]);
-      }
-    }
-
-    return state;
-  }
-
-  // Checks text to see if it looks like a glob.
-  function isGlob (text) {
-    return text.indexOf('*') > -1;
-  }
-
-  // Returns true if glob matches current $state name.
-  function doesStateMatchGlob (glob) {
-    var globSegments = glob.split('.'),
-        segments = $state.$current.name.split('.');
-
-    //match greedy starts
-    if (globSegments[0] === '**') {
-       segments = segments.slice(segments.indexOf(globSegments[1]));
-       segments.unshift('**');
-    }
-    //match greedy ends
-    if (globSegments[globSegments.length - 1] === '**') {
-       segments.splice(segments.indexOf(globSegments[globSegments.length - 2]) + 1, Number.MAX_VALUE);
-       segments.push('**');
-    }
-
-    if (globSegments.length != segments.length) {
-      return false;
-    }
-
-    //match single stars
-    for (var i = 0, l = globSegments.length; i < l; i++) {
-      if (globSegments[i] === '*') {
-        segments[i] = '*';
-      }
-    }
-
-    return segments.join('') === globSegments.join('');
-  }
-
-
-  // Implicit root state that is always active
-  root = registerState({
-    name: '',
-    url: '^',
-    views: null,
-    'abstract': true
-  });
-  root.navigable = null;
-
-
-  /**
-   * @ngdoc function
-   * @name ui.router.state.$stateProvider#decorator
-   * @methodOf ui.router.state.$stateProvider
-   *
-   * @description
-   * Allows you to extend (carefully) or override (at your own peril) the 
-   * `stateBuilder` object used internally by `$stateProvider`. This can be used 
-   * to add custom functionality to ui-router, for example inferring templateUrl 
-   * based on the state name.
-   *
-   * When passing only a name, it returns the current (original or decorated) builder
-   * function that matches `name`.
-   *
-   * The builder functions that can be decorated are listed below. Though not all
-   * necessarily have a good use case for decoration, that is up to you to decide.
-   *
-   * In addition, users can attach custom decorators, which will generate new 
-   * properties within the state's internal definition. There is currently no clear 
-   * use-case for this beyond accessing internal states (i.e. $state.$current), 
-   * however, expect this to become increasingly relevant as we introduce additional 
-   * meta-programming features.
-   *
-   * **Warning**: Decorators should not be interdependent because the order of 
-   * execution of the builder functions in non-deterministic. Builder functions 
-   * should only be dependent on the state definition object and super function.
-   *
-   *
-   * Existing builder functions and current return values:
-   *
-   * - **parent** `{object}` - returns the parent state object.
-   * - **data** `{object}` - returns state data, including any inherited data that is not
-   *   overridden by own values (if any).
-   * - **url** `{object}` - returns a {link ui.router.util.type:UrlMatcher} or null.
-   * - **navigable** `{object}` - returns closest ancestor state that has a URL (aka is 
-   *   navigable).
-   * - **params** `{object}` - returns an array of state params that are ensured to 
-   *   be a super-set of parent's params.
-   * - **views** `{object}` - returns a views object where each key is an absolute view 
-   *   name (i.e. "viewName@stateName") and each value is the config object 
-   *   (template, controller) for the view. Even when you don't use the views object 
-   *   explicitly on a state config, one is still created for you internally.
-   *   So by decorating this builder function you have access to decorating template 
-   *   and controller properties.
-   * - **ownParams** `{object}` - returns an array of params that belong to the state, 
-   *   not including any params defined by ancestor states.
-   * - **path** `{string}` - returns the full path from the root down to this state. 
-   *   Needed for state activation.
-   * - **includes** `{object}` - returns an object that includes every state that 
-   *   would pass a '$state.includes()' test.
-   *
-   * @example
-   * <pre>
-   * // Override the internal 'views' builder with a function that takes the state
-   * // definition, and a reference to the internal function being overridden:
-   * $stateProvider.decorator('views', function ($state, parent) {
-   *   var result = {},
-   *       views = parent(state);
-   *
-   *   angular.forEach(view, function (config, name) {
-   *     var autoName = (state.name + '.' + name).replace('.', '/');
-   *     config.templateUrl = config.templateUrl || '/partials/' + autoName + '.html';
-   *     result[name] = config;
-   *   });
-   *   return result;
-   * });
-   *
-   * $stateProvider.state('home', {
-   *   views: {
-   *     'contact.list': { controller: 'ListController' },
-   *     'contact.item': { controller: 'ItemController' }
-   *   }
-   * });
-   *
-   * // ...
-   *
-   * $state.go('home');
-   * // Auto-populates list and item views with /partials/home/contact/list.html,
-   * // and /partials/home/contact/item.html, respectively.
-   * </pre>
-   *
-   * @param {string} name The name of the builder function to decorate. 
-   * @param {object} func A function that is responsible for decorating the original 
-   * builder function. The function receives two parameters:
-   *
-   *   - `{object}` - state - The state config object.
-   *   - `{object}` - super - The original builder function.
-   *
-   * @return {object} $stateProvider - $stateProvider instance
-   */
-  this.decorator = decorator;
-  function decorator(name, func) {
-    /*jshint validthis: true */
-    if (isString(name) && !isDefined(func)) {
-      return stateBuilder[name];
-    }
-    if (!isFunction(func) || !isString(name)) {
-      return this;
-    }
-    if (stateBuilder[name] && !stateBuilder.$delegates[name]) {
-      stateBuilder.$delegates[name] = stateBuilder[name];
-    }
-    stateBuilder[name] = func;
-    return this;
-  }
-
-  /**
-   * @ngdoc function
-   * @name ui.router.state.$stateProvider#state
-   * @methodOf ui.router.state.$stateProvider
-   *
-   * @description
-   * Registers a state configuration under a given state name. The stateConfig object
-   * has the following acceptable properties.
-   *
-   * <a id='template'></a>
-   *
-   * - **`template`** - {string|function=} - html template as a string or a function that returns
-   *   an html template as a string which should be used by the uiView directives. This property 
-   *   takes precedence over templateUrl.
-   *   
-   *   If `template` is a function, it will be called with the following parameters:
-   *
-   *   - {array.&lt;object&gt;} - state parameters extracted from the current $location.path() by
-   *     applying the current state
-   *
-   * <a id='templateUrl'></a>
-   *
-   * - **`templateUrl`** - {string|function=} - path or function that returns a path to an html 
-   *   template that should be used by uiView.
-   *   
-   *   If `templateUrl` is a function, it will be called with the following parameters:
-   *
-   *   - {array.&lt;object&gt;} - state parameters extracted from the current $location.path() by 
-   *     applying the current state
-   *
-   * <a id='templateProvider'></a>
-   *
-   * - **`templateProvider`** - {function=} - Provider function that returns HTML content
-   *   string.
-   *
-   * <a id='controller'></a>
-   *
-   * - **`controller`** - {string|function=} -  Controller fn that should be associated with newly 
-   *   related scope or the name of a registered controller if passed as a string.
-   *
-   * <a id='controllerProvider'></a>
-   *
-   * - **`controllerProvider`** - {function=} - Injectable provider function that returns
-   *   the actual controller or string.
-   *
-   * <a id='controllerAs'></a>
-   * 
-   * - **`controllerAs`** – {string=} – A controller alias name. If present the controller will be 
-   *   published to scope under the controllerAs name.
-   *
-   * <a id='resolve'></a>
-   *
-   * - **`resolve`** - {object.&lt;string, function&gt;=} - An optional map of dependencies which 
-   *   should be injected into the controller. If any of these dependencies are promises, 
-   *   the router will wait for them all to be resolved or one to be rejected before the 
-   *   controller is instantiated. If all the promises are resolved successfully, the values 
-   *   of the resolved promises are injected and $stateChangeSuccess event is fired. If any 
-   *   of the promises are rejected the $stateChangeError event is fired. The map object is:
-   *   
-   *   - key - {string}: name of dependency to be injected into controller
-   *   - factory - {string|function}: If string then it is alias for service. Otherwise if function, 
-   *     it is injected and return value it treated as dependency. If result is a promise, it is 
-   *     resolved before its value is injected into controller.
-   *
-   * <a id='url'></a>
-   *
-   * - **`url`** - {string=} - A url with optional parameters. When a state is navigated or
-   *   transitioned to, the `$stateParams` service will be populated with any 
-   *   parameters that were passed.
-   *
-   * <a id='params'></a>
-   *
-   * - **`params`** - {object=} - An array of parameter names or regular expressions. Only 
-   *   use this within a state if you are not using url. Otherwise you can specify your
-   *   parameters within the url. When a state is navigated or transitioned to, the 
-   *   $stateParams service will be populated with any parameters that were passed.
-   *
-   * <a id='views'></a>
-   *
-   * - **`views`** - {object=} - Use the views property to set up multiple views or to target views
-   *   manually/explicitly.
-   *
-   * <a id='abstract'></a>
-   *
-   * - **`abstract`** - {boolean=} - An abstract state will never be directly activated, 
-   *   but can provide inherited properties to its common children states.
-   *
-   * <a id='onEnter'></a>
-   *
-   * - **`onEnter`** - {object=} - Callback function for when a state is entered. Good way
-   *   to trigger an action or dispatch an event, such as opening a dialog.
-   *
-   * <a id='onExit'></a>
-   *
-   * - **`onExit`** - {object=} - Callback function for when a state is exited. Good way to
-   *   trigger an action or dispatch an event, such as opening a dialog.
-   *
-   * <a id='reloadOnSearch'></a>
-   *
-   * - **`reloadOnSearch = true`** - {boolean=} - If `false`, will not retrigger the same state 
-   *   just because a search/query parameter has changed (via $location.search() or $location.hash()). 
-   *   Useful for when you'd like to modify $location.search() without triggering a reload.
-   *
-   * <a id='data'></a>
-   *
-   * - **`data`** - {object=} - Arbitrary data object, useful for custom configuration.
-   *
-   * @example
-   * <pre>
-   * // Some state name examples
-   *
-   * // stateName can be a single top-level name (must be unique).
-   * $stateProvider.state("home", {});
-   *
-   * // Or it can be a nested state name. This state is a child of the 
-   * // above "home" state.
-   * $stateProvider.state("home.newest", {});
-   *
-   * // Nest states as deeply as needed.
-   * $stateProvider.state("home.newest.abc.xyz.inception", {});
-   *
-   * // state() returns $stateProvider, so you can chain state declarations.
-   * $stateProvider
-   *   .state("home", {})
-   *   .state("about", {})
-   *   .state("contacts", {});
-   * </pre>
-   *
-   * @param {string} name A unique state name, e.g. "home", "about", "contacts". 
-   * To create a parent/child state use a dot, e.g. "about.sales", "home.newest".
-   * @param {object} definition State configuration object.
-   */
-  this.state = state;
-  function state(name, definition) {
-    /*jshint validthis: true */
-    if (isObject(name)) definition = name;
-    else definition.name = name;
-    registerState(definition);
-    return this;
-  }
-
-  /**
-   * @ngdoc object
-   * @name ui.router.state.$state
-   *
-   * @requires $rootScope
-   * @requires $q
-   * @requires ui.router.state.$view
-   * @requires $injector
-   * @requires ui.router.util.$resolve
-   * @requires ui.router.state.$stateParams
-   *
-   * @property {object} params A param object, e.g. {sectionId: section.id)}, that 
-   * you'd like to test against the current active state.
-   * @property {object} current A reference to the state's config object. However 
-   * you passed it in. Useful for accessing custom data.
-   * @property {object} transition Currently pending transition. A promise that'll 
-   * resolve or reject.
-   *
-   * @description
-   * `$state` service is responsible for representing states as well as transitioning
-   * between them. It also provides interfaces to ask for current state or even states
-   * you're coming from.
-   */
-  // $urlRouter is injected just to ensure it gets instantiated
-  this.$get = $get;
-  $get.$inject = ['$rootScope', '$q', '$view', '$injector', '$resolve', '$stateParams', '$location', '$urlRouter', '$browser'];
-  function $get(   $rootScope,   $q,   $view,   $injector,   $resolve,   $stateParams,   $location,   $urlRouter,   $browser) {
-
-    var TransitionSuperseded = $q.reject(new Error('transition superseded'));
-    var TransitionPrevented = $q.reject(new Error('transition prevented'));
-    var TransitionAborted = $q.reject(new Error('transition aborted'));
-    var TransitionFailed = $q.reject(new Error('transition failed'));
-    var currentLocation = $location.url();
-    var baseHref = $browser.baseHref();
-
-    function syncUrl() {
-      if ($location.url() !== currentLocation) {
-        $location.url(currentLocation);
-        $location.replace();
-      }
-    }
-
-    root.locals = { resolve: null, globals: { $stateParams: {} } };
-    $state = {
-      params: {},
-      current: root.self,
-      $current: root,
-      transition: null
-    };
-
-    /**
-     * @ngdoc function
-     * @name ui.router.state.$state#reload
-     * @methodOf ui.router.state.$state
-     *
-     * @description
-     * A method that force reloads the current state. All resolves are re-resolved, events are not re-fired, 
-     * and controllers reinstantiated (bug with controllers reinstantiating right now, fixing soon).
-     *
-     * @example
-     * <pre>
-     * var app angular.module('app', ['ui.router']);
-     *
-     * app.controller('ctrl', function ($scope, $state) {
-     *   $scope.reload = function(){
-     *     $state.reload();
-     *   }
-     * });
-     * </pre>
-     *
-     * `reload()` is just an alias for:
-     * <pre>
-     * $state.transitionTo($state.current, $stateParams, { 
-     *   reload: true, inherit: false, notify: false 
-     * });
-     * </pre>
-     */
-    $state.reload = function reload() {
-      $state.transitionTo($state.current, $stateParams, { reload: true, inherit: false, notify: false });
-    };
-
-    /**
-     * @ngdoc function
-     * @name ui.router.state.$state#go
-     * @methodOf ui.router.state.$state
-     *
-     * @description
-     * Convenience method for transitioning to a new state. `$state.go` calls 
-     * `$state.transitionTo` internally but automatically sets options to 
-     * `{ location: true, inherit: true, relative: $state.$current, notify: true }`. 
-     * This allows you to easily use an absolute or relative to path and specify 
-     * only the parameters you'd like to update (while letting unspecified parameters 
-     * inherit from the currently active ancestor states).
-     *
-     * @example
-     * <pre>
-     * var app = angular.module('app', ['ui.router']);
-     *
-     * app.controller('ctrl', function ($scope, $state) {
-     *   $scope.changeState = function () {
-     *     $state.go('contact.detail');
-     *   };
-     * });
-     * </pre>
-     * <img src='../ngdoc_assets/StateGoExamples.png'/>
-     *
-     * @param {string} to Absolute state name or relative state path. Some examples:
-     *
-     * - `$state.go('contact.detail')` - will go to the `contact.detail` state
-     * - `$state.go('^')` - will go to a parent state
-     * - `$state.go('^.sibling')` - will go to a sibling state
-     * - `$state.go('.child.grandchild')` - will go to grandchild state
-     *
-     * @param {object=} params A map of the parameters that will be sent to the state, 
-     * will populate $stateParams. Any parameters that are not specified will be inherited from currently 
-     * defined parameters. This allows, for example, going to a sibling state that shares parameters
-     * specified in a parent state. Parameter inheritance only works between common ancestor states, I.e.
-     * transitioning to a sibling will get you the parameters for all parents, transitioning to a child
-     * will get you all current parameters, etc.
-     * @param {object=} options Options object. The options are:
-     *
-     * - **`location`** - {boolean=true|string=} - If `true` will update the url in the location bar, if `false`
-     *    will not. If string, must be `"replace"`, which will update url and also replace last history record.
-     * - **`inherit`** - {boolean=true}, If `true` will inherit url parameters from current url.
-     * - **`relative`** - {object=$state.$current}, When transitioning with relative path (e.g '^'), 
-     *    defines which state to be relative from.
-     * - **`notify`** - {boolean=true}, If `true` will broadcast $stateChangeStart and $stateChangeSuccess events.
-     * - **`reload`** (v0.2.5) - {boolean=false}, If `true` will force transition even if the state or params 
-     *    have not changed, aka a reload of the same state. It differs from reloadOnSearch because you'd
-     *    use this when you want to force a reload when *everything* is the same, including search params.
-     *
-     * @returns {promise} A promise representing the state of the new transition.
-     *
-     * Possible success values:
-     *
-     * - $state.current
-     *
-     * <br/>Possible rejection values:
-     *
-     * - 'transition superseded' - when a newer transition has been started after this one
-     * - 'transition prevented' - when `event.preventDefault()` has been called in a `$stateChangeStart` listener
-     * - 'transition aborted' - when `event.preventDefault()` has been called in a `$stateNotFound` listener or
-     *   when a `$stateNotFound` `event.retry` promise errors.
-     * - 'transition failed' - when a state has been unsuccessfully found after 2 tries.
-     * - *resolve error* - when an error has occurred with a `resolve`
-     *
-     */
-    $state.go = function go(to, params, options) {
-      return this.transitionTo(to, params, extend({ inherit: true, relative: $state.$current }, options));
-    };
-
-    /**
-     * @ngdoc function
-     * @name ui.router.state.$state#transitionTo
-     * @methodOf ui.router.state.$state
-     *
-     * @description
-     * Low-level method for transitioning to a new state. {@link ui.router.state.$state#methods_go $state.go}
-     * uses `transitionTo` internally. `$state.go` is recommended in most situations.
-     *
-     * @example
-     * <pre>
-     * var app = angular.module('app', ['ui.router']);
-     *
-     * app.controller('ctrl', function ($scope, $state) {
-     *   $scope.changeState = function () {
-     *     $state.transitionTo('contact.detail');
-     *   };
-     * });
-     * </pre>
-     *
-     * @param {string} to State name.
-     * @param {object=} toParams A map of the parameters that will be sent to the state,
-     * will populate $stateParams.
-     * @param {object=} options Options object. The options are:
-     *
-     * - **`location`** - {boolean=true|string=} - If `true` will update the url in the location bar, if `false`
-     *    will not. If string, must be `"replace"`, which will update url and also replace last history record.
-     * - **`inherit`** - {boolean=false}, If `true` will inherit url parameters from current url.
-     * - **`relative`** - {object=}, When transitioning with relative path (e.g '^'), 
-     *    defines which state to be relative from.
-     * - **`notify`** - {boolean=true}, If `true` will broadcast $stateChangeStart and $stateChangeSuccess events.
-     * - **`reload`** (v0.2.5) - {boolean=false}, If `true` will force transition even if the state or params 
-     *    have not changed, aka a reload of the same state. It differs from reloadOnSearch because you'd
-     *    use this when you want to force a reload when *everything* is the same, including search params.
-     *
-     * @returns {promise} A promise representing the state of the new transition. See
-     * {@link ui.router.state.$state#methods_go $state.go}.
-     */
-    $state.transitionTo = function transitionTo(to, toParams, options) {
-      toParams = toParams || {};
-      options = extend({
-        location: true, inherit: false, relative: null, notify: true, reload: false, $retry: false
-      }, options || {});
-
-      var from = $state.$current, fromParams = $state.params, fromPath = from.path;
-      var evt, toState = findState(to, options.relative);
-
-      if (!isDefined(toState)) {
-        // Broadcast not found event and abort the transition if prevented
-        var redirect = { to: to, toParams: toParams, options: options };
-
-        /**
-         * @ngdoc event
-         * @name ui.router.state.$state#$stateNotFound
-         * @eventOf ui.router.state.$state
-         * @eventType broadcast on root scope
-         * @description
-         * Fired when a requested state **cannot be found** using the provided state name during transition.
-         * The event is broadcast allowing any handlers a single chance to deal with the error (usually by
-         * lazy-loading the unfound state). A special `unfoundState` object is passed to the listener handler,
-         * you can see its three properties in the example. You can use `event.preventDefault()` to abort the
-         * transition and the promise returned from `go` will be rejected with a `'transition aborted'` value.
-         *
-         * @param {Object} event Event object.
-         * @param {Object} unfoundState Unfound State information. Contains: `to, toParams, options` properties.
-         * @param {State} fromState Current state object.
-         * @param {Object} fromParams Current state params.
-         *
-         * @example
-         *
-         * <pre>
-         * // somewhere, assume lazy.state has not been defined
-         * $state.go("lazy.state", {a:1, b:2}, {inherit:false});
-         *
-         * // somewhere else
-         * $scope.$on('$stateNotFound',
-         * function(event, unfoundState, fromState, fromParams){
-         *     console.log(unfoundState.to); // "lazy.state"
-         *     console.log(unfoundState.toParams); // {a:1, b:2}
-         *     console.log(unfoundState.options); // {inherit:false} + default options
-         * })
-         * </pre>
-         */
-        evt = $rootScope.$broadcast('$stateNotFound', redirect, from.self, fromParams);
-        if (evt.defaultPrevented) {
-          syncUrl();
-          return TransitionAborted;
-        }
-
-        // Allow the handler to return a promise to defer state lookup retry
-        if (evt.retry) {
-          if (options.$retry) {
-            syncUrl();
-            return TransitionFailed;
-          }
-          var retryTransition = $state.transition = $q.when(evt.retry);
-          retryTransition.then(function() {
-            if (retryTransition !== $state.transition) return TransitionSuperseded;
-            redirect.options.$retry = true;
-            return $state.transitionTo(redirect.to, redirect.toParams, redirect.options);
-          }, function() {
-            return TransitionAborted;
-          });
-          syncUrl();
-          return retryTransition;
-        }
-
-        // Always retry once if the $stateNotFound was not prevented
-        // (handles either redirect changed or state lazy-definition)
-        to = redirect.to;
-        toParams = redirect.toParams;
-        options = redirect.options;
-        toState = findState(to, options.relative);
-        if (!isDefined(toState)) {
-          if (options.relative) throw new Error("Could not resolve '" + to + "' from state '" + options.relative + "'");
-          throw new Error("No such state '" + to + "'");
-        }
-      }
-      if (toState[abstractKey]) throw new Error("Cannot transition to abstract state '" + to + "'");
-      if (options.inherit) toParams = inheritParams($stateParams, toParams || {}, $state.$current, toState);
-      to = toState;
-
-      var toPath = to.path;
-
-      // Starting from the root of the path, keep all levels that haven't changed
-      var keep, state, locals = root.locals, toLocals = [];
-      for (keep = 0, state = toPath[keep];
-           state && state === fromPath[keep] && equalForKeys(toParams, fromParams, state.ownParams) && !options.reload;
-           keep++, state = toPath[keep]) {
-        locals = toLocals[keep] = state.locals;
-      }
-
-      // If we're going to the same state and all locals are kept, we've got nothing to do.
-      // But clear 'transition', as we still want to cancel any other pending transitions.
-      // TODO: We may not want to bump 'transition' if we're called from a location change that we've initiated ourselves,
-      // because we might accidentally abort a legitimate transition initiated from code?
-      if (shouldTriggerReload(to, from, locals, options) ) {
-        if ( to.self.reloadOnSearch !== false )
-          syncUrl();
-        $state.transition = null;
-        return $q.when($state.current);
-      }
-
-      // Normalize/filter parameters before we pass them to event handlers etc.
-      toParams = normalize(to.params, toParams || {});
-
-      // Broadcast start event and cancel the transition if requested
-      if (options.notify) {
-        /**
-         * @ngdoc event
-         * @name ui.router.state.$state#$stateChangeStart
-         * @eventOf ui.router.state.$state
-         * @eventType broadcast on root scope
-         * @description
-         * Fired when the state transition **begins**. You can use `event.preventDefault()`
-         * to prevent the transition from happening and then the transition promise will be
-         * rejected with a `'transition prevented'` value.
-         *
-         * @param {Object} event Event object.
-         * @param {State} toState The state being transitioned to.
-         * @param {Object} toParams The params supplied to the `toState`.
-         * @param {State} fromState The current state, pre-transition.
-         * @param {Object} fromParams The params supplied to the `fromState`.
-         *
-         * @example
-         *
-         * <pre>
-         * $rootScope.$on('$stateChangeStart',
-         * function(event, toState, toParams, fromState, fromParams){
-         *     event.preventDefault();
-         *     // transitionTo() promise will be rejected with
-         *     // a 'transition prevented' error
-         * })
-         * </pre>
-         */
-        evt = $rootScope.$broadcast('$stateChangeStart', to.self, toParams, from.self, fromParams);
-        if (evt.defaultPrevented) {
-          syncUrl();
-          return TransitionPrevented;
-        }
-      }
-
-      // Resolve locals for the remaining states, but don't update any global state just
-      // yet -- if anything fails to resolve the current state needs to remain untouched.
-      // We also set up an inheritance chain for the locals here. This allows the view directive
-      // to quickly look up the correct definition for each view in the current state. Even
-      // though we create the locals object itself outside resolveState(), it is initially
-      // empty and gets filled asynchronously. We need to keep track of the promise for the
-      // (fully resolved) current locals, and pass this down the chain.
-      var resolved = $q.when(locals);
-      for (var l=keep; l<toPath.length; l++, state=toPath[l]) {
-        locals = toLocals[l] = inherit(locals);
-        resolved = resolveState(state, toParams, state===to, resolved, locals);
-      }
-
-      // Once everything is resolved, we are ready to perform the actual transition
-      // and return a promise for the new state. We also keep track of what the
-      // current promise is, so that we can detect overlapping transitions and
-      // keep only the outcome of the last transition.
-      var transition = $state.transition = resolved.then(function () {
-        var l, entering, exiting;
-
-        if ($state.transition !== transition) return TransitionSuperseded;
-
-        // Exit 'from' states not kept
-        for (l=fromPath.length-1; l>=keep; l--) {
-          exiting = fromPath[l];
-          if (exiting.self.onExit) {
-            $injector.invoke(exiting.self.onExit, exiting.self, exiting.locals.globals);
-          }
-          exiting.locals = null;
-        }
-
-        // Enter 'to' states not kept
-        for (l=keep; l<toPath.length; l++) {
-          entering = toPath[l];
-          entering.locals = toLocals[l];
-          if (entering.self.onEnter) {
-            $injector.invoke(entering.self.onEnter, entering.self, entering.locals.globals);
-          }
-        }
-
-        // Run it again, to catch any transitions in callbacks
-        if ($state.transition !== transition) return TransitionSuperseded;
-
-        // Update globals in $state
-        $state.$current = to;
-        $state.current = to.self;
-        $state.params = toParams;
-        copy($state.params, $stateParams);
-        $state.transition = null;
-
-        // Update $location
-        var toNav = to.navigable;
-        if (options.location && toNav) {
-          $location.url(toNav.url.format(toNav.locals.globals.$stateParams));
-
-          if (options.location === 'replace') {
-            $location.replace();
-          }
-        }
-
-        if (options.notify) {
-        /**
-         * @ngdoc event
-         * @name ui.router.state.$state#$stateChangeSuccess
-         * @eventOf ui.router.state.$state
-         * @eventType broadcast on root scope
-         * @description
-         * Fired once the state transition is **complete**.
-         *
-         * @param {Object} event Event object.
-         * @param {State} toState The state being transitioned to.
-         * @param {Object} toParams The params supplied to the `toState`.
-         * @param {State} fromState The current state, pre-transition.
-         * @param {Object} fromParams The params supplied to the `fromState`.
-         */
-          $rootScope.$broadcast('$stateChangeSuccess', to.self, toParams, from.self, fromParams);
-        }
-        currentLocation = $location.url();
-
-        return $state.current;
-      }, function (error) {
-        if ($state.transition !== transition) return TransitionSuperseded;
-
-        $state.transition = null;
-        /**
-         * @ngdoc event
-         * @name ui.router.state.$state#$stateChangeError
-         * @eventOf ui.router.state.$state
-         * @eventType broadcast on root scope
-         * @description
-         * Fired when an **error occurs** during transition. It's important to note that if you
-         * have any errors in your resolve functions (javascript errors, non-existent services, etc)
-         * they will not throw traditionally. You must listen for this $stateChangeError event to
-         * catch **ALL** errors.
-         *
-         * @param {Object} event Event object.
-         * @param {State} toState The state being transitioned to.
-         * @param {Object} toParams The params supplied to the `toState`.
-         * @param {State} fromState The current state, pre-transition.
-         * @param {Object} fromParams The params supplied to the `fromState`.
-         * @param {Error} error The resolve error object.
-         */
-        $rootScope.$broadcast('$stateChangeError', to.self, toParams, from.self, fromParams, error);
-        syncUrl();
-
-        return $q.reject(error);
-      });
-
-      return transition;
-    };
-
-    /**
-     * @ngdoc function
-     * @name ui.router.state.$state#is
-     * @methodOf ui.router.state.$state
-     *
-     * @description
-     * Similar to {@link ui.router.state.$state#methods_includes $state.includes},
-     * but only checks for the full state name. If params is supplied then it will be 
-     * tested for strict equality against the current active params object, so all params 
-     * must match with none missing and no extras.
-     *
-     * @example
-     * <pre>
-     * $state.is('contact.details.item'); // returns true
-     * $state.is(contactDetailItemStateObject); // returns true
-     *
-     * // everything else would return false
-     * </pre>
-     *
-     * @param {string|object} stateName The state name or state object you'd like to check.
-     * @param {object=} params A param object, e.g. `{sectionId: section.id}`, that you'd like 
-     * to test against the current active state.
-     * @returns {boolean} Returns true if it is the state.
-     */
-    $state.is = function is(stateOrName, params) {
-      var state = findState(stateOrName);
-
-      if (!isDefined(state)) {
-        return undefined;
-      }
-
-      if ($state.$current !== state) {
-        return false;
-      }
-
-      return isDefined(params) && params !== null ? angular.equals($stateParams, params) : true;
-    };
-
-    /**
-     * @ngdoc function
-     * @name ui.router.state.$state#includes
-     * @methodOf ui.router.state.$state
-     *
-     * @description
-     * A method to determine if the current active state is equal to or is the child of the 
-     * state stateName. If any params are passed then they will be tested for a match as well.
-     * Not all the parameters need to be passed, just the ones you'd like to test for equality.
-     *
-     * @example
-     * <pre>
-     * $state.$current.name = 'contacts.details.item';
-     *
-     * $state.includes("contacts"); // returns true
-     * $state.includes("contacts.details"); // returns true
-     * $state.includes("contacts.details.item"); // returns true
-     * $state.includes("contacts.list"); // returns false
-     * $state.includes("about"); // returns false
-     * </pre>
-     *
-     * @description
-     * Basic globing patterns will also work.
-     *
-     * @example
-     * <pre>
-     * $state.$current.name = 'contacts.details.item.url';
-     *
-     * $state.includes("*.details.*.*"); // returns true
-     * $state.includes("*.details.**"); // returns true
-     * $state.includes("**.item.**"); // returns true
-     * $state.includes("*.details.item.url"); // returns true
-     * $state.includes("*.details.*.url"); // returns true
-     * $state.includes("*.details.*"); // returns false
-     * $state.includes("item.**"); // returns false
-     * </pre>
-     *
-     * @param {string} stateOrName A partial name to be searched for within the current state name.
-     * @param {object} params A param object, e.g. `{sectionId: section.id}`, 
-     * that you'd like to test against the current active state.
-     * @returns {boolean} Returns true if it does include the state
-     */
-
-    $state.includes = function includes(stateOrName, params) {
-      if (isString(stateOrName) && isGlob(stateOrName)) {
-        if (doesStateMatchGlob(stateOrName)) {
-          stateOrName = $state.$current.name;
-        } else {
-          return false;
-        }
-      }
-
-      var state = findState(stateOrName);
-      if (!isDefined(state)) {
-        return undefined;
-      }
-
-      if (!isDefined($state.$current.includes[state.name])) {
-        return false;
-      }
-
-      var validParams = true;
-      angular.forEach(params, function(value, key) {
-        if (!isDefined($stateParams[key]) || $stateParams[key] !== value) {
-          validParams = false;
-        }
-      });
-      return validParams;
-    };
-
-
-    /**
-     * @ngdoc function
-     * @name ui.router.state.$state#href
-     * @methodOf ui.router.state.$state
-     *
-     * @description
-     * A url generation method that returns the compiled url for the given state populated with the given params.
-     *
-     * @example
-     * <pre>
-     * expect($state.href("about.person", { person: "bob" })).toEqual("/about/bob");
-     * </pre>
-     *
-     * @param {string|object} stateOrName The state name or state object you'd like to generate a url from.
-     * @param {object=} params An object of parameter values to fill the state's required parameters.
-     * @param {object=} options Options object. The options are:
-     *
-     * - **`lossy`** - {boolean=true} -  If true, and if there is no url associated with the state provided in the
-     *    first parameter, then the constructed href url will be built from the first navigable ancestor (aka
-     *    ancestor with a valid url).
-     * - **`inherit`** - {boolean=false}, If `true` will inherit url parameters from current url.
-     * - **`relative`** - {object=$state.$current}, When transitioning with relative path (e.g '^'), 
-     *    defines which state to be relative from.
-     * - **`absolute`** - {boolean=false},  If true will generate an absolute url, e.g. "http://www.example.com/fullurl".
-     * 
-     * @returns {string} compiled state url
-     */
-    $state.href = function href(stateOrName, params, options) {
-      options = extend({ lossy: true, inherit: false, absolute: false, relative: $state.$current }, options || {});
-      var state = findState(stateOrName, options.relative);
-      if (!isDefined(state)) return null;
-
-      params = inheritParams($stateParams, params || {}, $state.$current, state);
-      var nav = (state && options.lossy) ? state.navigable : state;
-      var url = (nav && nav.url) ? nav.url.format(normalize(state.params, params || {})) : null;
-      if (!$locationProvider.html5Mode() && url) {
-        url = "#" + $locationProvider.hashPrefix() + url;
-      }
-
-      if (baseHref !== '/') {
-        if ($locationProvider.html5Mode()) {
-          url = baseHref.slice(0, -1) + url;
-        } else if (options.absolute){
-          url = baseHref.slice(1) + url;
-        }
-      }
-
-      if (options.absolute && url) {
-        url = $location.protocol() + '://' + 
-              $location.host() + 
-              ($location.port() == 80 || $location.port() == 443 ? '' : ':' + $location.port()) + 
-              (!$locationProvider.html5Mode() && url ? '/' : '') + 
-              url;
-      }
-      return url;
-    };
-
-    /**
-     * @ngdoc function
-     * @name ui.router.state.$state#get
-     * @methodOf ui.router.state.$state
-     *
-     * @description
-     * Returns the state configuration object for any specific state or all states.
-     *
-     * @param {string|object=} stateOrName If provided, will only get the config for
-     * the requested state. If not provided, returns an array of ALL state configs.
-     * @returns {object|array} State configuration object or array of all objects.
-     */
-    $state.get = function (stateOrName, context) {
-      if (!isDefined(stateOrName)) {
-        var list = [];
-        forEach(states, function(state) { list.push(state.self); });
-        return list;
-      }
-      var state = findState(stateOrName, context);
-      return (state && state.self) ? state.self : null;
-    };
-
-    function resolveState(state, params, paramsAreFiltered, inherited, dst) {
-      // Make a restricted $stateParams with only the parameters that apply to this state if
-      // necessary. In addition to being available to the controller and onEnter/onExit callbacks,
-      // we also need $stateParams to be available for any $injector calls we make during the
-      // dependency resolution process.
-      var $stateParams = (paramsAreFiltered) ? params : filterByKeys(state.params, params);
-      var locals = { $stateParams: $stateParams };
-
-      // Resolve 'global' dependencies for the state, i.e. those not specific to a view.
-      // We're also including $stateParams in this; that way the parameters are restricted
-      // to the set that should be visible to the state, and are independent of when we update
-      // the global $state and $stateParams values.
-      dst.resolve = $resolve.resolve(state.resolve, locals, dst.resolve, state);
-      var promises = [ dst.resolve.then(function (globals) {
-        dst.globals = globals;
-      }) ];
-      if (inherited) promises.push(inherited);
-
-      // Resolve template and dependencies for all views.
-      forEach(state.views, function (view, name) {
-        var injectables = (view.resolve && view.resolve !== state.resolve ? view.resolve : {});
-        injectables.$template = [ function () {
-          return $view.load(name, { view: view, locals: locals, params: $stateParams, notify: false }) || '';
-        }];
-
-        promises.push($resolve.resolve(injectables, locals, dst.resolve, state).then(function (result) {
-          // References to the controller (only instantiated at link time)
-          if (isFunction(view.controllerProvider) || isArray(view.controllerProvider)) {
-            var injectLocals = angular.extend({}, injectables, locals);
-            result.$$controller = $injector.invoke(view.controllerProvider, null, injectLocals);
-          } else {
-            result.$$controller = view.controller;
-          }
-          // Provide access to the state itself for internal use
-          result.$$state = state;
-          result.$$controllerAs = view.controllerAs;
-          dst[name] = result;
-        }));
-      });
-
-      // Wait for all the promises and then return the activation object
-      return $q.all(promises).then(function (values) {
-        return dst;
-      });
-    }
-
-    return $state;
-  }
-
-  function shouldTriggerReload(to, from, locals, options) {
-    if ( to === from && ((locals === from.locals && !options.reload) || (to.self.reloadOnSearch === false)) ) {
-      return true;
-    }
-  }
-}
-
-angular.module('ui.router.state')
-  .value('$stateParams', {})
-  .provider('$state', $StateProvider);
-
-
-$ViewProvider.$inject = [];
-function $ViewProvider() {
-
-  this.$get = $get;
-  /**
-   * @ngdoc object
-   * @name ui.router.state.$view
-   *
-   * @requires ui.router.util.$templateFactory
-   * @requires $rootScope
-   *
-   * @description
-   *
-   */
-  $get.$inject = ['$rootScope', '$templateFactory'];
-  function $get(   $rootScope,   $templateFactory) {
-    return {
-      // $view.load('full.viewName', { template: ..., controller: ..., resolve: ..., async: false, params: ... })
-      /**
-       * @ngdoc function
-       * @name ui.router.state.$view#load
-       * @methodOf ui.router.state.$view
-       *
-       * @description
-       *
-       * @param {string} name name
-       * @param {object} options option object.
-       */
-      load: function load(name, options) {
-        var result, defaults = {
-          template: null, controller: null, view: null, locals: null, notify: true, async: true, params: {}
-        };
-        options = extend(defaults, options);
-
-        if (options.view) {
-          result = $templateFactory.fromConfig(options.view, options.params, options.locals);
-        }
-        if (result && options.notify) {
-        /**
-         * @ngdoc event
-         * @name ui.router.state.$state#$viewContentLoading
-         * @eventOf ui.router.state.$view
-         * @eventType broadcast on root scope
-         * @description
-         *
-         * Fired once the view **begins loading**, *before* the DOM is rendered.
-         *
-         * @param {Object} event Event object.
-         * @param {Object} viewConfig The view config properties (template, controller, etc).
-         *
-         * @example
-         *
-         * <pre>
-         * $scope.$on('$viewContentLoading',
-         * function(event, viewConfig){
-         *     // Access to all the view config properties.
-         *     // and one special property 'targetView'
-         *     // viewConfig.targetView
-         * });
-         * </pre>
-         */
-          $rootScope.$broadcast('$viewContentLoading', options);
-        }
-        return result;
-      }
-    };
-  }
-}
-
-angular.module('ui.router.state').provider('$view', $ViewProvider);
-
-/**
- * @ngdoc object
- * @name ui.router.state.$uiViewScrollProvider
- *
- * @description
- * Provider that returns the {@link ui.router.state.$uiViewScroll} service function.
- */
-function $ViewScrollProvider() {
-
-  var useAnchorScroll = false;
-
-  /**
-   * @ngdoc function
-   * @name ui.router.state.$uiViewScrollProvider#useAnchorScroll
-   * @methodOf ui.router.state.$uiViewScrollProvider
-   *
-   * @description
-   * Reverts back to using the core [`$anchorScroll`](http://docs.angularjs.org/api/ng.$anchorScroll) service for
-   * scrolling based on the url anchor.
-   */
-  this.useAnchorScroll = function () {
-    useAnchorScroll = true;
-  };
-
-  /**
-   * @ngdoc object
-   * @name ui.router.state.$uiViewScroll
-   *
-   * @requires $anchorScroll
-   * @requires $timeout
-   *
-   * @description
-   * When called with a jqLite element, it scrolls the element into view (after a
-   * `$timeout` so the DOM has time to refresh).
-   *
-   * If you prefer to rely on `$anchorScroll` to scroll the view to the anchor,
-   * this can be enabled by calling {@link ui.router.state.$uiViewScrollProvider#methods_useAnchorScroll `$uiViewScrollProvider.useAnchorScroll()`}.
-   */
-  this.$get = ['$anchorScroll', '$timeout', function ($anchorScroll, $timeout) {
-    if (useAnchorScroll) {
-      return $anchorScroll;
-    }
-
-    return function ($element) {
-      $timeout(function () {
-        $element[0].scrollIntoView();
-      }, 0, false);
-    };
-  }];
-}
-
-angular.module('ui.router.state').provider('$uiViewScroll', $ViewScrollProvider);
-
-/**
- * @ngdoc directive
- * @name ui.router.state.directive:ui-view
- *
- * @requires ui.router.state.$state
- * @requires $compile
- * @requires $controller
- * @requires $injector
- * @requires ui.router.state.$uiViewScroll
- * @requires $document
- *
- * @restrict ECA
- *
- * @description
- * The ui-view directive tells $state where to place your templates.
- *
- * @param {string=} ui-view A view name. The name should be unique amongst the other views in the
- * same state. You can have views of the same name that live in different states.
- *
- * @param {string=} autoscroll It allows you to set the scroll behavior of the browser window
- * when a view is populated. By default, $anchorScroll is overridden by ui-router's custom scroll
- * service, {@link ui.router.state.$uiViewScroll}. This custom service let's you
- * scroll ui-view elements into view when they are populated during a state activation.
- *
- * *Note: To revert back to old [`$anchorScroll`](http://docs.angularjs.org/api/ng.$anchorScroll)
- * functionality, call `$uiViewScrollProvider.useAnchorScroll()`.*
- *
- * @param {string=} onload Expression to evaluate whenever the view updates.
- * 
- * @example
- * A view can be unnamed or named. 
- * <pre>
- * <!-- Unnamed -->
- * <div ui-view></div> 
- * 
- * <!-- Named -->
- * <div ui-view="viewName"></div>
- * </pre>
- *
- * You can only have one unnamed view within any template (or root html). If you are only using a 
- * single view and it is unnamed then you can populate it like so:
- * <pre>
- * <div ui-view></div> 
- * $stateProvider.state("home", {
- *   template: "<h1>HELLO!</h1>"
- * })
- * </pre>
- * 
- * The above is a convenient shortcut equivalent to specifying your view explicitly with the {@link ui.router.state.$stateProvider#views `views`}
- * config property, by name, in this case an empty name:
- * <pre>
- * $stateProvider.state("home", {
- *   views: {
- *     "": {
- *       template: "<h1>HELLO!</h1>"
- *     }
- *   }    
- * })
- * </pre>
- * 
- * But typically you'll only use the views property if you name your view or have more than one view 
- * in the same template. There's not really a compelling reason to name a view if its the only one, 
- * but you could if you wanted, like so:
- * <pre>
- * <div ui-view="main"></div>
- * </pre> 
- * <pre>
- * $stateProvider.state("home", {
- *   views: {
- *     "main": {
- *       template: "<h1>HELLO!</h1>"
- *     }
- *   }    
- * })
- * </pre>
- * 
- * Really though, you'll use views to set up multiple views:
- * <pre>
- * <div ui-view></div>
- * <div ui-view="chart"></div> 
- * <div ui-view="data"></div> 
- * </pre>
- * 
- * <pre>
- * $stateProvider.state("home", {
- *   views: {
- *     "": {
- *       template: "<h1>HELLO!</h1>"
- *     },
- *     "chart": {
- *       template: "<chart_thing/>"
- *     },
- *     "data": {
- *       template: "<data_thing/>"
- *     }
- *   }    
- * })
- * </pre>
- *
- * Examples for `autoscroll`:
- *
- * <pre>
- * <!-- If autoscroll present with no expression,
- *      then scroll ui-view into view -->
- * <ui-view autoscroll/>
- *
- * <!-- If autoscroll present with valid expression,
- *      then scroll ui-view into view if expression evaluates to true -->
- * <ui-view autoscroll='true'/>
- * <ui-view autoscroll='false'/>
- * <ui-view autoscroll='scopeVariable'/>
- * </pre>
- */
-$ViewDirective.$inject = ['$state', '$injector', '$uiViewScroll'];
-function $ViewDirective(   $state,   $injector,   $uiViewScroll) {
-
-  function getService() {
-    return ($injector.has) ? function(service) {
-      return $injector.has(service) ? $injector.get(service) : null;
-    } : function(service) {
-      try {
-        return $injector.get(service);
-      } catch (e) {
-        return null;
-      }
-    };
-  }
-
-  var service = getService(),
-      $animator = service('$animator'),
-      $animate = service('$animate');
-
-  // Returns a set of DOM manipulation functions based on which Angular version
-  // it should use
-  function getRenderer(attrs, scope) {
-    var statics = function() {
-      return {
-        enter: function (element, target, cb) { target.after(element); cb(); },
-        leave: function (element, cb) { element.remove(); cb(); }
-      };
-    };
-
-    if ($animate) {
-      return {
-        enter: function(element, target, cb) { $animate.enter(element, null, target, cb); },
-        leave: function(element, cb) { $animate.leave(element, cb); }
-      };
-    }
-
-    if ($animator) {
-      var animate = $animator && $animator(scope, attrs);
-
-      return {
-        enter: function(element, target, cb) {animate.enter(element, null, target); cb(); },
-        leave: function(element, cb) { animate.leave(element); cb(); }
-      };
-    }
-
-    return statics();
-  }
-
-  var directive = {
-    restrict: 'ECA',
-    terminal: true,
-    priority: 400,
-    transclude: 'element',
-    compile: function (tElement, tAttrs, $transclude) {
-      return function (scope, $element, attrs) {
-        var previousEl, currentEl, currentScope, latestLocals,
-            onloadExp     = attrs.onload || '',
-            autoScrollExp = attrs.autoscroll,
-            renderer      = getRenderer(attrs, scope);
-
-        scope.$on('$stateChangeSuccess', function() {
-          updateView(false);
-        });
-        scope.$on('$viewContentLoading', function() {
-          updateView(false);
-        });
-
-        updateView(true);
-
-        function cleanupLastView() {
-          if (previousEl) {
-            previousEl.remove();
-            previousEl = null;
-          }
-
-          if (currentScope) {
-            currentScope.$destroy();
-            currentScope = null;
-          }
-
-          if (currentEl) {
-            renderer.leave(currentEl, function() {
-              previousEl = null;
-            });
-
-            previousEl = currentEl;
-            currentEl = null;
-          }
-        }
-
-        function updateView(firstTime) {
-          var newScope        = scope.$new(),
-              name            = currentEl && currentEl.data('$uiViewName'),
-              previousLocals  = name && $state.$current && $state.$current.locals[name];
-
-          if (!firstTime && previousLocals === latestLocals) return; // nothing to do
-
-          var clone = $transclude(newScope, function(clone) {
-            renderer.enter(clone, $element, function onUiViewEnter() {
-              if (angular.isDefined(autoScrollExp) && !autoScrollExp || scope.$eval(autoScrollExp)) {
-                $uiViewScroll(clone);
-              }
-            });
-            cleanupLastView();
-          });
-
-          latestLocals = $state.$current.locals[clone.data('$uiViewName')];
-
-          currentEl = clone;
-          currentScope = newScope;
-          /**
-           * @ngdoc event
-           * @name ui.router.state.directive:ui-view#$viewContentLoaded
-           * @eventOf ui.router.state.directive:ui-view
-           * @eventType emits on ui-view directive scope
-           * @description           *
-           * Fired once the view is **loaded**, *after* the DOM is rendered.
-           *
-           * @param {Object} event Event object.
-           */
-          currentScope.$emit('$viewContentLoaded');
-          currentScope.$eval(onloadExp);
-        }
-      };
-    }
-  };
-
-  return directive;
-}
-
-$ViewDirectiveFill.$inject = ['$compile', '$controller', '$state'];
-function $ViewDirectiveFill ($compile, $controller, $state) {
-  return {
-    restrict: 'ECA',
-    priority: -400,
-    compile: function (tElement) {
-      var initial = tElement.html();
-      return function (scope, $element, attrs) {
-        var name      = attrs.uiView || attrs.name || '',
-            inherited = $element.inheritedData('$uiView');
-
-        if (name.indexOf('@') < 0) {
-          name = name + '@' + (inherited ? inherited.state.name : '');
-        }
-
-        $element.data('$uiViewName', name);
-
-        var current = $state.$current,
-            locals  = current && current.locals[name];
-
-        if (! locals) {
-          return;
-        }
-
-        $element.data('$uiView', { name: name, state: locals.$$state });
-        $element.html(locals.$template ? locals.$template : initial);
-
-        var link = $compile($element.contents());
-
-        if (locals.$$controller) {
-          locals.$scope = scope;
-          var controller = $controller(locals.$$controller, locals);
-          if (locals.$$controllerAs) {
-            scope[locals.$$controllerAs] = controller;
-          }
-          $element.data('$ngControllerController', controller);
-          $element.children().data('$ngControllerController', controller);
-        }
-
-        link(scope);
-      };
-    }
-  };
-}
-
-angular.module('ui.router.state').directive('uiView', $ViewDirective);
-angular.module('ui.router.state').directive('uiView', $ViewDirectiveFill);
-
-function parseStateRef(ref) {
-  var parsed = ref.replace(/\n/g, " ").match(/^([^(]+?)\s*(\((.*)\))?$/);
-  if (!parsed || parsed.length !== 4) throw new Error("Invalid state ref '" + ref + "'");
-  return { state: parsed[1], paramExpr: parsed[3] || null };
-}
-
-function stateContext(el) {
-  var stateData = el.parent().inheritedData('$uiView');
-
-  if (stateData && stateData.state && stateData.state.name) {
-    return stateData.state;
-  }
-}
-
-/**
- * @ngdoc directive
- * @name ui.router.state.directive:ui-sref
- *
- * @requires ui.router.state.$state
- * @requires $timeout
- *
- * @restrict A
- *
- * @description
- * A directive that binds a link (`<a>` tag) to a state. If the state has an associated 
- * URL, the directive will automatically generate & update the `href` attribute via 
- * the {@link ui.router.state.$state#methods_href $state.href()} method. Clicking 
- * the link will trigger a state transition with optional parameters. 
- *
- * Also middle-clicking, right-clicking, and ctrl-clicking on the link will be 
- * handled natively by the browser.
- *
- * You can also use relative state paths within ui-sref, just like the relative 
- * paths passed to `$state.go()`. You just need to be aware that the path is relative
- * to the state that the link lives in, in other words the state that loaded the 
- * template containing the link.
- *
- * You can specify options to pass to {@link ui.router.state.$state#go $state.go()}
- * using the `ui-sref-opts` attribute. Options are restricted to `location`, `inherit`,
- * and `reload`.
- *
- * @example
- * Here's an example of how you'd use ui-sref and how it would compile. If you have the 
- * following template:
- * <pre>
- * <a ui-sref="home">Home</a> | <a ui-sref="about">About</a>
- * 
- * <ul>
- *     <li ng-repeat="contact in contacts">
- *         <a ui-sref="contacts.detail({ id: contact.id })">{{ contact.name }}</a>
- *     </li>
- * </ul>
- * </pre>
- * 
- * Then the compiled html would be (assuming Html5Mode is off):
- * <pre>
- * <a href="#/home" ui-sref="home">Home</a> | <a href="#/about" ui-sref="about">About</a>
- * 
- * <ul>
- *     <li ng-repeat="contact in contacts">
- *         <a href="#/contacts/1" ui-sref="contacts.detail({ id: contact.id })">Joe</a>
- *     </li>
- *     <li ng-repeat="contact in contacts">
- *         <a href="#/contacts/2" ui-sref="contacts.detail({ id: contact.id })">Alice</a>
- *     </li>
- *     <li ng-repeat="contact in contacts">
- *         <a href="#/contacts/3" ui-sref="contacts.detail({ id: contact.id })">Bob</a>
- *     </li>
- * </ul>
- *
- * <a ui-sref="home" ui-sref-opts="{reload: true}">Home</a>
- * </pre>
- *
- * @param {string} ui-sref 'stateName' can be any valid absolute or relative state
- * @param {Object} ui-sref-opts options to pass to {@link ui.router.state.$state#go $state.go()}
- */
-$StateRefDirective.$inject = ['$state', '$timeout'];
-function $StateRefDirective($state, $timeout) {
-  var allowedOptions = ['location', 'inherit', 'reload'];
-
-  return {
-    restrict: 'A',
-    require: '?^uiSrefActive',
-    link: function(scope, element, attrs, uiSrefActive) {
-      var ref = parseStateRef(attrs.uiSref);
-      var params = null, url = null, base = stateContext(element) || $state.$current;
-      var isForm = element[0].nodeName === "FORM";
-      var attr = isForm ? "action" : "href", nav = true;
-
-      var options = {
-        relative: base
-      };
-      var optionsOverride = scope.$eval(attrs.uiSrefOpts) || {};
-      angular.forEach(allowedOptions, function(option) {
-        if (option in optionsOverride) {
-          options[option] = optionsOverride[option];
-        }
-      });
-
-      var update = function(newVal) {
-        if (newVal) params = newVal;
-        if (!nav) return;
-
-        var newHref = $state.href(ref.state, params, options);
-
-        if (uiSrefActive) {
-          uiSrefActive.$$setStateInfo(ref.state, params);
-        }
-        if (!newHref) {
-          nav = false;
-          return false;
-        }
-        element[0][attr] = newHref;
-      };
-
-      if (ref.paramExpr) {
-        scope.$watch(ref.paramExpr, function(newVal, oldVal) {
-          if (newVal !== params) update(newVal);
-        }, true);
-        params = scope.$eval(ref.paramExpr);
-      }
-      update();
-
-      if (isForm) return;
-
-      element.bind("click", function(e) {
-        var button = e.which || e.button;
-        if ( !(button > 1 || e.ctrlKey || e.metaKey || e.shiftKey || element.attr('target')) ) {
-          // HACK: This is to allow ng-clicks to be processed before the transition is initiated:
-          $timeout(function() {
-            $state.go(ref.state, params, options);
-          });
-          e.preventDefault();
-        }
-      });
-    }
-  };
-}
-
-/**
- * @ngdoc directive
- * @name ui.router.state.directive:ui-sref-active
- *
- * @requires ui.router.state.$state
- * @requires ui.router.state.$stateParams
- * @requires $interpolate
- *
- * @restrict A
- *
- * @description
- * A directive working alongside ui-sref to add classes to an element when the 
- * related ui-sref directive's state is active, and removing them when it is inactive.
- * The primary use-case is to simplify the special appearance of navigation menus 
- * relying on `ui-sref`, by having the "active" state's menu button appear different,
- * distinguishing it from the inactive menu items.
- *
- * @example
- * Given the following template:
- * <pre>
- * <ul>
- *   <li ui-sref-active="active" class="item">
- *     <a href ui-sref="app.user({user: 'bilbobaggins'})">@bilbobaggins</a>
- *   </li>
- * </ul>
- * </pre>
- * 
- * When the app state is "app.user", and contains the state parameter "user" with value "bilbobaggins", 
- * the resulting HTML will appear as (note the 'active' class):
- * <pre>
- * <ul>
- *   <li ui-sref-active="active" class="item active">
- *     <a ui-sref="app.user({user: 'bilbobaggins'})" href="/users/bilbobaggins">@bilbobaggins</a>
- *   </li>
- * </ul>
- * </pre>
- * 
- * The class name is interpolated **once** during the directives link time (any further changes to the 
- * interpolated value are ignored). 
- * 
- * Multiple classes may be specified in a space-separated format:
- * <pre>
- * <ul>
- *   <li ui-sref-active='class1 class2 class3'>
- *     <a ui-sref="app.user">link</a>
- *   </li>
- * </ul>
- * </pre>
- */
-$StateActiveDirective.$inject = ['$state', '$stateParams', '$interpolate'];
-function $StateActiveDirective($state, $stateParams, $interpolate) {
-  return {
-    restrict: "A",
-    controller: ['$scope', '$element', '$attrs', function($scope, $element, $attrs) {
-      var state, params, activeClass;
-
-      // There probably isn't much point in $observing this
-      activeClass = $interpolate($attrs.uiSrefActive || '', false)($scope);
-
-      // Allow uiSref to communicate with uiSrefActive
-      this.$$setStateInfo = function(newState, newParams) {
-        state = $state.get(newState, stateContext($element));
-        params = newParams;
-        update();
-      };
-
-      $scope.$on('$stateChangeSuccess', update);
-
-      // Update route state
-      function update() {
-        if ($state.$current.self === state && matchesParams()) {
-          $element.addClass(activeClass);
-        } else {
-          $element.removeClass(activeClass);
-        }
-      }
-
-      function matchesParams() {
-        return !params || equalForKeys(params, $stateParams);
-      }
-    }]
-  };
-}
-
-angular.module('ui.router.state')
-  .directive('uiSref', $StateRefDirective)
-  .directive('uiSrefActive', $StateActiveDirective);
-
-/**
- * @ngdoc filter
- * @name ui.router.state.filter:isState
- *
- * @requires ui.router.state.$state
- *
- * @description
- * Translates to {@link ui.router.state.$state#methods_is $state.is("stateName")}.
- */
-$IsStateFilter.$inject = ['$state'];
-function $IsStateFilter($state) {
-  return function(state) {
-    return $state.is(state);
-  };
-}
-
-/**
- * @ngdoc filter
- * @name ui.router.state.filter:includedByState
- *
- * @requires ui.router.state.$state
- *
- * @description
- * Translates to {@link ui.router.state.$state#methods_includes $state.includes('fullOrPartialStateName')}.
- */
-$IncludedByStateFilter.$inject = ['$state'];
-function $IncludedByStateFilter($state) {
-  return function(state) {
-    return $state.includes(state);
-  };
-}
-
-angular.module('ui.router.state')
-  .filter('isState', $IsStateFilter)
-  .filter('includedByState', $IncludedByStateFilter);
-
-/*
- * @ngdoc object
- * @name ui.router.compat.$routeProvider
- *
- * @requires ui.router.state.$stateProvider
- * @requires ui.router.router.$urlRouterProvider
- *
- * @description
- * `$routeProvider` of the `ui.router.compat` module overwrites the existing
- * `routeProvider` from the core. This is done to provide compatibility between
- * the UI Router and the core router.
- *
- * It also provides a `when()` method to register routes that map to certain urls.
- * Behind the scenes it actually delegates either to 
- * {@link ui.router.router.$urlRouterProvider $urlRouterProvider} or to the 
- * {@link ui.router.state.$stateProvider $stateProvider} to postprocess the given 
- * router definition object.
- */
-$RouteProvider.$inject = ['$stateProvider', '$urlRouterProvider'];
-function $RouteProvider(  $stateProvider,    $urlRouterProvider) {
-
-  var routes = [];
-
-  onEnterRoute.$inject = ['$$state'];
-  function onEnterRoute(   $$state) {
-    /*jshint validthis: true */
-    this.locals = $$state.locals.globals;
-    this.params = this.locals.$stateParams;
-  }
-
-  function onExitRoute() {
-    /*jshint validthis: true */
-    this.locals = null;
-    this.params = null;
-  }
-
-  this.when = when;
-  /*
-   * @ngdoc function
-   * @name ui.router.compat.$routeProvider#when
-   * @methodOf ui.router.compat.$routeProvider
-   *
-   * @description
-   * Registers a route with a given route definition object. The route definition
-   * object has the same interface the angular core route definition object has.
-   * 
-   * @example
-   * <pre>
-   * var app = angular.module('app', ['ui.router.compat']);
-   *
-   * app.config(function ($routeProvider) {
-   *   $routeProvider.when('home', {
-   *     controller: function () { ... },
-   *     templateUrl: 'path/to/template'
-   *   });
-   * });
-   * </pre>
-   *
-   * @param {string} url URL as string
-   * @param {object} route Route definition object
-   *
-   * @return {object} $routeProvider - $routeProvider instance
-   */
-  function when(url, route) {
-    /*jshint validthis: true */
-    if (route.redirectTo != null) {
-      // Redirect, configure directly on $urlRouterProvider
-      var redirect = route.redirectTo, handler;
-      if (isString(redirect)) {
-        handler = redirect; // leave $urlRouterProvider to handle
-      } else if (isFunction(redirect)) {
-        // Adapt to $urlRouterProvider API
-        handler = function (params, $location) {
-          return redirect(params, $location.path(), $location.search());
-        };
-      } else {
-        throw new Error("Invalid 'redirectTo' in when()");
-      }
-      $urlRouterProvider.when(url, handler);
-    } else {
-      // Regular route, configure as state
-      $stateProvider.state(inherit(route, {
-        parent: null,
-        name: 'route:' + encodeURIComponent(url),
-        url: url,
-        onEnter: onEnterRoute,
-        onExit: onExitRoute
-      }));
-    }
-    routes.push(route);
-    return this;
-  }
-
-  /*
-   * @ngdoc object
-   * @name ui.router.compat.$route
-   *
-   * @requires ui.router.state.$state
-   * @requires $rootScope
-   * @requires $routeParams
-   *
-   * @property {object} routes - Array of registered routes.
-   * @property {object} params - Current route params as object.
-   * @property {string} current - Name of the current route.
-   *
-   * @description
-   * The `$route` service provides interfaces to access defined routes. It also let's
-   * you access route params through `$routeParams` service, so you have fully
-   * control over all the stuff you would actually get from angular's core `$route`
-   * service.
-   */
-  this.$get = $get;
-  $get.$inject = ['$state', '$rootScope', '$routeParams'];
-  function $get(   $state,   $rootScope,   $routeParams) {
-
-    var $route = {
-      routes: routes,
-      params: $routeParams,
-      current: undefined
-    };
-
-    function stateAsRoute(state) {
-      return (state.name !== '') ? state : undefined;
-    }
-
-    $rootScope.$on('$stateChangeStart', function (ev, to, toParams, from, fromParams) {
-      $rootScope.$broadcast('$routeChangeStart', stateAsRoute(to), stateAsRoute(from));
-    });
-
-    $rootScope.$on('$stateChangeSuccess', function (ev, to, toParams, from, fromParams) {
-      $route.current = stateAsRoute(to);
-      $rootScope.$broadcast('$routeChangeSuccess', stateAsRoute(to), stateAsRoute(from));
-      copy(toParams, $route.params);
-    });
-
-    $rootScope.$on('$stateChangeError', function (ev, to, toParams, from, fromParams, error) {
-      $rootScope.$broadcast('$routeChangeError', stateAsRoute(to), stateAsRoute(from), error);
-    });
-
-    return $route;
-  }
-}
-
-angular.module('ui.router.compat')
-  .provider('$route', $RouteProvider)
-  .directive('ngView', $ViewDirective);
-})(window, window.angular);
 /*!
  * Copyright 2014 Drifty Co.
  * http://drifty.com/
@@ -47034,8 +46196,4352 @@ IonicModule
 }]);
 
 })();
+!function(e){if("object"==typeof exports&&"undefined"!=typeof module)module.exports=e();else if("function"==typeof define&&define.amd)define([],e);else{var f;"undefined"!=typeof window?f=window:"undefined"!=typeof global?f=global:"undefined"!=typeof self&&(f=self),f.collide=e()}}(function(){var define,module,exports;return (function e(t,n,r){function s(o,u){if(!n[o]){if(!t[o]){var a=typeof require=="function"&&require;if(!u&&a)return a(o,!0);if(i)return i(o,!0);throw new Error("Cannot find module '"+o+"'")}var f=n[o]={exports:{}};t[o][0].call(f.exports,function(e){var n=t[o][1][e];return s(n?n:e)},f,f.exports,e,t,n,r)}return n[o].exports}var i=typeof require=="function"&&require;for(var o=0;o<r.length;o++)s(r[o]);return s})({1:[function(_dereq_,module,exports){
+(function (process){
+// Generated by CoffeeScript 1.6.3
+(function() {
+  var getNanoSeconds, hrtime, loadTime;
+
+  if ((typeof performance !== "undefined" && performance !== null) && performance.now) {
+    module.exports = function() {
+      return performance.now();
+    };
+  } else if ((typeof process !== "undefined" && process !== null) && process.hrtime) {
+    module.exports = function() {
+      return (getNanoSeconds() - loadTime) / 1e6;
+    };
+    hrtime = process.hrtime;
+    getNanoSeconds = function() {
+      var hr;
+      hr = hrtime();
+      return hr[0] * 1e9 + hr[1];
+    };
+    loadTime = getNanoSeconds();
+  } else if (Date.now) {
+    module.exports = function() {
+      return Date.now() - loadTime;
+    };
+    loadTime = Date.now();
+  } else {
+    module.exports = function() {
+      return new Date().getTime() - loadTime;
+    };
+    loadTime = new Date().getTime();
+  }
+
+}).call(this);
+
+/*
+//@ sourceMappingURL=performance-now.map
+*/
+
+}).call(this,_dereq_("qhDIRT"))
+},{"qhDIRT":13}],2:[function(_dereq_,module,exports){
+var now = _dereq_('performance-now')
+  , global = typeof window === 'undefined' ? {} : window
+  , vendors = ['moz', 'webkit']
+  , suffix = 'AnimationFrame'
+  , raf = global['request' + suffix]
+  , caf = global['cancel' + suffix] || global['cancelRequest' + suffix]
+
+for(var i = 0; i < vendors.length && !raf; i++) {
+  raf = global[vendors[i] + 'Request' + suffix]
+  caf = global[vendors[i] + 'Cancel' + suffix]
+      || global[vendors[i] + 'CancelRequest' + suffix]
+}
+
+// Some versions of FF have rAF but not cAF
+if(!raf || !caf) {
+  var last = 0
+    , id = 0
+    , queue = []
+    , frameDuration = 1000 / 60
+
+  raf = function(callback) {
+    if(queue.length === 0) {
+      var _now = now()
+        , next = Math.max(0, frameDuration - (_now - last))
+      last = next + _now
+      setTimeout(function() {
+        var cp = queue.slice(0)
+        // Clear queue here to prevent
+        // callbacks from appending listeners
+        // to the current frame's queue
+        queue.length = 0
+        for (var i = 0; i < cp.length; i++) {
+          if (!cp[i].cancelled) {
+            cp[i].callback(last)
+          }
+        }
+      }, next)
+    }
+    queue.push({
+      handle: ++id,
+      callback: callback,
+      cancelled: false
+    })
+    return id
+  }
+
+  caf = function(handle) {
+    for(var i = 0; i < queue.length; i++) {
+      if(queue[i].handle === handle) {
+        queue[i].cancelled = true
+      }
+    }
+  }
+}
+
+module.exports = function() {
+  // Wrap in a new function to prevent
+  // `cancel` potentially being assigned
+  // to the native rAF function
+  return raf.apply(global, arguments)
+}
+module.exports.cancel = function() {
+  caf.apply(global, arguments)
+}
+
+},{"performance-now":3}],3:[function(_dereq_,module,exports){
+module.exports=_dereq_(1)
+},{"qhDIRT":13}],4:[function(_dereq_,module,exports){
+
+// Interpolation disabled for now
+// var interpolate = require('./core/interpolate');
+// var cssFeature = require('feature/css');
+
+var timeline = _dereq_('./core/timeline');
+var dynamics = _dereq_('./core/dynamics');
+var easingFunctions = _dereq_('./core/easing-functions');
+
+var uid = _dereq_('./util/uid');
+var EventEmitter = _dereq_('./util/simple-emitter');
+
+function clamp(min, n, max) { return Math.max(min, Math.min(n, max)); }
+
+module.exports = Animator;
+
+function Animator(opts) {
+  //if `new` keyword isn't provided, do it for user
+  if (!(this instanceof Animator)) {
+    return new Animator(opts);
+  }
+
+  opts = opts || {};
+
+  //Private state goes in this._
+  this._ = {
+    id: uid(),
+    percent: 0,
+    duration: 500,
+    isReverse: false
+  };
+
+  var emitter = this._.emitter = new EventEmitter();
+  this._.onDestroy = function() {
+    emitter.emit('destroy');
+  };
+  this._.onStop = function(wasCompleted) {
+    emitter.emit('stop', wasCompleted);
+    wasCompleted && emitter.emit('complete');
+  };
+  this._.onStart = function() {
+    emitter.emit('start');
+  };
+  this._.onStep = function(v) {
+    emitter.emit('step', v);
+  };
+
+  opts.duration && this.duration(opts.duration);
+  opts.percent && this.percent(opts.percent);
+  opts.easing && this.easing(opts.easing);
+  opts.reverse && this.reverse(opts.reverse);
+}
+
+Animator.prototype = {
+
+  reverse: function(reverse) {
+    if (arguments.length) {
+      this._.isReverse = !!reverse;
+      return this;
+    }
+    return this._.isReverse;
+  },
+
+  easing: function(easing) {
+    var type = typeof easing;
+    if (arguments.length) {
+      if (type === 'function' || type === 'string' || type === 'object') {
+        this._.easing = figureOutEasing(easing);
+      }
+      return this;
+    }
+    return this._.easing;
+  },
+
+  percent: function(percent) {
+    if (arguments.length) {
+      if (typeof percent === 'number') {
+        this._.percent = clamp(0, percent, 1);
+      }
+      if (!this.isRunning()) {
+        this._.onStep(this._getValueForPercent(this._.percent));
+      }
+      return this;
+    }
+    return this._.percent;
+  },
+
+  duration: function(duration) {
+    if (arguments.length) {
+      if (typeof duration === 'number' && duration > 0) {
+        this._.duration = duration;
+      }
+      return this;
+    }
+    return this._.duration;
+  },
+
+  /**
+   * Interpolation is disabled for now.
+   */
+  // addInterpolation: function(el, startingStyles, endingStyles) {
+  //   var interpolators;
+  //   if (arguments.length) {
+  //     syncStyles(startingStyles, endingStyles, window.getComputedStyle(el));
+  //     interpolators = makePropertyInterpolators(startingStyles, endingStyles);
+
+  //     this.on('step', setStyles);
+  //     return function unbind() {
+  //       this.off('step', setStyles);
+  //     };
+  //   }
+  //   function setStyles(v) {
+  //     for (var property in interpolators) {
+  //       el.style[property] = interpolators[property](v);
+  //     }
+  //   }
+  // },
+
+  isRunning: function() { 
+    return !!this._.isRunning; 
+  },
+
+  promise: function() {
+    var self = this;
+    return {
+      then: function(cb) {
+        self.once('stop', cb);
+      }
+    };
+  },
+
+  on: function(eventType, listener) {
+    this._.emitter.on(eventType, listener);
+    return this;
+  },
+  once: function(eventType, listener) {
+    this._.emitter.once(eventType, listener);
+    return this;
+  },
+  off: function(eventType, listener) {
+    this._.emitter.off(eventType, listener);
+    return this;
+  },
+
+  destroy: function() {
+    this.stop();
+    this._.onDestroy();
+    this.off();
+    return this;
+  },
+
+  stop: function() {
+    if (!this._.isRunning) return;
+
+    this._.isRunning = false;
+    timeline.animationStopped(this);
+
+    this._.onStop(this._isComplete());
+    return this;
+  },
+
+  restart: function(immediate) {
+    if (this._.isRunning) return;
+
+    this._.percent = this._getStartPercent();
+
+    return this.start(!!immediate);
+  },
+
+  start: function(immediate) {
+    if (this._.isRunning) return;
+
+    if (immediate) {
+      this._.onStep(this._getValueForPercent(this._.percent));
+    } else {
+      this._.isStarting = true;
+    }
+
+    this._.isRunning = true;
+    timeline.animationStarted(this);
+
+    this._.onStart();
+    return this;
+  },
+
+  _isComplete: function() {
+    return !this._.isRunning && 
+      this._.percent === this._getEndPercent();
+  },
+  _getEndPercent: function() {
+    return this._.isReverse ? 0 : 1;
+  },
+  _getStartPercent: function() {
+    return this._.isReverse ? 1 : 0;
+  },
+
+  _getValueForPercent: function(percent) {
+    if (this._.easing) {
+      return this._.easing(percent, this._.duration);
+    }
+    return percent;
+  },
+
+  _tick: function(deltaT) {
+    var state = this._;
+
+    //First tick, don't up the percent
+    if (state.isStarting) {
+      state.isStarting = false;
+    } else if (state.isReverse) {
+      state.percent = Math.max(0, state.percent - (deltaT / state.duration));
+    } else {
+      state.percent = Math.min(1, state.percent + (deltaT / state.duration));
+    }
+    
+    state.onStep(this._getValueForPercent(state.percent));
+
+    if (state.percent === this._getEndPercent()) {
+      this.stop();
+    }
+  },
+
+};
+
+function figureOutEasing(easing) {
+  if (typeof easing === 'object') {
+    var dynamicType = typeof easing.type === 'string' &&
+      easing.type.toLowerCase().trim();
+
+    if (!dynamics[dynamicType]) {
+      throw new Error(
+        'Invalid easing dynamics object type "' + easing.type + '". ' +
+        'Available dynamics types: ' + Object.keys(dynamics).join(', ') + '.'
+      );
+    }
+    return dynamics[dynamicType](easing);
+
+  } else if (typeof easing === 'string') {
+    easing = easing.toLowerCase().trim();
+    
+    if (easing.indexOf('cubic-bezier(') === 0) {
+      var parts = easing
+        .replace('cubic-bezier(', '')
+        .replace(')', '')
+        .split(',')
+        .map(function(v) {
+          return v.trim();
+        });
+      return easingFunctions['cubic-bezier'](parts[0], parts[1], parts[2], parts[3]);
+    } else {
+      var fn = easingFunctions[easing];
+      if (!fn) {
+        throw new Error(
+          'Invalid easing function "' + easing + '". ' +
+          'Available easing functions: ' + Object.keys(easingFunctions).join(', ') + '.'
+        );
+      }
+      return easingFunctions[easing]();
+    }
+  } else if (typeof easing === 'function') {
+    return easing;
+  }
+}
+
+// /*
+//  * Tweening helpers
+//  */
+// function syncStyles(startingStyles, endingStyles, computedStyle) {
+//   var property;
+//   for (property in startingStyles) {
+//     if (!endingStyles.hasOwnProperty(property)) {
+//       delete startingStyles[property];
+//     }
+//   }
+//   for (property in endingStyles) {
+//     if (!startingStyles.hasOwnProperty(property)) {
+//       startingStyles[property] = computedStyle[vendorizePropertyName(property)];
+//     }
+//   }
+// }
+
+// function makePropertyInterpolators(startingStyles, endingStyles) {
+//   var interpolators = {};
+//   var property;
+//   for (property in startingStyles) {
+//     interpolators[vendorizePropertyName(property)] = interpolate.propertyInterpolator(
+//       property, startingStyles[property], endingStyles[property]
+//     );
+//   }
+//   return interpolators;
+// }
+
+// var transformProperty;
+// function vendorizePropertyName(property) {
+//   if (property === 'transform') {
+//     //Set transformProperty lazily, to be sure DOM has loaded already when using it
+//     return transformProperty || 
+//       (transformProperty = cssFeature('transform').property);
+//   } else {
+//     return property;
+//   }
+// }
+
+},{"./core/dynamics":6,"./core/easing-functions":7,"./core/timeline":8,"./util/simple-emitter":11,"./util/uid":12}],5:[function(_dereq_,module,exports){
+/*
+ * Copyright (C) 2008 Apple Inc. All Rights Reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in the
+ *    documentation and/or other materials provided with the distribution.
+ *
+ * THIS SOFTWARE IS PROVIDED BY APPLE INC. ``AS IS'' AND ANY
+ * EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
+ * PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL APPLE INC. OR
+ * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+ * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+ * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+ * PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+ * OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+ * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+ * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
+// http://www.w3.org/TR/css3-transitions/#transition-easing-function
+module.exports =  {
+  /*
+   * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param duration {number} the duration of the animation in milliseconds
+   * @return {number} the y value along the bezier curve
+   */
+  linear: unitBezier(0.0, 0.0, 1.0, 1.0),
+
+  /*
+   * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param duration {number} the duration of the animation in milliseconds
+   * @return {number} the y value along the bezier curve
+   */
+  ease: unitBezier(0.25, 0.1, 0.25, 1.0),
+
+  /*
+   * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param duration {number} the duration of the animation in milliseconds
+   * @return {number} the y value along the bezier curve
+   */
+  easeIn: unitBezier(0.42, 0, 1.0, 1.0),
+
+  /*
+   * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param duration {number} the duration of the animation in milliseconds
+   * @return {number} the y value along the bezier curve
+   */
+  easeOut: unitBezier(0, 0, 0.58, 1.0),
+
+  /*
+   * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param duration {number} the duration of the animation in milliseconds
+   * @return {number} the y value along the bezier curve
+   */
+  easeInOut: unitBezier(0.42, 0, 0.58, 1.0),
+
+  /*
+   * @param p1x {number} X component of control point 1
+   * @param p1y {number} Y component of control point 1
+   * @param p2x {number} X component of control point 2
+   * @param p2y {number} Y component of control point 2
+   * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param duration {number} the duration of the animation in milliseconds
+   * @return {number} the y value along the bezier curve
+   */
+  cubicBezier: function(p1x, p1y, p2x, p2y) {
+    return unitBezier(p1x, p1y, p2x, p2y);
+  }
+};
+
+function B1(t) { return t*t*t; }
+function B2(t) { return 3*t*t*(1-t); }
+function B3(t) { return 3*t*(1-t)*(1-t); }
+function B4(t) { return (1-t)*(1-t)*(1-t); }
+
+/*
+ * JavaScript port of Webkit implementation of CSS cubic-bezier(p1x.p1y,p2x,p2y) by http://mck.me
+ * http://svn.webkit.org/repository/webkit/trunk/Source/WebCore/platform/graphics/UnitBezier.h
+ */
+
+/*
+ * Duration value to use when one is not specified (400ms is a common value).
+ * @const
+ * @type {number}
+ */
+var DEFAULT_DURATION = 400;//ms
+
+/*
+ * The epsilon value we pass to UnitBezier::solve given that the animation is going to run over |dur| seconds.
+ * The longer the animation, the more precision we need in the easing function result to avoid ugly discontinuities.
+ * http://svn.webkit.org/repository/webkit/trunk/Source/WebCore/page/animation/AnimationBase.cpp
+ */
+function solveEpsilon(duration) {
+  return 1.0 / (200.0 * duration);
+}
+
+/*
+ * Defines a cubic-bezier curve given the middle two control points.
+ * NOTE: first and last control points are implicitly (0,0) and (1,1).
+ * @param p1x {number} X component of control point 1
+ * @param p1y {number} Y component of control point 1
+ * @param p2x {number} X component of control point 2
+ * @param p2y {number} Y component of control point 2
+ */
+function unitBezier(p1x, p1y, p2x, p2y) {
+
+  // private members --------------------------------------------
+
+  // Calculate the polynomial coefficients, implicit first and last control points are (0,0) and (1,1).
+
+  /*
+   * X component of Bezier coefficient C
+   * @const
+   * @type {number}
+   */
+  var cx = 3.0 * p1x;
+
+  /*
+   * X component of Bezier coefficient B
+   * @const
+   * @type {number}
+   */
+  var bx = 3.0 * (p2x - p1x) - cx;
+
+  /*
+   * X component of Bezier coefficient A
+   * @const
+   * @type {number}
+   */
+  var ax = 1.0 - cx -bx;
+
+  /*
+   * Y component of Bezier coefficient C
+   * @const
+   * @type {number}
+   */
+  var cy = 3.0 * p1y;
+
+  /*
+   * Y component of Bezier coefficient B
+   * @const
+   * @type {number}
+   */
+  var by = 3.0 * (p2y - p1y) - cy;
+
+  /*
+   * Y component of Bezier coefficient A
+   * @const
+   * @type {number}
+   */
+  var ay = 1.0 - cy - by;
+
+  /*
+   * @param t {number} parametric easing value
+   * @return {number}
+   */
+  var sampleCurveX = function(t) {
+    // `ax t^3 + bx t^2 + cx t' expanded using Horner's rule.
+    return ((ax * t + bx) * t + cx) * t;
+  };
+
+  /*
+   * @param t {number} parametric easing value
+   * @return {number}
+   */
+  var sampleCurveY = function(t) {
+    return ((ay * t + by) * t + cy) * t;
+  };
+
+  /*
+   * @param t {number} parametric easing value
+   * @return {number}
+   */
+  var sampleCurveDerivativeX = function(t) {
+    return (3.0 * ax * t + 2.0 * bx) * t + cx;
+  };
+
+  /*
+   * Given an x value, find a parametric value it came from.
+   * @param x {number} value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param epsilon {number} accuracy limit of t for the given x
+   * @return {number} the t value corresponding to x
+   */
+  var solveCurveX = function(x, epsilon) {
+    var t0;
+    var t1;
+    var t2;
+    var x2;
+    var d2;
+    var i;
+
+    // First try a few iterations of Newton's method -- normally very fast.
+    for (t2 = x, i = 0; i < 8; i++) {
+      x2 = sampleCurveX(t2) - x;
+      if (Math.abs (x2) < epsilon) {
+        return t2;
+      }
+      d2 = sampleCurveDerivativeX(t2);
+      if (Math.abs(d2) < 1e-6) {
+        break;
+      }
+      t2 = t2 - x2 / d2;
+    }
+
+    // Fall back to the bisection method for reliability.
+    t0 = 0.0;
+    t1 = 1.0;
+    t2 = x;
+
+    if (t2 < t0) {
+      return t0;
+    }
+    if (t2 > t1) {
+      return t1;
+    }
+
+    while (t0 < t1) {
+      x2 = sampleCurveX(t2);
+      if (Math.abs(x2 - x) < epsilon) {
+        return t2;
+      }
+      if (x > x2) {
+        t0 = t2;
+      } else {
+        t1 = t2;
+      }
+      t2 = (t1 - t0) * 0.5 + t0;
+    }
+
+    // Failure.
+    return t2;
+  };
+
+  /*
+   * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param epsilon {number} the accuracy of t for the given x
+   * @return {number} the y value along the bezier curve
+   */
+  var solve = function(x, epsilon) {
+    return sampleCurveY(solveCurveX(x, epsilon));
+  };
+
+  // public interface --------------------------------------------
+
+  /*
+   * Find the y of the cubic-bezier for a given x with accuracy determined by the animation duration.
+   * @param x {number} the value of x along the bezier curve, 0.0 <= x <= 1.0
+   * @param duration {number} the duration of the animation in milliseconds
+   * @return {number} the y value along the bezier curve
+   */
+  return function(x, duration) {
+    return solve(x, solveEpsilon(+duration || DEFAULT_DURATION));
+  };
+}
+
+
+},{}],6:[function(_dereq_,module,exports){
+/**
+ * A HUGE thank you to dynamics.js which inspired these dynamics simulations.
+ * https://github.com/michaelvillar/dynamics.js
+ *
+ * Also licensed under MIT
+ */
+
+var extend = _dereq_('../util/extend');
+
+module.exports = {
+  spring: dynamicsSpring,
+  gravity: dynamicsGravity
+};
+
+var springDefaults = {
+  frequency: 15,
+  friction: 200,
+  anticipationStrength: 0,
+  anticipationSize: 0
+};
+function dynamicsSpring(opts) {
+  opts = extend({}, springDefaults, opts || {});
+
+  return function at(t, duration) {
+    var A, At, a, angle, b, decal, frequency, friction, frictionT, s, v, y0, yS,
+    _opts = opts;
+    frequency = Math.max(1, opts.frequency);
+    friction = Math.pow(20, opts.friction / 100);
+    s = opts.anticipationSize / 100;
+    decal = Math.max(0, s);
+    frictionT = (t / (1 - s)) - (s / (1 - s));
+    if (t < s) {
+      A = function(t) {
+        var M, a, b, x0, x1;
+        M = 0.8;
+        x0 = s / (1 - s);
+        x1 = 0;
+        b = (x0 - (M * x1)) / (x0 - x1);
+        a = (M - b) / x0;
+        return (a * t * _opts.anticipationStrength / 100) + b;
+      };
+      yS = (s / (1 - s)) - (s / (1 - s));
+      y0 = (0 / (1 - s)) - (s / (1 - s));
+      b = Math.acos(1 / A(yS));
+      a = (Math.acos(1 / A(y0)) - b) / (frequency * (-s));
+    } else {
+      A = function(t) {
+        return Math.pow(friction / 10, -t) * (1 - t);
+      };
+      b = 0;
+      a = 1;
+    }
+    At = A(frictionT);
+    angle = frequency * (t - s) * a + b;
+    v = 1 - (At * Math.cos(angle));
+    //return [t, v, At, frictionT, angle];
+    return v;
+  };
+}
+
+var gravityDefaults = {
+  bounce: 40,
+  gravity: 1000,
+  initialForce: false
+};
+function dynamicsGravity(opts) {
+  opts = extend({}, gravityDefaults, opts || {});
+  var curves = [];
+
+  init();
+
+  return at;
+
+  function length() {
+    var L, b, bounce, curve, gravity;
+    bounce = Math.min(opts.bounce / 100, 80);
+    gravity = opts.gravity / 100;
+    b = Math.sqrt(2 / gravity);
+    curve = {
+      a: -b,
+      b: b,
+      H: 1
+    };
+    if (opts.initialForce) {
+      curve.a = 0;
+      curve.b = curve.b * 2;
+    }
+    while (curve.H > 0.001) {
+      L = curve.b - curve.a;
+      curve = {
+        a: curve.b,
+        b: curve.b + L * bounce,
+        H: curve.H * bounce * bounce
+      };
+    }
+    return curve.b;
+  }
+
+  function init() {
+    var L, b, bounce, curve, gravity, _results;
+
+    L = length();
+    gravity = (opts.gravity / 100) * L * L;
+    bounce = Math.min(opts.bounce / 100, 80);
+    b = Math.sqrt(2 / gravity);
+    curves = [];
+    curve = {
+      a: -b,
+      b: b,
+      H: 1
+    };
+    if (opts.initialForce) {
+      curve.a = 0;
+      curve.b = curve.b * 2;
+    }
+    curves.push(curve);
+    _results = [];
+    while (curve.b < 1 && curve.H > 0.001) {
+      L = curve.b - curve.a;
+      curve = {
+        a: curve.b,
+        b: curve.b + L * bounce,
+        H: curve.H * bounce * bounce
+      };
+      _results.push(curves.push(curve));
+    }
+    return _results;
+  }
+
+  function calculateCurve(a, b, H, t){
+    var L, c, t2;
+    L = b - a;
+    t2 = (2 / L) * t - 1 - (a * 2 / L);
+    c = t2 * t2 * H - H + 1;
+    if (opts.initialForce) {
+      c = 1 - c;
+    }
+    return c;
+  }
+
+  function at(t, duration) {
+    var bounce, curve, gravity, i, v;
+    bounce = opts.bounce / 100;
+    gravity = opts.gravity;
+    i = 0;
+    curve = curves[i];
+    while (!(t >= curve.a && t <= curve.b)) {
+      i += 1;
+      curve = curves[i];
+      if (!curve) {
+        break;
+      }
+    }
+    if (!curve) {
+      v = opts.initialForce ? 0 : 1;
+    } else {
+      v = calculateCurve(curve.a, curve.b, curve.H, t);
+    }
+    //return [t, v];
+    return v;
+  }
+
+};
+
+},{"../util/extend":10}],7:[function(_dereq_,module,exports){
+var dynamics = _dereq_('./dynamics');
+var bezier = _dereq_('./bezier');
+
+module.exports = {
+  'linear': function() {
+    return function(t, duration) {
+      return bezier.linear(t, duration);
+    };
+  },
+  'ease': function() {
+    return function(t, duration) {
+      return bezier.ease(t, duration);
+    };
+  },
+  'ease-in': function() {
+    return function(t, duration) {
+      return bezier.easeIn(t, duration);
+    };
+  },
+  'ease-out': function() {
+    return function(t, duration) {
+      return bezier.easeOut(t, duration);
+    };
+  },
+  'ease-in-out': function() {
+    return function(t, duration) {
+      return bezier.easeInOut(t, duration);
+    };
+  },
+  'cubic-bezier': function(x1, y1, x2, y2, duration) {
+    var bz = bezier.cubicBezier(x1, y1, x2, y2);//, t, duration);
+    return function(t, duration) {
+      return bz(t, duration);
+    };
+  }
+};
+
+},{"./bezier":5,"./dynamics":6}],8:[function(_dereq_,module,exports){
+
+var raf = _dereq_('raf');
+var time = _dereq_('performance-now');
+
+var self = module.exports = {
+  _running: {},
+
+  animationStarted: function(instance) {
+    self._running[instance._.id] = instance;
+
+    if (!self.isTicking) {
+      self.tick();
+    }
+  },
+
+  animationStopped: function(instance) {
+    delete self._running[instance._.id];
+    self.maybeStopTicking();
+  },
+
+  tick: function() {
+    var lastFrame = time();
+
+    self.isTicking = true;
+    self._rafId = raf(step);
+
+    function step() {
+      self._rafId = raf(step);
+
+      // Get current time
+      var now = time();
+      var deltaT = now - lastFrame;
+
+      for (var animationId in self._running) {
+        self._running[animationId]._tick(deltaT);
+      }
+
+      lastFrame = now;
+    }
+  },
+
+  maybeStopTicking: function() {
+    if (self.isTicking && !Object.keys(self._running).length) {
+      raf.cancel(self._rafId);
+      self.isTicking = false;
+    }
+  },
+
+};
+
+
+},{"performance-now":1,"raf":2}],9:[function(_dereq_,module,exports){
+module.exports = {
+  animator: _dereq_('./animator')
+};
+
+},{"./animator":4}],10:[function(_dereq_,module,exports){
+
+/*
+ * There really is no tiny minimal extend() on npm to find,
+ * so we just use our own.
+ */
+
+module.exports = function extend(obj) {
+   var args = Array.prototype.slice.call(arguments, 1);
+   for(var i = 0; i < args.length; i++) {
+     var source = args[i];
+     if (source) {
+       for (var prop in source) {
+         obj[prop] = source[prop];
+       }
+     }
+   }
+   return obj;
+};
+
+},{}],11:[function(_dereq_,module,exports){
+
+// All we want is an eventEmitter that doesn't use #call or #apply,
+// by expecting 0-1 arguments. 
+// We couldn't find this on npm, so we make our own.
+
+module.exports = SimpleEventEmitter;
+
+function SimpleEventEmitter() {
+}
+
+SimpleEventEmitter.prototype = {
+  listeners: [],
+  on: function(eventType, fn) {
+    if (typeof fn !== 'function') return;
+    this.listeners[eventType] || (this.listeners[eventType] = []);
+    this.listeners[eventType].push(fn);
+  },
+  once: function(eventType, fn) {
+    var self = this;
+    function onceFn() {
+      self.off(eventType, fn);
+      self.off(eventType, onceFn);
+    }
+    this.on(eventType, fn);
+    this.on(eventType, onceFn);
+  },
+  // Built-in limitation: we only expect 0-1 arguments
+  // This is to save as much perf as possible when sending
+  // events every frame.
+  emit: function(eventType, eventArg) {
+    var listeners = this.listeners[eventType] || [];
+    var i = 0;
+    var len = listeners.length;
+    if (arguments.length === 2) {
+      for (i; i < len; i++) listeners[i] && listeners[i](eventArg);
+    } else {
+      for (i; i < len; i++) listeners[i] && listeners[i]();
+    }
+  },
+  off: function(eventType, fnToRemove) {
+    if (!eventType) {
+      //Remove all listeners
+      for (var type in this.listeners) {
+        this.off(type);
+      }
+    } else  {
+      var listeners = this.listeners[eventType];
+      if (listeners) {
+        if (!fnToRemove) {
+          listeners.length = 0;
+        } else {
+          var index = listeners.indexOf(fnToRemove);
+          listeners.splice(index, 1);
+        }
+      }
+    }
+  } 
+};
+
+},{}],12:[function(_dereq_,module,exports){
+
+/**
+ * nextUid() from angular.js
+ * License MIT
+ * http://github.com/angular/angular.js
+ *
+ * A consistent way of creating unique IDs in angular. The ID is a sequence of alpha numeric
+ * characters such as '012ABC'. The reason why we are not using simply a number counter is that
+ * the number string gets longer over time, and it can also overflow, where as the nextId
+ * will grow much slower, it is a string, and it will never overflow.
+ *
+ * @returns an unique alpha-numeric string
+ */
+var uid = [];
+
+module.exports = function nextUid() {
+  var index = uid.length;
+  var digit;
+
+  while(index) {
+    index--;
+    digit = uid[index].charCodeAt(0);
+    if (digit == 57 /*'9'*/) {
+      uid[index] = 'A';
+      return uid.join('');
+    }
+    if (digit == 90  /*'Z'*/) {
+      uid[index] = '0';
+    } else {
+      uid[index] = String.fromCharCode(digit + 1);
+      return uid.join('');
+    }
+  }
+  uid.unshift('0');
+  return uid.join('');
+};
+
+},{}],13:[function(_dereq_,module,exports){
+// shim for using process in browser
+
+var process = module.exports = {};
+
+process.nextTick = (function () {
+    var canSetImmediate = typeof window !== 'undefined'
+    && window.setImmediate;
+    var canPost = typeof window !== 'undefined'
+    && window.postMessage && window.addEventListener
+    ;
+
+    if (canSetImmediate) {
+        return function (f) { return window.setImmediate(f) };
+    }
+
+    if (canPost) {
+        var queue = [];
+        window.addEventListener('message', function (ev) {
+            var source = ev.source;
+            if ((source === window || source === null) && ev.data === 'process-tick') {
+                ev.stopPropagation();
+                if (queue.length > 0) {
+                    var fn = queue.shift();
+                    fn();
+                }
+            }
+        }, true);
+
+        return function nextTick(fn) {
+            queue.push(fn);
+            window.postMessage('process-tick', '*');
+        };
+    }
+
+    return function nextTick(fn) {
+        setTimeout(fn, 0);
+    };
+})();
+
+process.title = 'browser';
+process.browser = true;
+process.env = {};
+process.argv = [];
+
+function noop() {}
+
+process.on = noop;
+process.addListener = noop;
+process.once = noop;
+process.off = noop;
+process.removeListener = noop;
+process.removeAllListeners = noop;
+process.emit = noop;
+
+process.binding = function (name) {
+    throw new Error('process.binding is not supported');
+}
+
+// TODO(shtylman)
+process.cwd = function () { return '/' };
+process.chdir = function (dir) {
+    throw new Error('process.chdir is not supported');
+};
+
+},{}]},{},[9])
+(9)
+});
+/**
+ * State-based routing for AngularJS
+ * @version v0.2.10
+ * @link http://angular-ui.github.com/
+ * @license MIT License, http://www.opensource.org/licenses/MIT
+ */
+
+/* commonjs package manager support (eg componentjs) */
+if (typeof module !== "undefined" && typeof exports !== "undefined" && module.exports === exports){
+  module.exports = 'ui.router';
+}
+
+(function (window, angular, undefined) {
+/*jshint globalstrict:true*/
+/*global angular:false*/
+'use strict';
+
+var isDefined = angular.isDefined,
+    isFunction = angular.isFunction,
+    isString = angular.isString,
+    isObject = angular.isObject,
+    isArray = angular.isArray,
+    forEach = angular.forEach,
+    extend = angular.extend,
+    copy = angular.copy;
+
+function inherit(parent, extra) {
+  return extend(new (extend(function() {}, { prototype: parent }))(), extra);
+}
+
+function merge(dst) {
+  forEach(arguments, function(obj) {
+    if (obj !== dst) {
+      forEach(obj, function(value, key) {
+        if (!dst.hasOwnProperty(key)) dst[key] = value;
+      });
+    }
+  });
+  return dst;
+}
+
+/**
+ * Finds the common ancestor path between two states.
+ *
+ * @param {Object} first The first state.
+ * @param {Object} second The second state.
+ * @return {Array} Returns an array of state names in descending order, not including the root.
+ */
+function ancestors(first, second) {
+  var path = [];
+
+  for (var n in first.path) {
+    if (first.path[n] !== second.path[n]) break;
+    path.push(first.path[n]);
+  }
+  return path;
+}
+
+/**
+ * IE8-safe wrapper for `Object.keys()`.
+ *
+ * @param {Object} object A JavaScript object.
+ * @return {Array} Returns the keys of the object as an array.
+ */
+function keys(object) {
+  if (Object.keys) {
+    return Object.keys(object);
+  }
+  var result = [];
+
+  angular.forEach(object, function(val, key) {
+    result.push(key);
+  });
+  return result;
+}
+
+/**
+ * IE8-safe wrapper for `Array.prototype.indexOf()`.
+ *
+ * @param {Array} array A JavaScript array.
+ * @param {*} value A value to search the array for.
+ * @return {Number} Returns the array index value of `value`, or `-1` if not present.
+ */
+function arraySearch(array, value) {
+  if (Array.prototype.indexOf) {
+    return array.indexOf(value, Number(arguments[2]) || 0);
+  }
+  var len = array.length >>> 0, from = Number(arguments[2]) || 0;
+  from = (from < 0) ? Math.ceil(from) : Math.floor(from);
+
+  if (from < 0) from += len;
+
+  for (; from < len; from++) {
+    if (from in array && array[from] === value) return from;
+  }
+  return -1;
+}
+
+/**
+ * Merges a set of parameters with all parameters inherited between the common parents of the
+ * current state and a given destination state.
+ *
+ * @param {Object} currentParams The value of the current state parameters ($stateParams).
+ * @param {Object} newParams The set of parameters which will be composited with inherited params.
+ * @param {Object} $current Internal definition of object representing the current state.
+ * @param {Object} $to Internal definition of object representing state to transition to.
+ */
+function inheritParams(currentParams, newParams, $current, $to) {
+  var parents = ancestors($current, $to), parentParams, inherited = {}, inheritList = [];
+
+  for (var i in parents) {
+    if (!parents[i].params || !parents[i].params.length) continue;
+    parentParams = parents[i].params;
+
+    for (var j in parentParams) {
+      if (arraySearch(inheritList, parentParams[j]) >= 0) continue;
+      inheritList.push(parentParams[j]);
+      inherited[parentParams[j]] = currentParams[parentParams[j]];
+    }
+  }
+  return extend({}, inherited, newParams);
+}
+
+/**
+ * Normalizes a set of values to string or `null`, filtering them by a list of keys.
+ *
+ * @param {Array} keys The list of keys to normalize/return.
+ * @param {Object} values An object hash of values to normalize.
+ * @return {Object} Returns an object hash of normalized string values.
+ */
+function normalize(keys, values) {
+  var normalized = {};
+
+  forEach(keys, function (name) {
+    var value = values[name];
+    normalized[name] = (value != null) ? String(value) : null;
+  });
+  return normalized;
+}
+
+/**
+ * Performs a non-strict comparison of the subset of two objects, defined by a list of keys.
+ *
+ * @param {Object} a The first object.
+ * @param {Object} b The second object.
+ * @param {Array} keys The list of keys within each object to compare. If the list is empty or not specified,
+ *                     it defaults to the list of keys in `a`.
+ * @return {Boolean} Returns `true` if the keys match, otherwise `false`.
+ */
+function equalForKeys(a, b, keys) {
+  if (!keys) {
+    keys = [];
+    for (var n in a) keys.push(n); // Used instead of Object.keys() for IE8 compatibility
+  }
+
+  for (var i=0; i<keys.length; i++) {
+    var k = keys[i];
+    if (a[k] != b[k]) return false; // Not '===', values aren't necessarily normalized
+  }
+  return true;
+}
+
+/**
+ * Returns the subset of an object, based on a list of keys.
+ *
+ * @param {Array} keys
+ * @param {Object} values
+ * @return {Boolean} Returns a subset of `values`.
+ */
+function filterByKeys(keys, values) {
+  var filtered = {};
+
+  forEach(keys, function (name) {
+    filtered[name] = values[name];
+  });
+  return filtered;
+}
+/**
+ * @ngdoc overview
+ * @name ui.router.util
+ *
+ * @description
+ * # ui.router.util sub-module
+ *
+ * This module is a dependency of other sub-modules. Do not include this module as a dependency
+ * in your angular app (use {@link ui.router} module instead).
+ *
+ */
+angular.module('ui.router.util', ['ng']);
+
+/**
+ * @ngdoc overview
+ * @name ui.router.router
+ * 
+ * @requires ui.router.util
+ *
+ * @description
+ * # ui.router.router sub-module
+ *
+ * This module is a dependency of other sub-modules. Do not include this module as a dependency
+ * in your angular app (use {@link ui.router} module instead).
+ */
+angular.module('ui.router.router', ['ui.router.util']);
+
+/**
+ * @ngdoc overview
+ * @name ui.router.state
+ * 
+ * @requires ui.router.router
+ * @requires ui.router.util
+ *
+ * @description
+ * # ui.router.state sub-module
+ *
+ * This module is a dependency of the main ui.router module. Do not include this module as a dependency
+ * in your angular app (use {@link ui.router} module instead).
+ * 
+ */
+angular.module('ui.router.state', ['ui.router.router', 'ui.router.util']);
+
+/**
+ * @ngdoc overview
+ * @name ui.router
+ *
+ * @requires ui.router.state
+ *
+ * @description
+ * # ui.router
+ * 
+ * ## The main module for ui.router 
+ * There are several sub-modules included with the ui.router module, however only this module is needed
+ * as a dependency within your angular app. The other modules are for organization purposes. 
+ *
+ * The modules are:
+ * * ui.router - the main "umbrella" module
+ * * ui.router.router - 
+ * 
+ * *You'll need to include **only** this module as the dependency within your angular app.*
+ * 
+ * <pre>
+ * <!doctype html>
+ * <html ng-app="myApp">
+ * <head>
+ *   <script src="js/angular.js"></script>
+ *   <!-- Include the ui-router script -->
+ *   <script src="js/angular-ui-router.min.js"></script>
+ *   <script>
+ *     // ...and add 'ui.router' as a dependency
+ *     var myApp = angular.module('myApp', ['ui.router']);
+ *   </script>
+ * </head>
+ * <body>
+ * </body>
+ * </html>
+ * </pre>
+ */
+angular.module('ui.router', ['ui.router.state']);
+
+angular.module('ui.router.compat', ['ui.router']);
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.$resolve
+ *
+ * @requires $q
+ * @requires $injector
+ *
+ * @description
+ * Manages resolution of (acyclic) graphs of promises.
+ */
+$Resolve.$inject = ['$q', '$injector'];
+function $Resolve(  $q,    $injector) {
+  
+  var VISIT_IN_PROGRESS = 1,
+      VISIT_DONE = 2,
+      NOTHING = {},
+      NO_DEPENDENCIES = [],
+      NO_LOCALS = NOTHING,
+      NO_PARENT = extend($q.when(NOTHING), { $$promises: NOTHING, $$values: NOTHING });
+  
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$resolve#study
+   * @methodOf ui.router.util.$resolve
+   *
+   * @description
+   * Studies a set of invocables that are likely to be used multiple times.
+   * <pre>
+   * $resolve.study(invocables)(locals, parent, self)
+   * </pre>
+   * is equivalent to
+   * <pre>
+   * $resolve.resolve(invocables, locals, parent, self)
+   * </pre>
+   * but the former is more efficient (in fact `resolve` just calls `study` 
+   * internally).
+   *
+   * @param {object} invocables Invocable objects
+   * @return {function} a function to pass in locals, parent and self
+   */
+  this.study = function (invocables) {
+    if (!isObject(invocables)) throw new Error("'invocables' must be an object");
+    
+    // Perform a topological sort of invocables to build an ordered plan
+    var plan = [], cycle = [], visited = {};
+    function visit(value, key) {
+      if (visited[key] === VISIT_DONE) return;
+      
+      cycle.push(key);
+      if (visited[key] === VISIT_IN_PROGRESS) {
+        cycle.splice(0, cycle.indexOf(key));
+        throw new Error("Cyclic dependency: " + cycle.join(" -> "));
+      }
+      visited[key] = VISIT_IN_PROGRESS;
+      
+      if (isString(value)) {
+        plan.push(key, [ function() { return $injector.get(value); }], NO_DEPENDENCIES);
+      } else {
+        var params = $injector.annotate(value);
+        forEach(params, function (param) {
+          if (param !== key && invocables.hasOwnProperty(param)) visit(invocables[param], param);
+        });
+        plan.push(key, value, params);
+      }
+      
+      cycle.pop();
+      visited[key] = VISIT_DONE;
+    }
+    forEach(invocables, visit);
+    invocables = cycle = visited = null; // plan is all that's required
+    
+    function isResolve(value) {
+      return isObject(value) && value.then && value.$$promises;
+    }
+    
+    return function (locals, parent, self) {
+      if (isResolve(locals) && self === undefined) {
+        self = parent; parent = locals; locals = null;
+      }
+      if (!locals) locals = NO_LOCALS;
+      else if (!isObject(locals)) {
+        throw new Error("'locals' must be an object");
+      }       
+      if (!parent) parent = NO_PARENT;
+      else if (!isResolve(parent)) {
+        throw new Error("'parent' must be a promise returned by $resolve.resolve()");
+      }
+      
+      // To complete the overall resolution, we have to wait for the parent
+      // promise and for the promise for each invokable in our plan.
+      var resolution = $q.defer(),
+          result = resolution.promise,
+          promises = result.$$promises = {},
+          values = extend({}, locals),
+          wait = 1 + plan.length/3,
+          merged = false;
+          
+      function done() {
+        // Merge parent values we haven't got yet and publish our own $$values
+        if (!--wait) {
+          if (!merged) merge(values, parent.$$values); 
+          result.$$values = values;
+          result.$$promises = true; // keep for isResolve()
+          resolution.resolve(values);
+        }
+      }
+      
+      function fail(reason) {
+        result.$$failure = reason;
+        resolution.reject(reason);
+      }
+      
+      // Short-circuit if parent has already failed
+      if (isDefined(parent.$$failure)) {
+        fail(parent.$$failure);
+        return result;
+      }
+      
+      // Merge parent values if the parent has already resolved, or merge
+      // parent promises and wait if the parent resolve is still in progress.
+      if (parent.$$values) {
+        merged = merge(values, parent.$$values);
+        done();
+      } else {
+        extend(promises, parent.$$promises);
+        parent.then(done, fail);
+      }
+      
+      // Process each invocable in the plan, but ignore any where a local of the same name exists.
+      for (var i=0, ii=plan.length; i<ii; i+=3) {
+        if (locals.hasOwnProperty(plan[i])) done();
+        else invoke(plan[i], plan[i+1], plan[i+2]);
+      }
+      
+      function invoke(key, invocable, params) {
+        // Create a deferred for this invocation. Failures will propagate to the resolution as well.
+        var invocation = $q.defer(), waitParams = 0;
+        function onfailure(reason) {
+          invocation.reject(reason);
+          fail(reason);
+        }
+        // Wait for any parameter that we have a promise for (either from parent or from this
+        // resolve; in that case study() will have made sure it's ordered before us in the plan).
+        forEach(params, function (dep) {
+          if (promises.hasOwnProperty(dep) && !locals.hasOwnProperty(dep)) {
+            waitParams++;
+            promises[dep].then(function (result) {
+              values[dep] = result;
+              if (!(--waitParams)) proceed();
+            }, onfailure);
+          }
+        });
+        if (!waitParams) proceed();
+        function proceed() {
+          if (isDefined(result.$$failure)) return;
+          try {
+            invocation.resolve($injector.invoke(invocable, self, values));
+            invocation.promise.then(function (result) {
+              values[key] = result;
+              done();
+            }, onfailure);
+          } catch (e) {
+            onfailure(e);
+          }
+        }
+        // Publish promise synchronously; invocations further down in the plan may depend on it.
+        promises[key] = invocation.promise;
+      }
+      
+      return result;
+    };
+  };
+  
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$resolve#resolve
+   * @methodOf ui.router.util.$resolve
+   *
+   * @description
+   * Resolves a set of invocables. An invocable is a function to be invoked via 
+   * `$injector.invoke()`, and can have an arbitrary number of dependencies. 
+   * An invocable can either return a value directly,
+   * or a `$q` promise. If a promise is returned it will be resolved and the 
+   * resulting value will be used instead. Dependencies of invocables are resolved 
+   * (in this order of precedence)
+   *
+   * - from the specified `locals`
+   * - from another invocable that is part of this `$resolve` call
+   * - from an invocable that is inherited from a `parent` call to `$resolve` 
+   *   (or recursively
+   * - from any ancestor `$resolve` of that parent).
+   *
+   * The return value of `$resolve` is a promise for an object that contains 
+   * (in this order of precedence)
+   *
+   * - any `locals` (if specified)
+   * - the resolved return values of all injectables
+   * - any values inherited from a `parent` call to `$resolve` (if specified)
+   *
+   * The promise will resolve after the `parent` promise (if any) and all promises 
+   * returned by injectables have been resolved. If any invocable 
+   * (or `$injector.invoke`) throws an exception, or if a promise returned by an 
+   * invocable is rejected, the `$resolve` promise is immediately rejected with the 
+   * same error. A rejection of a `parent` promise (if specified) will likewise be 
+   * propagated immediately. Once the `$resolve` promise has been rejected, no 
+   * further invocables will be called.
+   * 
+   * Cyclic dependencies between invocables are not permitted and will caues `$resolve`
+   * to throw an error. As a special case, an injectable can depend on a parameter 
+   * with the same name as the injectable, which will be fulfilled from the `parent` 
+   * injectable of the same name. This allows inherited values to be decorated. 
+   * Note that in this case any other injectable in the same `$resolve` with the same
+   * dependency would see the decorated value, not the inherited value.
+   *
+   * Note that missing dependencies -- unlike cyclic dependencies -- will cause an 
+   * (asynchronous) rejection of the `$resolve` promise rather than a (synchronous) 
+   * exception.
+   *
+   * Invocables are invoked eagerly as soon as all dependencies are available. 
+   * This is true even for dependencies inherited from a `parent` call to `$resolve`.
+   *
+   * As a special case, an invocable can be a string, in which case it is taken to 
+   * be a service name to be passed to `$injector.get()`. This is supported primarily 
+   * for backwards-compatibility with the `resolve` property of `$routeProvider` 
+   * routes.
+   *
+   * @param {object} invocables functions to invoke or 
+   * `$injector` services to fetch.
+   * @param {object} locals  values to make available to the injectables
+   * @param {object} parent  a promise returned by another call to `$resolve`.
+   * @param {object} self  the `this` for the invoked methods
+   * @return {object} Promise for an object that contains the resolved return value
+   * of all invocables, as well as any inherited and local values.
+   */
+  this.resolve = function (invocables, locals, parent, self) {
+    return this.study(invocables)(locals, parent, self);
+  };
+}
+
+angular.module('ui.router.util').service('$resolve', $Resolve);
+
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.$templateFactory
+ *
+ * @requires $http
+ * @requires $templateCache
+ * @requires $injector
+ *
+ * @description
+ * Service. Manages loading of templates.
+ */
+$TemplateFactory.$inject = ['$http', '$templateCache', '$injector'];
+function $TemplateFactory(  $http,   $templateCache,   $injector) {
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$templateFactory#fromConfig
+   * @methodOf ui.router.util.$templateFactory
+   *
+   * @description
+   * Creates a template from a configuration object. 
+   *
+   * @param {object} config Configuration object for which to load a template. 
+   * The following properties are search in the specified order, and the first one 
+   * that is defined is used to create the template:
+   *
+   * @param {string|object} config.template html string template or function to 
+   * load via {@link ui.router.util.$templateFactory#fromString fromString}.
+   * @param {string|object} config.templateUrl url to load or a function returning 
+   * the url to load via {@link ui.router.util.$templateFactory#fromUrl fromUrl}.
+   * @param {Function} config.templateProvider function to invoke via 
+   * {@link ui.router.util.$templateFactory#fromProvider fromProvider}.
+   * @param {object} params  Parameters to pass to the template function.
+   * @param {object} locals Locals to pass to `invoke` if the template is loaded 
+   * via a `templateProvider`. Defaults to `{ params: params }`.
+   *
+   * @return {string|object}  The template html as a string, or a promise for 
+   * that string,or `null` if no template is configured.
+   */
+  this.fromConfig = function (config, params, locals) {
+    return (
+      isDefined(config.template) ? this.fromString(config.template, params) :
+      isDefined(config.templateUrl) ? this.fromUrl(config.templateUrl, params) :
+      isDefined(config.templateProvider) ? this.fromProvider(config.templateProvider, params, locals) :
+      null
+    );
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$templateFactory#fromString
+   * @methodOf ui.router.util.$templateFactory
+   *
+   * @description
+   * Creates a template from a string or a function returning a string.
+   *
+   * @param {string|object} template html template as a string or function that 
+   * returns an html template as a string.
+   * @param {object} params Parameters to pass to the template function.
+   *
+   * @return {string|object} The template html as a string, or a promise for that 
+   * string.
+   */
+  this.fromString = function (template, params) {
+    return isFunction(template) ? template(params) : template;
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$templateFactory#fromUrl
+   * @methodOf ui.router.util.$templateFactory
+   * 
+   * @description
+   * Loads a template from the a URL via `$http` and `$templateCache`.
+   *
+   * @param {string|Function} url url of the template to load, or a function 
+   * that returns a url.
+   * @param {Object} params Parameters to pass to the url function.
+   * @return {string|Promise.<string>} The template html as a string, or a promise 
+   * for that string.
+   */
+  this.fromUrl = function (url, params) {
+    if (isFunction(url)) url = url(params);
+    if (url == null) return null;
+    else return $http
+        .get(url, { cache: $templateCache })
+        .then(function(response) { return response.data; });
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$templateFactory#fromUrl
+   * @methodOf ui.router.util.$templateFactory
+   *
+   * @description
+   * Creates a template by invoking an injectable provider function.
+   *
+   * @param {Function} provider Function to invoke via `$injector.invoke`
+   * @param {Object} params Parameters for the template.
+   * @param {Object} locals Locals to pass to `invoke`. Defaults to 
+   * `{ params: params }`.
+   * @return {string|Promise.<string>} The template html as a string, or a promise 
+   * for that string.
+   */
+  this.fromProvider = function (provider, params, locals) {
+    return $injector.invoke(provider, null, locals || { params: params });
+  };
+}
+
+angular.module('ui.router.util').service('$templateFactory', $TemplateFactory);
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Matches URLs against patterns and extracts named parameters from the path or the search
+ * part of the URL. A URL pattern consists of a path pattern, optionally followed by '?' and a list
+ * of search parameters. Multiple search parameter names are separated by '&'. Search parameters
+ * do not influence whether or not a URL is matched, but their values are passed through into
+ * the matched parameters returned by {@link ui.router.util.type:UrlMatcher#methods_exec exec}.
+ * 
+ * Path parameter placeholders can be specified using simple colon/catch-all syntax or curly brace
+ * syntax, which optionally allows a regular expression for the parameter to be specified:
+ *
+ * * `':'` name - colon placeholder
+ * * `'*'` name - catch-all placeholder
+ * * `'{' name '}'` - curly placeholder
+ * * `'{' name ':' regexp '}'` - curly placeholder with regexp. Should the regexp itself contain
+ *   curly braces, they must be in matched pairs or escaped with a backslash.
+ *
+ * Parameter names may contain only word characters (latin letters, digits, and underscore) and
+ * must be unique within the pattern (across both path and search parameters). For colon 
+ * placeholders or curly placeholders without an explicit regexp, a path parameter matches any
+ * number of characters other than '/'. For catch-all placeholders the path parameter matches
+ * any number of characters.
+ * 
+ * Examples:
+ * 
+ * * `'/hello/'` - Matches only if the path is exactly '/hello/'. There is no special treatment for
+ *   trailing slashes, and patterns have to match the entire path, not just a prefix.
+ * * `'/user/:id'` - Matches '/user/bob' or '/user/1234!!!' or even '/user/' but not '/user' or
+ *   '/user/bob/details'. The second path segment will be captured as the parameter 'id'.
+ * * `'/user/{id}'` - Same as the previous example, but using curly brace syntax.
+ * * `'/user/{id:[^/]*}'` - Same as the previous example.
+ * * `'/user/{id:[0-9a-fA-F]{1,8}}'` - Similar to the previous example, but only matches if the id
+ *   parameter consists of 1 to 8 hex digits.
+ * * `'/files/{path:.*}'` - Matches any URL starting with '/files/' and captures the rest of the
+ *   path into the parameter 'path'.
+ * * `'/files/*path'` - ditto.
+ *
+ * @param {string} pattern  the pattern to compile into a matcher.
+ *
+ * @property {string} prefix  A static prefix of this pattern. The matcher guarantees that any
+ *   URL matching this matcher (i.e. any string for which {@link ui.router.util.type:UrlMatcher#methods_exec exec()} returns
+ *   non-null) will start with this prefix.
+ *
+ * @property {string} source  The pattern that was passed into the contructor
+ *
+ * @property {string} sourcePath  The path portion of the source property
+ *
+ * @property {string} sourceSearch  The search portion of the source property
+ *
+ * @property {string} regex  The constructed regex that will be used to match against the url when 
+ *   it is time to determine which url will match.
+ *
+ * @returns {Object}  New UrlMatcher object
+ */
+function UrlMatcher(pattern) {
+
+  // Find all placeholders and create a compiled pattern, using either classic or curly syntax:
+  //   '*' name
+  //   ':' name
+  //   '{' name '}'
+  //   '{' name ':' regexp '}'
+  // The regular expression is somewhat complicated due to the need to allow curly braces
+  // inside the regular expression. The placeholder regexp breaks down as follows:
+  //    ([:*])(\w+)               classic placeholder ($1 / $2)
+  //    \{(\w+)(?:\:( ... ))?\}   curly brace placeholder ($3) with optional regexp ... ($4)
+  //    (?: ... | ... | ... )+    the regexp consists of any number of atoms, an atom being either
+  //    [^{}\\]+                  - anything other than curly braces or backslash
+  //    \\.                       - a backslash escape
+  //    \{(?:[^{}\\]+|\\.)*\}     - a matched set of curly braces containing other atoms
+  var placeholder = /([:*])(\w+)|\{(\w+)(?:\:((?:[^{}\\]+|\\.|\{(?:[^{}\\]+|\\.)*\})+))?\}/g,
+      names = {}, compiled = '^', last = 0, m,
+      segments = this.segments = [],
+      params = this.params = [];
+
+  function addParameter(id) {
+    if (!/^\w+(-+\w+)*$/.test(id)) throw new Error("Invalid parameter name '" + id + "' in pattern '" + pattern + "'");
+    if (names[id]) throw new Error("Duplicate parameter name '" + id + "' in pattern '" + pattern + "'");
+    names[id] = true;
+    params.push(id);
+  }
+
+  function quoteRegExp(string) {
+    return string.replace(/[\\\[\]\^$*+?.()|{}]/g, "\\$&");
+  }
+
+  this.source = pattern;
+
+  // Split into static segments separated by path parameter placeholders.
+  // The number of segments is always 1 more than the number of parameters.
+  var id, regexp, segment;
+  while ((m = placeholder.exec(pattern))) {
+    id = m[2] || m[3]; // IE[78] returns '' for unmatched groups instead of null
+    regexp = m[4] || (m[1] == '*' ? '.*' : '[^/]*');
+    segment = pattern.substring(last, m.index);
+    if (segment.indexOf('?') >= 0) break; // we're into the search part
+    compiled += quoteRegExp(segment) + '(' + regexp + ')';
+    addParameter(id);
+    segments.push(segment);
+    last = placeholder.lastIndex;
+  }
+  segment = pattern.substring(last);
+
+  // Find any search parameter names and remove them from the last segment
+  var i = segment.indexOf('?');
+  if (i >= 0) {
+    var search = this.sourceSearch = segment.substring(i);
+    segment = segment.substring(0, i);
+    this.sourcePath = pattern.substring(0, last+i);
+
+    // Allow parameters to be separated by '?' as well as '&' to make concat() easier
+    forEach(search.substring(1).split(/[&?]/), addParameter);
+  } else {
+    this.sourcePath = pattern;
+    this.sourceSearch = '';
+  }
+
+  compiled += quoteRegExp(segment) + '$';
+  segments.push(segment);
+  this.regexp = new RegExp(compiled);
+  this.prefix = segments[0];
+}
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#concat
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Returns a new matcher for a pattern constructed by appending the path part and adding the
+ * search parameters of the specified pattern to this pattern. The current pattern is not
+ * modified. This can be understood as creating a pattern for URLs that are relative to (or
+ * suffixes of) the current pattern.
+ *
+ * @example
+ * The following two matchers are equivalent:
+ * ```
+ * new UrlMatcher('/user/{id}?q').concat('/details?date');
+ * new UrlMatcher('/user/{id}/details?q&date');
+ * ```
+ *
+ * @param {string} pattern  The pattern to append.
+ * @returns {ui.router.util.type:UrlMatcher}  A matcher for the concatenated pattern.
+ */
+UrlMatcher.prototype.concat = function (pattern) {
+  // Because order of search parameters is irrelevant, we can add our own search
+  // parameters to the end of the new pattern. Parse the new pattern by itself
+  // and then join the bits together, but it's much easier to do this on a string level.
+  return new UrlMatcher(this.sourcePath + pattern + this.sourceSearch);
+};
+
+UrlMatcher.prototype.toString = function () {
+  return this.source;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#exec
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Tests the specified path against this matcher, and returns an object containing the captured
+ * parameter values, or null if the path does not match. The returned object contains the values
+ * of any search parameters that are mentioned in the pattern, but their value may be null if
+ * they are not present in `searchParams`. This means that search parameters are always treated
+ * as optional.
+ *
+ * @example
+ * ```
+ * new UrlMatcher('/user/{id}?q&r').exec('/user/bob', { x:'1', q:'hello' });
+ * // returns { id:'bob', q:'hello', r:null }
+ * ```
+ *
+ * @param {string} path  The URL path to match, e.g. `$location.path()`.
+ * @param {Object} searchParams  URL search parameters, e.g. `$location.search()`.
+ * @returns {Object}  The captured parameter values.
+ */
+UrlMatcher.prototype.exec = function (path, searchParams) {
+  var m = this.regexp.exec(path);
+  if (!m) return null;
+
+  var params = this.params, nTotal = params.length,
+    nPath = this.segments.length-1,
+    values = {}, i;
+
+  if (nPath !== m.length - 1) throw new Error("Unbalanced capture group in route '" + this.source + "'");
+
+  for (i=0; i<nPath; i++) values[params[i]] = m[i+1];
+  for (/**/; i<nTotal; i++) values[params[i]] = searchParams[params[i]];
+
+  return values;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#parameters
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Returns the names of all path and search parameters of this pattern in an unspecified order.
+ * 
+ * @returns {Array.<string>}  An array of parameter names. Must be treated as read-only. If the
+ *    pattern has no parameters, an empty array is returned.
+ */
+UrlMatcher.prototype.parameters = function () {
+  return this.params;
+};
+
+/**
+ * @ngdoc function
+ * @name ui.router.util.type:UrlMatcher#format
+ * @methodOf ui.router.util.type:UrlMatcher
+ *
+ * @description
+ * Creates a URL that matches this pattern by substituting the specified values
+ * for the path and search parameters. Null values for path parameters are
+ * treated as empty strings.
+ *
+ * @example
+ * ```
+ * new UrlMatcher('/user/{id}?q').format({ id:'bob', q:'yes' });
+ * // returns '/user/bob?q=yes'
+ * ```
+ *
+ * @param {Object} values  the values to substitute for the parameters in this pattern.
+ * @returns {string}  the formatted URL (path and optionally search part).
+ */
+UrlMatcher.prototype.format = function (values) {
+  var segments = this.segments, params = this.params;
+  if (!values) return segments.join('');
+
+  var nPath = segments.length-1, nTotal = params.length,
+    result = segments[0], i, search, value;
+
+  for (i=0; i<nPath; i++) {
+    value = values[params[i]];
+    // TODO: Maybe we should throw on null here? It's not really good style to use '' and null interchangeabley
+    if (value != null) result += encodeURIComponent(value);
+    result += segments[i+1];
+  }
+  for (/**/; i<nTotal; i++) {
+    value = values[params[i]];
+    if (value != null) {
+      result += (search ? '&' : '?') + params[i] + '=' + encodeURIComponent(value);
+      search = true;
+    }
+  }
+
+  return result;
+};
+
+
+
+/**
+ * @ngdoc object
+ * @name ui.router.util.$urlMatcherFactory
+ *
+ * @description
+ * Factory for {@link ui.router.util.type:UrlMatcher} instances. The factory is also available to providers
+ * under the name `$urlMatcherFactoryProvider`.
+ */
+function $UrlMatcherFactory() {
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$urlMatcherFactory#compile
+   * @methodOf ui.router.util.$urlMatcherFactory
+   *
+   * @description
+   * Creates a {@link ui.router.util.type:UrlMatcher} for the specified pattern.
+   *   
+   * @param {string} pattern  The URL pattern.
+   * @returns {ui.router.util.type:UrlMatcher}  The UrlMatcher.
+   */
+  this.compile = function (pattern) {
+    return new UrlMatcher(pattern);
+  };
+
+  /**
+   * @ngdoc function
+   * @name ui.router.util.$urlMatcherFactory#isMatcher
+   * @methodOf ui.router.util.$urlMatcherFactory
+   *
+   * @description
+   * Returns true if the specified object is a UrlMatcher, or false otherwise.
+   *
+   * @param {Object} object  The object to perform the type check against.
+   * @returns {Boolean}  Returns `true` if the object has the following functions: `exec`, `format`, and `concat`.
+   */
+  this.isMatcher = function (o) {
+    return isObject(o) && isFunction(o.exec) && isFunction(o.format) && isFunction(o.concat);
+  };
+  
+  /* No need to document $get, since it returns this */
+  this.$get = function () {
+    return this;
+  };
+}
+
+// Register as a provider so it's available to other providers
+angular.module('ui.router.util').provider('$urlMatcherFactory', $UrlMatcherFactory);
+
+/**
+ * @ngdoc object
+ * @name ui.router.router.$urlRouterProvider
+ *
+ * @requires ui.router.util.$urlMatcherFactoryProvider
+ *
+ * @description
+ * `$urlRouterProvider` has the responsibility of watching `$location`. 
+ * When `$location` changes it runs through a list of rules one by one until a 
+ * match is found. `$urlRouterProvider` is used behind the scenes anytime you specify 
+ * a url in a state configuration. All urls are compiled into a UrlMatcher object.
+ *
+ * There are several methods on `$urlRouterProvider` that make it useful to use directly
+ * in your module config.
+ */
+$UrlRouterProvider.$inject = ['$urlMatcherFactoryProvider'];
+function $UrlRouterProvider(  $urlMatcherFactory) {
+  var rules = [], 
+      otherwise = null;
+
+  // Returns a string that is a prefix of all strings matching the RegExp
+  function regExpPrefix(re) {
+    var prefix = /^\^((?:\\[^a-zA-Z0-9]|[^\\\[\]\^$*+?.()|{}]+)*)/.exec(re.source);
+    return (prefix != null) ? prefix[1].replace(/\\(.)/g, "$1") : '';
+  }
+
+  // Interpolates matched values into a String.replace()-style pattern
+  function interpolate(pattern, match) {
+    return pattern.replace(/\$(\$|\d{1,2})/, function (m, what) {
+      return match[what === '$' ? 0 : Number(what)];
+    });
+  }
+
+  /**
+   * @ngdoc function
+   * @name ui.router.router.$urlRouterProvider#rule
+   * @methodOf ui.router.router.$urlRouterProvider
+   *
+   * @description
+   * Defines rules that are used by `$urlRouterProvider to find matches for
+   * specific URLs.
+   *
+   * @example
+   * <pre>
+   * var app = angular.module('app', ['ui.router.router']);
+   *
+   * app.config(function ($urlRouterProvider) {
+   *   // Here's an example of how you might allow case insensitive urls
+   *   $urlRouterProvider.rule(function ($injector, $location) {
+   *     var path = $location.path(),
+   *         normalized = path.toLowerCase();
+   *
+   *     if (path !== normalized) {
+   *       return normalized;
+   *     }
+   *   });
+   * });
+   * </pre>
+   *
+   * @param {object} rule Handler function that takes `$injector` and `$location`
+   * services as arguments. You can use them to return a valid path as a string.
+   *
+   * @return {object} $urlRouterProvider - $urlRouterProvider instance
+   */
+  this.rule =
+    function (rule) {
+      if (!isFunction(rule)) throw new Error("'rule' must be a function");
+      rules.push(rule);
+      return this;
+    };
+
+  /**
+   * @ngdoc object
+   * @name ui.router.router.$urlRouterProvider#otherwise
+   * @methodOf ui.router.router.$urlRouterProvider
+   *
+   * @description
+   * Defines a path that is used when an invalied route is requested.
+   *
+   * @example
+   * <pre>
+   * var app = angular.module('app', ['ui.router.router']);
+   *
+   * app.config(function ($urlRouterProvider) {
+   *   // if the path doesn't match any of the urls you configured
+   *   // otherwise will take care of routing the user to the
+   *   // specified url
+   *   $urlRouterProvider.otherwise('/index');
+   *
+   *   // Example of using function rule as param
+   *   $urlRouterProvider.otherwise(function ($injector, $location) {
+   *     ...
+   *   });
+   * });
+   * </pre>
+   *
+   * @param {string|object} rule The url path you want to redirect to or a function 
+   * rule that returns the url path. The function version is passed two params: 
+   * `$injector` and `$location` services.
+   *
+   * @return {object} $urlRouterProvider - $urlRouterProvider instance
+   */
+  this.otherwise =
+    function (rule) {
+      if (isString(rule)) {
+        var redirect = rule;
+        rule = function () { return redirect; };
+      }
+      else if (!isFunction(rule)) throw new Error("'rule' must be a function");
+      otherwise = rule;
+      return this;
+    };
+
+
+  function handleIfMatch($injector, handler, match) {
+    if (!match) return false;
+    var result = $injector.invoke(handler, handler, { $match: match });
+    return isDefined(result) ? result : true;
+  }
+
+  /**
+   * @ngdoc function
+   * @name ui.router.router.$urlRouterProvider#when
+   * @methodOf ui.router.router.$urlRouterProvider
+   *
+   * @description
+   * Registers a handler for a given url matching. if handle is a string, it is
+   * treated as a redirect, and is interpolated according to the syyntax of match
+   * (i.e. like String.replace() for RegExp, or like a UrlMatcher pattern otherwise).
+   *
+   * If the handler is a function, it is injectable. It gets invoked if `$location`
+   * matches. You have the option of inject the match object as `$match`.
+   *
+   * The handler can return
+   *
+   * - **falsy** to indicate that the rule didn't match after all, then `$urlRouter`
+   *   will continue trying to find another one that matches.
+   * - **string** which is treated as a redirect and passed to `$location.url()`
+   * - **void** or any **truthy** value tells `$urlRouter` that the url was handled.
+   *
+   * @example
+   * <pre>
+   * var app = angular.module('app', ['ui.router.router']);
+   *
+   * app.config(function ($urlRouterProvider) {
+   *   $urlRouterProvider.when($state.url, function ($match, $stateParams) {
+   *     if ($state.$current.navigable !== state ||
+   *         !equalForKeys($match, $stateParams) {
+   *      $state.transitionTo(state, $match, false);
+   *     }
+   *   });
+   * });
+   * </pre>
+   *
+   * @param {string|object} what The incoming path that you want to redirect.
+   * @param {string|object} handler The path you want to redirect your user to.
+   */
+  this.when =
+    function (what, handler) {
+      var redirect, handlerIsString = isString(handler);
+      if (isString(what)) what = $urlMatcherFactory.compile(what);
+
+      if (!handlerIsString && !isFunction(handler) && !isArray(handler))
+        throw new Error("invalid 'handler' in when()");
+
+      var strategies = {
+        matcher: function (what, handler) {
+          if (handlerIsString) {
+            redirect = $urlMatcherFactory.compile(handler);
+            handler = ['$match', function ($match) { return redirect.format($match); }];
+          }
+          return extend(function ($injector, $location) {
+            return handleIfMatch($injector, handler, what.exec($location.path(), $location.search()));
+          }, {
+            prefix: isString(what.prefix) ? what.prefix : ''
+          });
+        },
+        regex: function (what, handler) {
+          if (what.global || what.sticky) throw new Error("when() RegExp must not be global or sticky");
+
+          if (handlerIsString) {
+            redirect = handler;
+            handler = ['$match', function ($match) { return interpolate(redirect, $match); }];
+          }
+          return extend(function ($injector, $location) {
+            return handleIfMatch($injector, handler, what.exec($location.path()));
+          }, {
+            prefix: regExpPrefix(what)
+          });
+        }
+      };
+
+      var check = { matcher: $urlMatcherFactory.isMatcher(what), regex: what instanceof RegExp };
+
+      for (var n in check) {
+        if (check[n]) {
+          return this.rule(strategies[n](what, handler));
+        }
+      }
+
+      throw new Error("invalid 'what' in when()");
+    };
+
+  /**
+   * @ngdoc object
+   * @name ui.router.router.$urlRouter
+   *
+   * @requires $location
+   * @requires $rootScope
+   * @requires $injector
+   *
+   * @description
+   *
+   */
+  this.$get =
+    [        '$location', '$rootScope', '$injector',
+    function ($location,   $rootScope,   $injector) {
+      // TODO: Optimize groups of rules with non-empty prefix into some sort of decision tree
+      function update(evt) {
+        if (evt && evt.defaultPrevented) return;
+        function check(rule) {
+          var handled = rule($injector, $location);
+          if (handled) {
+            if (isString(handled)) $location.replace().url(handled);
+            return true;
+          }
+          return false;
+        }
+        var n=rules.length, i;
+        for (i=0; i<n; i++) {
+          if (check(rules[i])) return;
+        }
+        // always check otherwise last to allow dynamic updates to the set of rules
+        if (otherwise) check(otherwise);
+      }
+
+      $rootScope.$on('$locationChangeSuccess', update);
+
+      return {
+        /**
+         * @ngdoc function
+         * @name ui.router.router.$urlRouter#sync
+         * @methodOf ui.router.router.$urlRouter
+         *
+         * @description
+         * Triggers an update; the same update that happens when the address bar url changes, aka `$locationChangeSuccess`.
+         * This method is useful when you need to use `preventDefault()` on the `$locationChangeSuccess` event, 
+         * perform some custom logic (route protection, auth, config, redirection, etc) and then finally proceed 
+         * with the transition by calling `$urlRouter.sync()`.
+         *
+         * @example
+         * <pre>
+         * angular.module('app', ['ui.router']);
+         *   .run(function($rootScope, $urlRouter) {
+         *     $rootScope.$on('$locationChangeSuccess', function(evt) {
+         *       // Halt state change from even starting
+         *       evt.preventDefault();
+         *       // Perform custom logic
+         *       var meetsRequirement = ...
+         *       // Continue with the update and state transition if logic allows
+         *       if (meetsRequirement) $urlRouter.sync();
+         *     });
+         * });
+         * </pre>
+         */
+        sync: function () {
+          update();
+        }
+      };
+    }];
+}
+
+angular.module('ui.router.router').provider('$urlRouter', $UrlRouterProvider);
+
+/**
+ * @ngdoc object
+ * @name ui.router.state.$stateProvider
+ *
+ * @requires ui.router.router.$urlRouterProvider
+ * @requires ui.router.util.$urlMatcherFactoryProvider
+ * @requires $locationProvider
+ *
+ * @description
+ * The new `$stateProvider` works similar to Angular's v1 router, but it focuses purely
+ * on state.
+ *
+ * A state corresponds to a "place" in the application in terms of the overall UI and
+ * navigation. A state describes (via the controller / template / view properties) what
+ * the UI looks like and does at that place.
+ *
+ * States often have things in common, and the primary way of factoring out these
+ * commonalities in this model is via the state hierarchy, i.e. parent/child states aka
+ * nested states.
+ *
+ * The `$stateProvider` provides interfaces to declare these states for your app.
+ */
+$StateProvider.$inject = ['$urlRouterProvider', '$urlMatcherFactoryProvider', '$locationProvider'];
+function $StateProvider(   $urlRouterProvider,   $urlMatcherFactory,           $locationProvider) {
+
+  var root, states = {}, $state, queue = {}, abstractKey = 'abstract';
+
+  // Builds state properties from definition passed to registerState()
+  var stateBuilder = {
+
+    // Derive parent state from a hierarchical name only if 'parent' is not explicitly defined.
+    // state.children = [];
+    // if (parent) parent.children.push(state);
+    parent: function(state) {
+      if (isDefined(state.parent) && state.parent) return findState(state.parent);
+      // regex matches any valid composite state name
+      // would match "contact.list" but not "contacts"
+      var compositeName = /^(.+)\.[^.]+$/.exec(state.name);
+      return compositeName ? findState(compositeName[1]) : root;
+    },
+
+    // inherit 'data' from parent and override by own values (if any)
+    data: function(state) {
+      if (state.parent && state.parent.data) {
+        state.data = state.self.data = extend({}, state.parent.data, state.data);
+      }
+      return state.data;
+    },
+
+    // Build a URLMatcher if necessary, either via a relative or absolute URL
+    url: function(state) {
+      var url = state.url;
+
+      if (isString(url)) {
+        if (url.charAt(0) == '^') {
+          return $urlMatcherFactory.compile(url.substring(1));
+        }
+        return (state.parent.navigable || root).url.concat(url);
+      }
+
+      if ($urlMatcherFactory.isMatcher(url) || url == null) {
+        return url;
+      }
+      throw new Error("Invalid url '" + url + "' in state '" + state + "'");
+    },
+
+    // Keep track of the closest ancestor state that has a URL (i.e. is navigable)
+    navigable: function(state) {
+      return state.url ? state : (state.parent ? state.parent.navigable : null);
+    },
+
+    // Derive parameters for this state and ensure they're a super-set of parent's parameters
+    params: function(state) {
+      if (!state.params) {
+        return state.url ? state.url.parameters() : state.parent.params;
+      }
+      if (!isArray(state.params)) throw new Error("Invalid params in state '" + state + "'");
+      if (state.url) throw new Error("Both params and url specicified in state '" + state + "'");
+      return state.params;
+    },
+
+    // If there is no explicit multi-view configuration, make one up so we don't have
+    // to handle both cases in the view directive later. Note that having an explicit
+    // 'views' property will mean the default unnamed view properties are ignored. This
+    // is also a good time to resolve view names to absolute names, so everything is a
+    // straight lookup at link time.
+    views: function(state) {
+      var views = {};
+
+      forEach(isDefined(state.views) ? state.views : { '': state }, function (view, name) {
+        if (name.indexOf('@') < 0) name += '@' + state.parent.name;
+        views[name] = view;
+      });
+      return views;
+    },
+
+    ownParams: function(state) {
+      if (!state.parent) {
+        return state.params;
+      }
+      var paramNames = {}; forEach(state.params, function (p) { paramNames[p] = true; });
+
+      forEach(state.parent.params, function (p) {
+        if (!paramNames[p]) {
+          throw new Error("Missing required parameter '" + p + "' in state '" + state.name + "'");
+        }
+        paramNames[p] = false;
+      });
+      var ownParams = [];
+
+      forEach(paramNames, function (own, p) {
+        if (own) ownParams.push(p);
+      });
+      return ownParams;
+    },
+
+    // Keep a full path from the root down to this state as this is needed for state activation.
+    path: function(state) {
+      return state.parent ? state.parent.path.concat(state) : []; // exclude root from path
+    },
+
+    // Speed up $state.contains() as it's used a lot
+    includes: function(state) {
+      var includes = state.parent ? extend({}, state.parent.includes) : {};
+      includes[state.name] = true;
+      return includes;
+    },
+
+    $delegates: {}
+  };
+
+  function isRelative(stateName) {
+    return stateName.indexOf(".") === 0 || stateName.indexOf("^") === 0;
+  }
+
+  function findState(stateOrName, base) {
+    var isStr = isString(stateOrName),
+        name  = isStr ? stateOrName : stateOrName.name,
+        path  = isRelative(name);
+
+    if (path) {
+      if (!base) throw new Error("No reference point given for path '"  + name + "'");
+      var rel = name.split("."), i = 0, pathLength = rel.length, current = base;
+
+      for (; i < pathLength; i++) {
+        if (rel[i] === "" && i === 0) {
+          current = base;
+          continue;
+        }
+        if (rel[i] === "^") {
+          if (!current.parent) throw new Error("Path '" + name + "' not valid for state '" + base.name + "'");
+          current = current.parent;
+          continue;
+        }
+        break;
+      }
+      rel = rel.slice(i).join(".");
+      name = current.name + (current.name && rel ? "." : "") + rel;
+    }
+    var state = states[name];
+
+    if (state && (isStr || (!isStr && (state === stateOrName || state.self === stateOrName)))) {
+      return state;
+    }
+    return undefined;
+  }
+
+  function queueState(parentName, state) {
+    if (!queue[parentName]) {
+      queue[parentName] = [];
+    }
+    queue[parentName].push(state);
+  }
+
+  function registerState(state) {
+    // Wrap a new object around the state so we can store our private details easily.
+    state = inherit(state, {
+      self: state,
+      resolve: state.resolve || {},
+      toString: function() { return this.name; }
+    });
+
+    var name = state.name;
+    if (!isString(name) || name.indexOf('@') >= 0) throw new Error("State must have a valid name");
+    if (states.hasOwnProperty(name)) throw new Error("State '" + name + "'' is already defined");
+
+    // Get parent name
+    var parentName = (name.indexOf('.') !== -1) ? name.substring(0, name.lastIndexOf('.'))
+        : (isString(state.parent)) ? state.parent
+        : '';
+
+    // If parent is not registered yet, add state to queue and register later
+    if (parentName && !states[parentName]) {
+      return queueState(parentName, state.self);
+    }
+
+    for (var key in stateBuilder) {
+      if (isFunction(stateBuilder[key])) state[key] = stateBuilder[key](state, stateBuilder.$delegates[key]);
+    }
+    states[name] = state;
+
+    // Register the state in the global state list and with $urlRouter if necessary.
+    if (!state[abstractKey] && state.url) {
+      $urlRouterProvider.when(state.url, ['$match', '$stateParams', function ($match, $stateParams) {
+        if ($state.$current.navigable != state || !equalForKeys($match, $stateParams)) {
+          $state.transitionTo(state, $match, { location: false });
+        }
+      }]);
+    }
+
+    // Register any queued children
+    if (queue[name]) {
+      for (var i = 0; i < queue[name].length; i++) {
+        registerState(queue[name][i]);
+      }
+    }
+
+    return state;
+  }
+
+  // Checks text to see if it looks like a glob.
+  function isGlob (text) {
+    return text.indexOf('*') > -1;
+  }
+
+  // Returns true if glob matches current $state name.
+  function doesStateMatchGlob (glob) {
+    var globSegments = glob.split('.'),
+        segments = $state.$current.name.split('.');
+
+    //match greedy starts
+    if (globSegments[0] === '**') {
+       segments = segments.slice(segments.indexOf(globSegments[1]));
+       segments.unshift('**');
+    }
+    //match greedy ends
+    if (globSegments[globSegments.length - 1] === '**') {
+       segments.splice(segments.indexOf(globSegments[globSegments.length - 2]) + 1, Number.MAX_VALUE);
+       segments.push('**');
+    }
+
+    if (globSegments.length != segments.length) {
+      return false;
+    }
+
+    //match single stars
+    for (var i = 0, l = globSegments.length; i < l; i++) {
+      if (globSegments[i] === '*') {
+        segments[i] = '*';
+      }
+    }
+
+    return segments.join('') === globSegments.join('');
+  }
+
+
+  // Implicit root state that is always active
+  root = registerState({
+    name: '',
+    url: '^',
+    views: null,
+    'abstract': true
+  });
+  root.navigable = null;
+
+
+  /**
+   * @ngdoc function
+   * @name ui.router.state.$stateProvider#decorator
+   * @methodOf ui.router.state.$stateProvider
+   *
+   * @description
+   * Allows you to extend (carefully) or override (at your own peril) the 
+   * `stateBuilder` object used internally by `$stateProvider`. This can be used 
+   * to add custom functionality to ui-router, for example inferring templateUrl 
+   * based on the state name.
+   *
+   * When passing only a name, it returns the current (original or decorated) builder
+   * function that matches `name`.
+   *
+   * The builder functions that can be decorated are listed below. Though not all
+   * necessarily have a good use case for decoration, that is up to you to decide.
+   *
+   * In addition, users can attach custom decorators, which will generate new 
+   * properties within the state's internal definition. There is currently no clear 
+   * use-case for this beyond accessing internal states (i.e. $state.$current), 
+   * however, expect this to become increasingly relevant as we introduce additional 
+   * meta-programming features.
+   *
+   * **Warning**: Decorators should not be interdependent because the order of 
+   * execution of the builder functions in non-deterministic. Builder functions 
+   * should only be dependent on the state definition object and super function.
+   *
+   *
+   * Existing builder functions and current return values:
+   *
+   * - **parent** `{object}` - returns the parent state object.
+   * - **data** `{object}` - returns state data, including any inherited data that is not
+   *   overridden by own values (if any).
+   * - **url** `{object}` - returns a {link ui.router.util.type:UrlMatcher} or null.
+   * - **navigable** `{object}` - returns closest ancestor state that has a URL (aka is 
+   *   navigable).
+   * - **params** `{object}` - returns an array of state params that are ensured to 
+   *   be a super-set of parent's params.
+   * - **views** `{object}` - returns a views object where each key is an absolute view 
+   *   name (i.e. "viewName@stateName") and each value is the config object 
+   *   (template, controller) for the view. Even when you don't use the views object 
+   *   explicitly on a state config, one is still created for you internally.
+   *   So by decorating this builder function you have access to decorating template 
+   *   and controller properties.
+   * - **ownParams** `{object}` - returns an array of params that belong to the state, 
+   *   not including any params defined by ancestor states.
+   * - **path** `{string}` - returns the full path from the root down to this state. 
+   *   Needed for state activation.
+   * - **includes** `{object}` - returns an object that includes every state that 
+   *   would pass a '$state.includes()' test.
+   *
+   * @example
+   * <pre>
+   * // Override the internal 'views' builder with a function that takes the state
+   * // definition, and a reference to the internal function being overridden:
+   * $stateProvider.decorator('views', function ($state, parent) {
+   *   var result = {},
+   *       views = parent(state);
+   *
+   *   angular.forEach(view, function (config, name) {
+   *     var autoName = (state.name + '.' + name).replace('.', '/');
+   *     config.templateUrl = config.templateUrl || '/partials/' + autoName + '.html';
+   *     result[name] = config;
+   *   });
+   *   return result;
+   * });
+   *
+   * $stateProvider.state('home', {
+   *   views: {
+   *     'contact.list': { controller: 'ListController' },
+   *     'contact.item': { controller: 'ItemController' }
+   *   }
+   * });
+   *
+   * // ...
+   *
+   * $state.go('home');
+   * // Auto-populates list and item views with /partials/home/contact/list.html,
+   * // and /partials/home/contact/item.html, respectively.
+   * </pre>
+   *
+   * @param {string} name The name of the builder function to decorate. 
+   * @param {object} func A function that is responsible for decorating the original 
+   * builder function. The function receives two parameters:
+   *
+   *   - `{object}` - state - The state config object.
+   *   - `{object}` - super - The original builder function.
+   *
+   * @return {object} $stateProvider - $stateProvider instance
+   */
+  this.decorator = decorator;
+  function decorator(name, func) {
+    /*jshint validthis: true */
+    if (isString(name) && !isDefined(func)) {
+      return stateBuilder[name];
+    }
+    if (!isFunction(func) || !isString(name)) {
+      return this;
+    }
+    if (stateBuilder[name] && !stateBuilder.$delegates[name]) {
+      stateBuilder.$delegates[name] = stateBuilder[name];
+    }
+    stateBuilder[name] = func;
+    return this;
+  }
+
+  /**
+   * @ngdoc function
+   * @name ui.router.state.$stateProvider#state
+   * @methodOf ui.router.state.$stateProvider
+   *
+   * @description
+   * Registers a state configuration under a given state name. The stateConfig object
+   * has the following acceptable properties.
+   *
+   * <a id='template'></a>
+   *
+   * - **`template`** - {string|function=} - html template as a string or a function that returns
+   *   an html template as a string which should be used by the uiView directives. This property 
+   *   takes precedence over templateUrl.
+   *   
+   *   If `template` is a function, it will be called with the following parameters:
+   *
+   *   - {array.&lt;object&gt;} - state parameters extracted from the current $location.path() by
+   *     applying the current state
+   *
+   * <a id='templateUrl'></a>
+   *
+   * - **`templateUrl`** - {string|function=} - path or function that returns a path to an html 
+   *   template that should be used by uiView.
+   *   
+   *   If `templateUrl` is a function, it will be called with the following parameters:
+   *
+   *   - {array.&lt;object&gt;} - state parameters extracted from the current $location.path() by 
+   *     applying the current state
+   *
+   * <a id='templateProvider'></a>
+   *
+   * - **`templateProvider`** - {function=} - Provider function that returns HTML content
+   *   string.
+   *
+   * <a id='controller'></a>
+   *
+   * - **`controller`** - {string|function=} -  Controller fn that should be associated with newly 
+   *   related scope or the name of a registered controller if passed as a string.
+   *
+   * <a id='controllerProvider'></a>
+   *
+   * - **`controllerProvider`** - {function=} - Injectable provider function that returns
+   *   the actual controller or string.
+   *
+   * <a id='controllerAs'></a>
+   * 
+   * - **`controllerAs`** – {string=} – A controller alias name. If present the controller will be 
+   *   published to scope under the controllerAs name.
+   *
+   * <a id='resolve'></a>
+   *
+   * - **`resolve`** - {object.&lt;string, function&gt;=} - An optional map of dependencies which 
+   *   should be injected into the controller. If any of these dependencies are promises, 
+   *   the router will wait for them all to be resolved or one to be rejected before the 
+   *   controller is instantiated. If all the promises are resolved successfully, the values 
+   *   of the resolved promises are injected and $stateChangeSuccess event is fired. If any 
+   *   of the promises are rejected the $stateChangeError event is fired. The map object is:
+   *   
+   *   - key - {string}: name of dependency to be injected into controller
+   *   - factory - {string|function}: If string then it is alias for service. Otherwise if function, 
+   *     it is injected and return value it treated as dependency. If result is a promise, it is 
+   *     resolved before its value is injected into controller.
+   *
+   * <a id='url'></a>
+   *
+   * - **`url`** - {string=} - A url with optional parameters. When a state is navigated or
+   *   transitioned to, the `$stateParams` service will be populated with any 
+   *   parameters that were passed.
+   *
+   * <a id='params'></a>
+   *
+   * - **`params`** - {object=} - An array of parameter names or regular expressions. Only 
+   *   use this within a state if you are not using url. Otherwise you can specify your
+   *   parameters within the url. When a state is navigated or transitioned to, the 
+   *   $stateParams service will be populated with any parameters that were passed.
+   *
+   * <a id='views'></a>
+   *
+   * - **`views`** - {object=} - Use the views property to set up multiple views or to target views
+   *   manually/explicitly.
+   *
+   * <a id='abstract'></a>
+   *
+   * - **`abstract`** - {boolean=} - An abstract state will never be directly activated, 
+   *   but can provide inherited properties to its common children states.
+   *
+   * <a id='onEnter'></a>
+   *
+   * - **`onEnter`** - {object=} - Callback function for when a state is entered. Good way
+   *   to trigger an action or dispatch an event, such as opening a dialog.
+   *
+   * <a id='onExit'></a>
+   *
+   * - **`onExit`** - {object=} - Callback function for when a state is exited. Good way to
+   *   trigger an action or dispatch an event, such as opening a dialog.
+   *
+   * <a id='reloadOnSearch'></a>
+   *
+   * - **`reloadOnSearch = true`** - {boolean=} - If `false`, will not retrigger the same state 
+   *   just because a search/query parameter has changed (via $location.search() or $location.hash()). 
+   *   Useful for when you'd like to modify $location.search() without triggering a reload.
+   *
+   * <a id='data'></a>
+   *
+   * - **`data`** - {object=} - Arbitrary data object, useful for custom configuration.
+   *
+   * @example
+   * <pre>
+   * // Some state name examples
+   *
+   * // stateName can be a single top-level name (must be unique).
+   * $stateProvider.state("home", {});
+   *
+   * // Or it can be a nested state name. This state is a child of the 
+   * // above "home" state.
+   * $stateProvider.state("home.newest", {});
+   *
+   * // Nest states as deeply as needed.
+   * $stateProvider.state("home.newest.abc.xyz.inception", {});
+   *
+   * // state() returns $stateProvider, so you can chain state declarations.
+   * $stateProvider
+   *   .state("home", {})
+   *   .state("about", {})
+   *   .state("contacts", {});
+   * </pre>
+   *
+   * @param {string} name A unique state name, e.g. "home", "about", "contacts". 
+   * To create a parent/child state use a dot, e.g. "about.sales", "home.newest".
+   * @param {object} definition State configuration object.
+   */
+  this.state = state;
+  function state(name, definition) {
+    /*jshint validthis: true */
+    if (isObject(name)) definition = name;
+    else definition.name = name;
+    registerState(definition);
+    return this;
+  }
+
+  /**
+   * @ngdoc object
+   * @name ui.router.state.$state
+   *
+   * @requires $rootScope
+   * @requires $q
+   * @requires ui.router.state.$view
+   * @requires $injector
+   * @requires ui.router.util.$resolve
+   * @requires ui.router.state.$stateParams
+   *
+   * @property {object} params A param object, e.g. {sectionId: section.id)}, that 
+   * you'd like to test against the current active state.
+   * @property {object} current A reference to the state's config object. However 
+   * you passed it in. Useful for accessing custom data.
+   * @property {object} transition Currently pending transition. A promise that'll 
+   * resolve or reject.
+   *
+   * @description
+   * `$state` service is responsible for representing states as well as transitioning
+   * between them. It also provides interfaces to ask for current state or even states
+   * you're coming from.
+   */
+  // $urlRouter is injected just to ensure it gets instantiated
+  this.$get = $get;
+  $get.$inject = ['$rootScope', '$q', '$view', '$injector', '$resolve', '$stateParams', '$location', '$urlRouter', '$browser'];
+  function $get(   $rootScope,   $q,   $view,   $injector,   $resolve,   $stateParams,   $location,   $urlRouter,   $browser) {
+
+    var TransitionSuperseded = $q.reject(new Error('transition superseded'));
+    var TransitionPrevented = $q.reject(new Error('transition prevented'));
+    var TransitionAborted = $q.reject(new Error('transition aborted'));
+    var TransitionFailed = $q.reject(new Error('transition failed'));
+    var currentLocation = $location.url();
+    var baseHref = $browser.baseHref();
+
+    function syncUrl() {
+      if ($location.url() !== currentLocation) {
+        $location.url(currentLocation);
+        $location.replace();
+      }
+    }
+
+    root.locals = { resolve: null, globals: { $stateParams: {} } };
+    $state = {
+      params: {},
+      current: root.self,
+      $current: root,
+      transition: null
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#reload
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * A method that force reloads the current state. All resolves are re-resolved, events are not re-fired, 
+     * and controllers reinstantiated (bug with controllers reinstantiating right now, fixing soon).
+     *
+     * @example
+     * <pre>
+     * var app angular.module('app', ['ui.router']);
+     *
+     * app.controller('ctrl', function ($scope, $state) {
+     *   $scope.reload = function(){
+     *     $state.reload();
+     *   }
+     * });
+     * </pre>
+     *
+     * `reload()` is just an alias for:
+     * <pre>
+     * $state.transitionTo($state.current, $stateParams, { 
+     *   reload: true, inherit: false, notify: false 
+     * });
+     * </pre>
+     */
+    $state.reload = function reload() {
+      $state.transitionTo($state.current, $stateParams, { reload: true, inherit: false, notify: false });
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#go
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * Convenience method for transitioning to a new state. `$state.go` calls 
+     * `$state.transitionTo` internally but automatically sets options to 
+     * `{ location: true, inherit: true, relative: $state.$current, notify: true }`. 
+     * This allows you to easily use an absolute or relative to path and specify 
+     * only the parameters you'd like to update (while letting unspecified parameters 
+     * inherit from the currently active ancestor states).
+     *
+     * @example
+     * <pre>
+     * var app = angular.module('app', ['ui.router']);
+     *
+     * app.controller('ctrl', function ($scope, $state) {
+     *   $scope.changeState = function () {
+     *     $state.go('contact.detail');
+     *   };
+     * });
+     * </pre>
+     * <img src='../ngdoc_assets/StateGoExamples.png'/>
+     *
+     * @param {string} to Absolute state name or relative state path. Some examples:
+     *
+     * - `$state.go('contact.detail')` - will go to the `contact.detail` state
+     * - `$state.go('^')` - will go to a parent state
+     * - `$state.go('^.sibling')` - will go to a sibling state
+     * - `$state.go('.child.grandchild')` - will go to grandchild state
+     *
+     * @param {object=} params A map of the parameters that will be sent to the state, 
+     * will populate $stateParams. Any parameters that are not specified will be inherited from currently 
+     * defined parameters. This allows, for example, going to a sibling state that shares parameters
+     * specified in a parent state. Parameter inheritance only works between common ancestor states, I.e.
+     * transitioning to a sibling will get you the parameters for all parents, transitioning to a child
+     * will get you all current parameters, etc.
+     * @param {object=} options Options object. The options are:
+     *
+     * - **`location`** - {boolean=true|string=} - If `true` will update the url in the location bar, if `false`
+     *    will not. If string, must be `"replace"`, which will update url and also replace last history record.
+     * - **`inherit`** - {boolean=true}, If `true` will inherit url parameters from current url.
+     * - **`relative`** - {object=$state.$current}, When transitioning with relative path (e.g '^'), 
+     *    defines which state to be relative from.
+     * - **`notify`** - {boolean=true}, If `true` will broadcast $stateChangeStart and $stateChangeSuccess events.
+     * - **`reload`** (v0.2.5) - {boolean=false}, If `true` will force transition even if the state or params 
+     *    have not changed, aka a reload of the same state. It differs from reloadOnSearch because you'd
+     *    use this when you want to force a reload when *everything* is the same, including search params.
+     *
+     * @returns {promise} A promise representing the state of the new transition.
+     *
+     * Possible success values:
+     *
+     * - $state.current
+     *
+     * <br/>Possible rejection values:
+     *
+     * - 'transition superseded' - when a newer transition has been started after this one
+     * - 'transition prevented' - when `event.preventDefault()` has been called in a `$stateChangeStart` listener
+     * - 'transition aborted' - when `event.preventDefault()` has been called in a `$stateNotFound` listener or
+     *   when a `$stateNotFound` `event.retry` promise errors.
+     * - 'transition failed' - when a state has been unsuccessfully found after 2 tries.
+     * - *resolve error* - when an error has occurred with a `resolve`
+     *
+     */
+    $state.go = function go(to, params, options) {
+      return this.transitionTo(to, params, extend({ inherit: true, relative: $state.$current }, options));
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#transitionTo
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * Low-level method for transitioning to a new state. {@link ui.router.state.$state#methods_go $state.go}
+     * uses `transitionTo` internally. `$state.go` is recommended in most situations.
+     *
+     * @example
+     * <pre>
+     * var app = angular.module('app', ['ui.router']);
+     *
+     * app.controller('ctrl', function ($scope, $state) {
+     *   $scope.changeState = function () {
+     *     $state.transitionTo('contact.detail');
+     *   };
+     * });
+     * </pre>
+     *
+     * @param {string} to State name.
+     * @param {object=} toParams A map of the parameters that will be sent to the state,
+     * will populate $stateParams.
+     * @param {object=} options Options object. The options are:
+     *
+     * - **`location`** - {boolean=true|string=} - If `true` will update the url in the location bar, if `false`
+     *    will not. If string, must be `"replace"`, which will update url and also replace last history record.
+     * - **`inherit`** - {boolean=false}, If `true` will inherit url parameters from current url.
+     * - **`relative`** - {object=}, When transitioning with relative path (e.g '^'), 
+     *    defines which state to be relative from.
+     * - **`notify`** - {boolean=true}, If `true` will broadcast $stateChangeStart and $stateChangeSuccess events.
+     * - **`reload`** (v0.2.5) - {boolean=false}, If `true` will force transition even if the state or params 
+     *    have not changed, aka a reload of the same state. It differs from reloadOnSearch because you'd
+     *    use this when you want to force a reload when *everything* is the same, including search params.
+     *
+     * @returns {promise} A promise representing the state of the new transition. See
+     * {@link ui.router.state.$state#methods_go $state.go}.
+     */
+    $state.transitionTo = function transitionTo(to, toParams, options) {
+      toParams = toParams || {};
+      options = extend({
+        location: true, inherit: false, relative: null, notify: true, reload: false, $retry: false
+      }, options || {});
+
+      var from = $state.$current, fromParams = $state.params, fromPath = from.path;
+      var evt, toState = findState(to, options.relative);
+
+      if (!isDefined(toState)) {
+        // Broadcast not found event and abort the transition if prevented
+        var redirect = { to: to, toParams: toParams, options: options };
+
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$stateNotFound
+         * @eventOf ui.router.state.$state
+         * @eventType broadcast on root scope
+         * @description
+         * Fired when a requested state **cannot be found** using the provided state name during transition.
+         * The event is broadcast allowing any handlers a single chance to deal with the error (usually by
+         * lazy-loading the unfound state). A special `unfoundState` object is passed to the listener handler,
+         * you can see its three properties in the example. You can use `event.preventDefault()` to abort the
+         * transition and the promise returned from `go` will be rejected with a `'transition aborted'` value.
+         *
+         * @param {Object} event Event object.
+         * @param {Object} unfoundState Unfound State information. Contains: `to, toParams, options` properties.
+         * @param {State} fromState Current state object.
+         * @param {Object} fromParams Current state params.
+         *
+         * @example
+         *
+         * <pre>
+         * // somewhere, assume lazy.state has not been defined
+         * $state.go("lazy.state", {a:1, b:2}, {inherit:false});
+         *
+         * // somewhere else
+         * $scope.$on('$stateNotFound',
+         * function(event, unfoundState, fromState, fromParams){
+         *     console.log(unfoundState.to); // "lazy.state"
+         *     console.log(unfoundState.toParams); // {a:1, b:2}
+         *     console.log(unfoundState.options); // {inherit:false} + default options
+         * })
+         * </pre>
+         */
+        evt = $rootScope.$broadcast('$stateNotFound', redirect, from.self, fromParams);
+        if (evt.defaultPrevented) {
+          syncUrl();
+          return TransitionAborted;
+        }
+
+        // Allow the handler to return a promise to defer state lookup retry
+        if (evt.retry) {
+          if (options.$retry) {
+            syncUrl();
+            return TransitionFailed;
+          }
+          var retryTransition = $state.transition = $q.when(evt.retry);
+          retryTransition.then(function() {
+            if (retryTransition !== $state.transition) return TransitionSuperseded;
+            redirect.options.$retry = true;
+            return $state.transitionTo(redirect.to, redirect.toParams, redirect.options);
+          }, function() {
+            return TransitionAborted;
+          });
+          syncUrl();
+          return retryTransition;
+        }
+
+        // Always retry once if the $stateNotFound was not prevented
+        // (handles either redirect changed or state lazy-definition)
+        to = redirect.to;
+        toParams = redirect.toParams;
+        options = redirect.options;
+        toState = findState(to, options.relative);
+        if (!isDefined(toState)) {
+          if (options.relative) throw new Error("Could not resolve '" + to + "' from state '" + options.relative + "'");
+          throw new Error("No such state '" + to + "'");
+        }
+      }
+      if (toState[abstractKey]) throw new Error("Cannot transition to abstract state '" + to + "'");
+      if (options.inherit) toParams = inheritParams($stateParams, toParams || {}, $state.$current, toState);
+      to = toState;
+
+      var toPath = to.path;
+
+      // Starting from the root of the path, keep all levels that haven't changed
+      var keep, state, locals = root.locals, toLocals = [];
+      for (keep = 0, state = toPath[keep];
+           state && state === fromPath[keep] && equalForKeys(toParams, fromParams, state.ownParams) && !options.reload;
+           keep++, state = toPath[keep]) {
+        locals = toLocals[keep] = state.locals;
+      }
+
+      // If we're going to the same state and all locals are kept, we've got nothing to do.
+      // But clear 'transition', as we still want to cancel any other pending transitions.
+      // TODO: We may not want to bump 'transition' if we're called from a location change that we've initiated ourselves,
+      // because we might accidentally abort a legitimate transition initiated from code?
+      if (shouldTriggerReload(to, from, locals, options) ) {
+        if ( to.self.reloadOnSearch !== false )
+          syncUrl();
+        $state.transition = null;
+        return $q.when($state.current);
+      }
+
+      // Normalize/filter parameters before we pass them to event handlers etc.
+      toParams = normalize(to.params, toParams || {});
+
+      // Broadcast start event and cancel the transition if requested
+      if (options.notify) {
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$stateChangeStart
+         * @eventOf ui.router.state.$state
+         * @eventType broadcast on root scope
+         * @description
+         * Fired when the state transition **begins**. You can use `event.preventDefault()`
+         * to prevent the transition from happening and then the transition promise will be
+         * rejected with a `'transition prevented'` value.
+         *
+         * @param {Object} event Event object.
+         * @param {State} toState The state being transitioned to.
+         * @param {Object} toParams The params supplied to the `toState`.
+         * @param {State} fromState The current state, pre-transition.
+         * @param {Object} fromParams The params supplied to the `fromState`.
+         *
+         * @example
+         *
+         * <pre>
+         * $rootScope.$on('$stateChangeStart',
+         * function(event, toState, toParams, fromState, fromParams){
+         *     event.preventDefault();
+         *     // transitionTo() promise will be rejected with
+         *     // a 'transition prevented' error
+         * })
+         * </pre>
+         */
+        evt = $rootScope.$broadcast('$stateChangeStart', to.self, toParams, from.self, fromParams);
+        if (evt.defaultPrevented) {
+          syncUrl();
+          return TransitionPrevented;
+        }
+      }
+
+      // Resolve locals for the remaining states, but don't update any global state just
+      // yet -- if anything fails to resolve the current state needs to remain untouched.
+      // We also set up an inheritance chain for the locals here. This allows the view directive
+      // to quickly look up the correct definition for each view in the current state. Even
+      // though we create the locals object itself outside resolveState(), it is initially
+      // empty and gets filled asynchronously. We need to keep track of the promise for the
+      // (fully resolved) current locals, and pass this down the chain.
+      var resolved = $q.when(locals);
+      for (var l=keep; l<toPath.length; l++, state=toPath[l]) {
+        locals = toLocals[l] = inherit(locals);
+        resolved = resolveState(state, toParams, state===to, resolved, locals);
+      }
+
+      // Once everything is resolved, we are ready to perform the actual transition
+      // and return a promise for the new state. We also keep track of what the
+      // current promise is, so that we can detect overlapping transitions and
+      // keep only the outcome of the last transition.
+      var transition = $state.transition = resolved.then(function () {
+        var l, entering, exiting;
+
+        if ($state.transition !== transition) return TransitionSuperseded;
+
+        // Exit 'from' states not kept
+        for (l=fromPath.length-1; l>=keep; l--) {
+          exiting = fromPath[l];
+          if (exiting.self.onExit) {
+            $injector.invoke(exiting.self.onExit, exiting.self, exiting.locals.globals);
+          }
+          exiting.locals = null;
+        }
+
+        // Enter 'to' states not kept
+        for (l=keep; l<toPath.length; l++) {
+          entering = toPath[l];
+          entering.locals = toLocals[l];
+          if (entering.self.onEnter) {
+            $injector.invoke(entering.self.onEnter, entering.self, entering.locals.globals);
+          }
+        }
+
+        // Run it again, to catch any transitions in callbacks
+        if ($state.transition !== transition) return TransitionSuperseded;
+
+        // Update globals in $state
+        $state.$current = to;
+        $state.current = to.self;
+        $state.params = toParams;
+        copy($state.params, $stateParams);
+        $state.transition = null;
+
+        // Update $location
+        var toNav = to.navigable;
+        if (options.location && toNav) {
+          $location.url(toNav.url.format(toNav.locals.globals.$stateParams));
+
+          if (options.location === 'replace') {
+            $location.replace();
+          }
+        }
+
+        if (options.notify) {
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$stateChangeSuccess
+         * @eventOf ui.router.state.$state
+         * @eventType broadcast on root scope
+         * @description
+         * Fired once the state transition is **complete**.
+         *
+         * @param {Object} event Event object.
+         * @param {State} toState The state being transitioned to.
+         * @param {Object} toParams The params supplied to the `toState`.
+         * @param {State} fromState The current state, pre-transition.
+         * @param {Object} fromParams The params supplied to the `fromState`.
+         */
+          $rootScope.$broadcast('$stateChangeSuccess', to.self, toParams, from.self, fromParams);
+        }
+        currentLocation = $location.url();
+
+        return $state.current;
+      }, function (error) {
+        if ($state.transition !== transition) return TransitionSuperseded;
+
+        $state.transition = null;
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$stateChangeError
+         * @eventOf ui.router.state.$state
+         * @eventType broadcast on root scope
+         * @description
+         * Fired when an **error occurs** during transition. It's important to note that if you
+         * have any errors in your resolve functions (javascript errors, non-existent services, etc)
+         * they will not throw traditionally. You must listen for this $stateChangeError event to
+         * catch **ALL** errors.
+         *
+         * @param {Object} event Event object.
+         * @param {State} toState The state being transitioned to.
+         * @param {Object} toParams The params supplied to the `toState`.
+         * @param {State} fromState The current state, pre-transition.
+         * @param {Object} fromParams The params supplied to the `fromState`.
+         * @param {Error} error The resolve error object.
+         */
+        $rootScope.$broadcast('$stateChangeError', to.self, toParams, from.self, fromParams, error);
+        syncUrl();
+
+        return $q.reject(error);
+      });
+
+      return transition;
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#is
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * Similar to {@link ui.router.state.$state#methods_includes $state.includes},
+     * but only checks for the full state name. If params is supplied then it will be 
+     * tested for strict equality against the current active params object, so all params 
+     * must match with none missing and no extras.
+     *
+     * @example
+     * <pre>
+     * $state.is('contact.details.item'); // returns true
+     * $state.is(contactDetailItemStateObject); // returns true
+     *
+     * // everything else would return false
+     * </pre>
+     *
+     * @param {string|object} stateName The state name or state object you'd like to check.
+     * @param {object=} params A param object, e.g. `{sectionId: section.id}`, that you'd like 
+     * to test against the current active state.
+     * @returns {boolean} Returns true if it is the state.
+     */
+    $state.is = function is(stateOrName, params) {
+      var state = findState(stateOrName);
+
+      if (!isDefined(state)) {
+        return undefined;
+      }
+
+      if ($state.$current !== state) {
+        return false;
+      }
+
+      return isDefined(params) && params !== null ? angular.equals($stateParams, params) : true;
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#includes
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * A method to determine if the current active state is equal to or is the child of the 
+     * state stateName. If any params are passed then they will be tested for a match as well.
+     * Not all the parameters need to be passed, just the ones you'd like to test for equality.
+     *
+     * @example
+     * <pre>
+     * $state.$current.name = 'contacts.details.item';
+     *
+     * $state.includes("contacts"); // returns true
+     * $state.includes("contacts.details"); // returns true
+     * $state.includes("contacts.details.item"); // returns true
+     * $state.includes("contacts.list"); // returns false
+     * $state.includes("about"); // returns false
+     * </pre>
+     *
+     * @description
+     * Basic globing patterns will also work.
+     *
+     * @example
+     * <pre>
+     * $state.$current.name = 'contacts.details.item.url';
+     *
+     * $state.includes("*.details.*.*"); // returns true
+     * $state.includes("*.details.**"); // returns true
+     * $state.includes("**.item.**"); // returns true
+     * $state.includes("*.details.item.url"); // returns true
+     * $state.includes("*.details.*.url"); // returns true
+     * $state.includes("*.details.*"); // returns false
+     * $state.includes("item.**"); // returns false
+     * </pre>
+     *
+     * @param {string} stateOrName A partial name to be searched for within the current state name.
+     * @param {object} params A param object, e.g. `{sectionId: section.id}`, 
+     * that you'd like to test against the current active state.
+     * @returns {boolean} Returns true if it does include the state
+     */
+
+    $state.includes = function includes(stateOrName, params) {
+      if (isString(stateOrName) && isGlob(stateOrName)) {
+        if (doesStateMatchGlob(stateOrName)) {
+          stateOrName = $state.$current.name;
+        } else {
+          return false;
+        }
+      }
+
+      var state = findState(stateOrName);
+      if (!isDefined(state)) {
+        return undefined;
+      }
+
+      if (!isDefined($state.$current.includes[state.name])) {
+        return false;
+      }
+
+      var validParams = true;
+      angular.forEach(params, function(value, key) {
+        if (!isDefined($stateParams[key]) || $stateParams[key] !== value) {
+          validParams = false;
+        }
+      });
+      return validParams;
+    };
+
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#href
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * A url generation method that returns the compiled url for the given state populated with the given params.
+     *
+     * @example
+     * <pre>
+     * expect($state.href("about.person", { person: "bob" })).toEqual("/about/bob");
+     * </pre>
+     *
+     * @param {string|object} stateOrName The state name or state object you'd like to generate a url from.
+     * @param {object=} params An object of parameter values to fill the state's required parameters.
+     * @param {object=} options Options object. The options are:
+     *
+     * - **`lossy`** - {boolean=true} -  If true, and if there is no url associated with the state provided in the
+     *    first parameter, then the constructed href url will be built from the first navigable ancestor (aka
+     *    ancestor with a valid url).
+     * - **`inherit`** - {boolean=false}, If `true` will inherit url parameters from current url.
+     * - **`relative`** - {object=$state.$current}, When transitioning with relative path (e.g '^'), 
+     *    defines which state to be relative from.
+     * - **`absolute`** - {boolean=false},  If true will generate an absolute url, e.g. "http://www.example.com/fullurl".
+     * 
+     * @returns {string} compiled state url
+     */
+    $state.href = function href(stateOrName, params, options) {
+      options = extend({ lossy: true, inherit: false, absolute: false, relative: $state.$current }, options || {});
+      var state = findState(stateOrName, options.relative);
+      if (!isDefined(state)) return null;
+
+      params = inheritParams($stateParams, params || {}, $state.$current, state);
+      var nav = (state && options.lossy) ? state.navigable : state;
+      var url = (nav && nav.url) ? nav.url.format(normalize(state.params, params || {})) : null;
+      if (!$locationProvider.html5Mode() && url) {
+        url = "#" + $locationProvider.hashPrefix() + url;
+      }
+
+      if (baseHref !== '/') {
+        if ($locationProvider.html5Mode()) {
+          url = baseHref.slice(0, -1) + url;
+        } else if (options.absolute){
+          url = baseHref.slice(1) + url;
+        }
+      }
+
+      if (options.absolute && url) {
+        url = $location.protocol() + '://' + 
+              $location.host() + 
+              ($location.port() == 80 || $location.port() == 443 ? '' : ':' + $location.port()) + 
+              (!$locationProvider.html5Mode() && url ? '/' : '') + 
+              url;
+      }
+      return url;
+    };
+
+    /**
+     * @ngdoc function
+     * @name ui.router.state.$state#get
+     * @methodOf ui.router.state.$state
+     *
+     * @description
+     * Returns the state configuration object for any specific state or all states.
+     *
+     * @param {string|object=} stateOrName If provided, will only get the config for
+     * the requested state. If not provided, returns an array of ALL state configs.
+     * @returns {object|array} State configuration object or array of all objects.
+     */
+    $state.get = function (stateOrName, context) {
+      if (!isDefined(stateOrName)) {
+        var list = [];
+        forEach(states, function(state) { list.push(state.self); });
+        return list;
+      }
+      var state = findState(stateOrName, context);
+      return (state && state.self) ? state.self : null;
+    };
+
+    function resolveState(state, params, paramsAreFiltered, inherited, dst) {
+      // Make a restricted $stateParams with only the parameters that apply to this state if
+      // necessary. In addition to being available to the controller and onEnter/onExit callbacks,
+      // we also need $stateParams to be available for any $injector calls we make during the
+      // dependency resolution process.
+      var $stateParams = (paramsAreFiltered) ? params : filterByKeys(state.params, params);
+      var locals = { $stateParams: $stateParams };
+
+      // Resolve 'global' dependencies for the state, i.e. those not specific to a view.
+      // We're also including $stateParams in this; that way the parameters are restricted
+      // to the set that should be visible to the state, and are independent of when we update
+      // the global $state and $stateParams values.
+      dst.resolve = $resolve.resolve(state.resolve, locals, dst.resolve, state);
+      var promises = [ dst.resolve.then(function (globals) {
+        dst.globals = globals;
+      }) ];
+      if (inherited) promises.push(inherited);
+
+      // Resolve template and dependencies for all views.
+      forEach(state.views, function (view, name) {
+        var injectables = (view.resolve && view.resolve !== state.resolve ? view.resolve : {});
+        injectables.$template = [ function () {
+          return $view.load(name, { view: view, locals: locals, params: $stateParams, notify: false }) || '';
+        }];
+
+        promises.push($resolve.resolve(injectables, locals, dst.resolve, state).then(function (result) {
+          // References to the controller (only instantiated at link time)
+          if (isFunction(view.controllerProvider) || isArray(view.controllerProvider)) {
+            var injectLocals = angular.extend({}, injectables, locals);
+            result.$$controller = $injector.invoke(view.controllerProvider, null, injectLocals);
+          } else {
+            result.$$controller = view.controller;
+          }
+          // Provide access to the state itself for internal use
+          result.$$state = state;
+          result.$$controllerAs = view.controllerAs;
+          dst[name] = result;
+        }));
+      });
+
+      // Wait for all the promises and then return the activation object
+      return $q.all(promises).then(function (values) {
+        return dst;
+      });
+    }
+
+    return $state;
+  }
+
+  function shouldTriggerReload(to, from, locals, options) {
+    if ( to === from && ((locals === from.locals && !options.reload) || (to.self.reloadOnSearch === false)) ) {
+      return true;
+    }
+  }
+}
+
+angular.module('ui.router.state')
+  .value('$stateParams', {})
+  .provider('$state', $StateProvider);
+
+
+$ViewProvider.$inject = [];
+function $ViewProvider() {
+
+  this.$get = $get;
+  /**
+   * @ngdoc object
+   * @name ui.router.state.$view
+   *
+   * @requires ui.router.util.$templateFactory
+   * @requires $rootScope
+   *
+   * @description
+   *
+   */
+  $get.$inject = ['$rootScope', '$templateFactory'];
+  function $get(   $rootScope,   $templateFactory) {
+    return {
+      // $view.load('full.viewName', { template: ..., controller: ..., resolve: ..., async: false, params: ... })
+      /**
+       * @ngdoc function
+       * @name ui.router.state.$view#load
+       * @methodOf ui.router.state.$view
+       *
+       * @description
+       *
+       * @param {string} name name
+       * @param {object} options option object.
+       */
+      load: function load(name, options) {
+        var result, defaults = {
+          template: null, controller: null, view: null, locals: null, notify: true, async: true, params: {}
+        };
+        options = extend(defaults, options);
+
+        if (options.view) {
+          result = $templateFactory.fromConfig(options.view, options.params, options.locals);
+        }
+        if (result && options.notify) {
+        /**
+         * @ngdoc event
+         * @name ui.router.state.$state#$viewContentLoading
+         * @eventOf ui.router.state.$view
+         * @eventType broadcast on root scope
+         * @description
+         *
+         * Fired once the view **begins loading**, *before* the DOM is rendered.
+         *
+         * @param {Object} event Event object.
+         * @param {Object} viewConfig The view config properties (template, controller, etc).
+         *
+         * @example
+         *
+         * <pre>
+         * $scope.$on('$viewContentLoading',
+         * function(event, viewConfig){
+         *     // Access to all the view config properties.
+         *     // and one special property 'targetView'
+         *     // viewConfig.targetView
+         * });
+         * </pre>
+         */
+          $rootScope.$broadcast('$viewContentLoading', options);
+        }
+        return result;
+      }
+    };
+  }
+}
+
+angular.module('ui.router.state').provider('$view', $ViewProvider);
+
+/**
+ * @ngdoc object
+ * @name ui.router.state.$uiViewScrollProvider
+ *
+ * @description
+ * Provider that returns the {@link ui.router.state.$uiViewScroll} service function.
+ */
+function $ViewScrollProvider() {
+
+  var useAnchorScroll = false;
+
+  /**
+   * @ngdoc function
+   * @name ui.router.state.$uiViewScrollProvider#useAnchorScroll
+   * @methodOf ui.router.state.$uiViewScrollProvider
+   *
+   * @description
+   * Reverts back to using the core [`$anchorScroll`](http://docs.angularjs.org/api/ng.$anchorScroll) service for
+   * scrolling based on the url anchor.
+   */
+  this.useAnchorScroll = function () {
+    useAnchorScroll = true;
+  };
+
+  /**
+   * @ngdoc object
+   * @name ui.router.state.$uiViewScroll
+   *
+   * @requires $anchorScroll
+   * @requires $timeout
+   *
+   * @description
+   * When called with a jqLite element, it scrolls the element into view (after a
+   * `$timeout` so the DOM has time to refresh).
+   *
+   * If you prefer to rely on `$anchorScroll` to scroll the view to the anchor,
+   * this can be enabled by calling {@link ui.router.state.$uiViewScrollProvider#methods_useAnchorScroll `$uiViewScrollProvider.useAnchorScroll()`}.
+   */
+  this.$get = ['$anchorScroll', '$timeout', function ($anchorScroll, $timeout) {
+    if (useAnchorScroll) {
+      return $anchorScroll;
+    }
+
+    return function ($element) {
+      $timeout(function () {
+        $element[0].scrollIntoView();
+      }, 0, false);
+    };
+  }];
+}
+
+angular.module('ui.router.state').provider('$uiViewScroll', $ViewScrollProvider);
+
+/**
+ * @ngdoc directive
+ * @name ui.router.state.directive:ui-view
+ *
+ * @requires ui.router.state.$state
+ * @requires $compile
+ * @requires $controller
+ * @requires $injector
+ * @requires ui.router.state.$uiViewScroll
+ * @requires $document
+ *
+ * @restrict ECA
+ *
+ * @description
+ * The ui-view directive tells $state where to place your templates.
+ *
+ * @param {string=} ui-view A view name. The name should be unique amongst the other views in the
+ * same state. You can have views of the same name that live in different states.
+ *
+ * @param {string=} autoscroll It allows you to set the scroll behavior of the browser window
+ * when a view is populated. By default, $anchorScroll is overridden by ui-router's custom scroll
+ * service, {@link ui.router.state.$uiViewScroll}. This custom service let's you
+ * scroll ui-view elements into view when they are populated during a state activation.
+ *
+ * *Note: To revert back to old [`$anchorScroll`](http://docs.angularjs.org/api/ng.$anchorScroll)
+ * functionality, call `$uiViewScrollProvider.useAnchorScroll()`.*
+ *
+ * @param {string=} onload Expression to evaluate whenever the view updates.
+ * 
+ * @example
+ * A view can be unnamed or named. 
+ * <pre>
+ * <!-- Unnamed -->
+ * <div ui-view></div> 
+ * 
+ * <!-- Named -->
+ * <div ui-view="viewName"></div>
+ * </pre>
+ *
+ * You can only have one unnamed view within any template (or root html). If you are only using a 
+ * single view and it is unnamed then you can populate it like so:
+ * <pre>
+ * <div ui-view></div> 
+ * $stateProvider.state("home", {
+ *   template: "<h1>HELLO!</h1>"
+ * })
+ * </pre>
+ * 
+ * The above is a convenient shortcut equivalent to specifying your view explicitly with the {@link ui.router.state.$stateProvider#views `views`}
+ * config property, by name, in this case an empty name:
+ * <pre>
+ * $stateProvider.state("home", {
+ *   views: {
+ *     "": {
+ *       template: "<h1>HELLO!</h1>"
+ *     }
+ *   }    
+ * })
+ * </pre>
+ * 
+ * But typically you'll only use the views property if you name your view or have more than one view 
+ * in the same template. There's not really a compelling reason to name a view if its the only one, 
+ * but you could if you wanted, like so:
+ * <pre>
+ * <div ui-view="main"></div>
+ * </pre> 
+ * <pre>
+ * $stateProvider.state("home", {
+ *   views: {
+ *     "main": {
+ *       template: "<h1>HELLO!</h1>"
+ *     }
+ *   }    
+ * })
+ * </pre>
+ * 
+ * Really though, you'll use views to set up multiple views:
+ * <pre>
+ * <div ui-view></div>
+ * <div ui-view="chart"></div> 
+ * <div ui-view="data"></div> 
+ * </pre>
+ * 
+ * <pre>
+ * $stateProvider.state("home", {
+ *   views: {
+ *     "": {
+ *       template: "<h1>HELLO!</h1>"
+ *     },
+ *     "chart": {
+ *       template: "<chart_thing/>"
+ *     },
+ *     "data": {
+ *       template: "<data_thing/>"
+ *     }
+ *   }    
+ * })
+ * </pre>
+ *
+ * Examples for `autoscroll`:
+ *
+ * <pre>
+ * <!-- If autoscroll present with no expression,
+ *      then scroll ui-view into view -->
+ * <ui-view autoscroll/>
+ *
+ * <!-- If autoscroll present with valid expression,
+ *      then scroll ui-view into view if expression evaluates to true -->
+ * <ui-view autoscroll='true'/>
+ * <ui-view autoscroll='false'/>
+ * <ui-view autoscroll='scopeVariable'/>
+ * </pre>
+ */
+$ViewDirective.$inject = ['$state', '$injector', '$uiViewScroll'];
+function $ViewDirective(   $state,   $injector,   $uiViewScroll) {
+
+  function getService() {
+    return ($injector.has) ? function(service) {
+      return $injector.has(service) ? $injector.get(service) : null;
+    } : function(service) {
+      try {
+        return $injector.get(service);
+      } catch (e) {
+        return null;
+      }
+    };
+  }
+
+  var service = getService(),
+      $animator = service('$animator'),
+      $animate = service('$animate');
+
+  // Returns a set of DOM manipulation functions based on which Angular version
+  // it should use
+  function getRenderer(attrs, scope) {
+    var statics = function() {
+      return {
+        enter: function (element, target, cb) { target.after(element); cb(); },
+        leave: function (element, cb) { element.remove(); cb(); }
+      };
+    };
+
+    if ($animate) {
+      return {
+        enter: function(element, target, cb) { $animate.enter(element, null, target, cb); },
+        leave: function(element, cb) { $animate.leave(element, cb); }
+      };
+    }
+
+    if ($animator) {
+      var animate = $animator && $animator(scope, attrs);
+
+      return {
+        enter: function(element, target, cb) {animate.enter(element, null, target); cb(); },
+        leave: function(element, cb) { animate.leave(element); cb(); }
+      };
+    }
+
+    return statics();
+  }
+
+  var directive = {
+    restrict: 'ECA',
+    terminal: true,
+    priority: 400,
+    transclude: 'element',
+    compile: function (tElement, tAttrs, $transclude) {
+      return function (scope, $element, attrs) {
+        var previousEl, currentEl, currentScope, latestLocals,
+            onloadExp     = attrs.onload || '',
+            autoScrollExp = attrs.autoscroll,
+            renderer      = getRenderer(attrs, scope);
+
+        scope.$on('$stateChangeSuccess', function() {
+          updateView(false);
+        });
+        scope.$on('$viewContentLoading', function() {
+          updateView(false);
+        });
+
+        updateView(true);
+
+        function cleanupLastView() {
+          if (previousEl) {
+            previousEl.remove();
+            previousEl = null;
+          }
+
+          if (currentScope) {
+            currentScope.$destroy();
+            currentScope = null;
+          }
+
+          if (currentEl) {
+            renderer.leave(currentEl, function() {
+              previousEl = null;
+            });
+
+            previousEl = currentEl;
+            currentEl = null;
+          }
+        }
+
+        function updateView(firstTime) {
+          var newScope        = scope.$new(),
+              name            = currentEl && currentEl.data('$uiViewName'),
+              previousLocals  = name && $state.$current && $state.$current.locals[name];
+
+          if (!firstTime && previousLocals === latestLocals) return; // nothing to do
+
+          var clone = $transclude(newScope, function(clone) {
+            renderer.enter(clone, $element, function onUiViewEnter() {
+              if (angular.isDefined(autoScrollExp) && !autoScrollExp || scope.$eval(autoScrollExp)) {
+                $uiViewScroll(clone);
+              }
+            });
+            cleanupLastView();
+          });
+
+          latestLocals = $state.$current.locals[clone.data('$uiViewName')];
+
+          currentEl = clone;
+          currentScope = newScope;
+          /**
+           * @ngdoc event
+           * @name ui.router.state.directive:ui-view#$viewContentLoaded
+           * @eventOf ui.router.state.directive:ui-view
+           * @eventType emits on ui-view directive scope
+           * @description           *
+           * Fired once the view is **loaded**, *after* the DOM is rendered.
+           *
+           * @param {Object} event Event object.
+           */
+          currentScope.$emit('$viewContentLoaded');
+          currentScope.$eval(onloadExp);
+        }
+      };
+    }
+  };
+
+  return directive;
+}
+
+$ViewDirectiveFill.$inject = ['$compile', '$controller', '$state'];
+function $ViewDirectiveFill ($compile, $controller, $state) {
+  return {
+    restrict: 'ECA',
+    priority: -400,
+    compile: function (tElement) {
+      var initial = tElement.html();
+      return function (scope, $element, attrs) {
+        var name      = attrs.uiView || attrs.name || '',
+            inherited = $element.inheritedData('$uiView');
+
+        if (name.indexOf('@') < 0) {
+          name = name + '@' + (inherited ? inherited.state.name : '');
+        }
+
+        $element.data('$uiViewName', name);
+
+        var current = $state.$current,
+            locals  = current && current.locals[name];
+
+        if (! locals) {
+          return;
+        }
+
+        $element.data('$uiView', { name: name, state: locals.$$state });
+        $element.html(locals.$template ? locals.$template : initial);
+
+        var link = $compile($element.contents());
+
+        if (locals.$$controller) {
+          locals.$scope = scope;
+          var controller = $controller(locals.$$controller, locals);
+          if (locals.$$controllerAs) {
+            scope[locals.$$controllerAs] = controller;
+          }
+          $element.data('$ngControllerController', controller);
+          $element.children().data('$ngControllerController', controller);
+        }
+
+        link(scope);
+      };
+    }
+  };
+}
+
+angular.module('ui.router.state').directive('uiView', $ViewDirective);
+angular.module('ui.router.state').directive('uiView', $ViewDirectiveFill);
+
+function parseStateRef(ref) {
+  var parsed = ref.replace(/\n/g, " ").match(/^([^(]+?)\s*(\((.*)\))?$/);
+  if (!parsed || parsed.length !== 4) throw new Error("Invalid state ref '" + ref + "'");
+  return { state: parsed[1], paramExpr: parsed[3] || null };
+}
+
+function stateContext(el) {
+  var stateData = el.parent().inheritedData('$uiView');
+
+  if (stateData && stateData.state && stateData.state.name) {
+    return stateData.state;
+  }
+}
+
+/**
+ * @ngdoc directive
+ * @name ui.router.state.directive:ui-sref
+ *
+ * @requires ui.router.state.$state
+ * @requires $timeout
+ *
+ * @restrict A
+ *
+ * @description
+ * A directive that binds a link (`<a>` tag) to a state. If the state has an associated 
+ * URL, the directive will automatically generate & update the `href` attribute via 
+ * the {@link ui.router.state.$state#methods_href $state.href()} method. Clicking 
+ * the link will trigger a state transition with optional parameters. 
+ *
+ * Also middle-clicking, right-clicking, and ctrl-clicking on the link will be 
+ * handled natively by the browser.
+ *
+ * You can also use relative state paths within ui-sref, just like the relative 
+ * paths passed to `$state.go()`. You just need to be aware that the path is relative
+ * to the state that the link lives in, in other words the state that loaded the 
+ * template containing the link.
+ *
+ * You can specify options to pass to {@link ui.router.state.$state#go $state.go()}
+ * using the `ui-sref-opts` attribute. Options are restricted to `location`, `inherit`,
+ * and `reload`.
+ *
+ * @example
+ * Here's an example of how you'd use ui-sref and how it would compile. If you have the 
+ * following template:
+ * <pre>
+ * <a ui-sref="home">Home</a> | <a ui-sref="about">About</a>
+ * 
+ * <ul>
+ *     <li ng-repeat="contact in contacts">
+ *         <a ui-sref="contacts.detail({ id: contact.id })">{{ contact.name }}</a>
+ *     </li>
+ * </ul>
+ * </pre>
+ * 
+ * Then the compiled html would be (assuming Html5Mode is off):
+ * <pre>
+ * <a href="#/home" ui-sref="home">Home</a> | <a href="#/about" ui-sref="about">About</a>
+ * 
+ * <ul>
+ *     <li ng-repeat="contact in contacts">
+ *         <a href="#/contacts/1" ui-sref="contacts.detail({ id: contact.id })">Joe</a>
+ *     </li>
+ *     <li ng-repeat="contact in contacts">
+ *         <a href="#/contacts/2" ui-sref="contacts.detail({ id: contact.id })">Alice</a>
+ *     </li>
+ *     <li ng-repeat="contact in contacts">
+ *         <a href="#/contacts/3" ui-sref="contacts.detail({ id: contact.id })">Bob</a>
+ *     </li>
+ * </ul>
+ *
+ * <a ui-sref="home" ui-sref-opts="{reload: true}">Home</a>
+ * </pre>
+ *
+ * @param {string} ui-sref 'stateName' can be any valid absolute or relative state
+ * @param {Object} ui-sref-opts options to pass to {@link ui.router.state.$state#go $state.go()}
+ */
+$StateRefDirective.$inject = ['$state', '$timeout'];
+function $StateRefDirective($state, $timeout) {
+  var allowedOptions = ['location', 'inherit', 'reload'];
+
+  return {
+    restrict: 'A',
+    require: '?^uiSrefActive',
+    link: function(scope, element, attrs, uiSrefActive) {
+      var ref = parseStateRef(attrs.uiSref);
+      var params = null, url = null, base = stateContext(element) || $state.$current;
+      var isForm = element[0].nodeName === "FORM";
+      var attr = isForm ? "action" : "href", nav = true;
+
+      var options = {
+        relative: base
+      };
+      var optionsOverride = scope.$eval(attrs.uiSrefOpts) || {};
+      angular.forEach(allowedOptions, function(option) {
+        if (option in optionsOverride) {
+          options[option] = optionsOverride[option];
+        }
+      });
+
+      var update = function(newVal) {
+        if (newVal) params = newVal;
+        if (!nav) return;
+
+        var newHref = $state.href(ref.state, params, options);
+
+        if (uiSrefActive) {
+          uiSrefActive.$$setStateInfo(ref.state, params);
+        }
+        if (!newHref) {
+          nav = false;
+          return false;
+        }
+        element[0][attr] = newHref;
+      };
+
+      if (ref.paramExpr) {
+        scope.$watch(ref.paramExpr, function(newVal, oldVal) {
+          if (newVal !== params) update(newVal);
+        }, true);
+        params = scope.$eval(ref.paramExpr);
+      }
+      update();
+
+      if (isForm) return;
+
+      element.bind("click", function(e) {
+        var button = e.which || e.button;
+        if ( !(button > 1 || e.ctrlKey || e.metaKey || e.shiftKey || element.attr('target')) ) {
+          // HACK: This is to allow ng-clicks to be processed before the transition is initiated:
+          $timeout(function() {
+            $state.go(ref.state, params, options);
+          });
+          e.preventDefault();
+        }
+      });
+    }
+  };
+}
+
+/**
+ * @ngdoc directive
+ * @name ui.router.state.directive:ui-sref-active
+ *
+ * @requires ui.router.state.$state
+ * @requires ui.router.state.$stateParams
+ * @requires $interpolate
+ *
+ * @restrict A
+ *
+ * @description
+ * A directive working alongside ui-sref to add classes to an element when the 
+ * related ui-sref directive's state is active, and removing them when it is inactive.
+ * The primary use-case is to simplify the special appearance of navigation menus 
+ * relying on `ui-sref`, by having the "active" state's menu button appear different,
+ * distinguishing it from the inactive menu items.
+ *
+ * @example
+ * Given the following template:
+ * <pre>
+ * <ul>
+ *   <li ui-sref-active="active" class="item">
+ *     <a href ui-sref="app.user({user: 'bilbobaggins'})">@bilbobaggins</a>
+ *   </li>
+ * </ul>
+ * </pre>
+ * 
+ * When the app state is "app.user", and contains the state parameter "user" with value "bilbobaggins", 
+ * the resulting HTML will appear as (note the 'active' class):
+ * <pre>
+ * <ul>
+ *   <li ui-sref-active="active" class="item active">
+ *     <a ui-sref="app.user({user: 'bilbobaggins'})" href="/users/bilbobaggins">@bilbobaggins</a>
+ *   </li>
+ * </ul>
+ * </pre>
+ * 
+ * The class name is interpolated **once** during the directives link time (any further changes to the 
+ * interpolated value are ignored). 
+ * 
+ * Multiple classes may be specified in a space-separated format:
+ * <pre>
+ * <ul>
+ *   <li ui-sref-active='class1 class2 class3'>
+ *     <a ui-sref="app.user">link</a>
+ *   </li>
+ * </ul>
+ * </pre>
+ */
+$StateActiveDirective.$inject = ['$state', '$stateParams', '$interpolate'];
+function $StateActiveDirective($state, $stateParams, $interpolate) {
+  return {
+    restrict: "A",
+    controller: ['$scope', '$element', '$attrs', function($scope, $element, $attrs) {
+      var state, params, activeClass;
+
+      // There probably isn't much point in $observing this
+      activeClass = $interpolate($attrs.uiSrefActive || '', false)($scope);
+
+      // Allow uiSref to communicate with uiSrefActive
+      this.$$setStateInfo = function(newState, newParams) {
+        state = $state.get(newState, stateContext($element));
+        params = newParams;
+        update();
+      };
+
+      $scope.$on('$stateChangeSuccess', update);
+
+      // Update route state
+      function update() {
+        if ($state.$current.self === state && matchesParams()) {
+          $element.addClass(activeClass);
+        } else {
+          $element.removeClass(activeClass);
+        }
+      }
+
+      function matchesParams() {
+        return !params || equalForKeys(params, $stateParams);
+      }
+    }]
+  };
+}
+
+angular.module('ui.router.state')
+  .directive('uiSref', $StateRefDirective)
+  .directive('uiSrefActive', $StateActiveDirective);
+
+/**
+ * @ngdoc filter
+ * @name ui.router.state.filter:isState
+ *
+ * @requires ui.router.state.$state
+ *
+ * @description
+ * Translates to {@link ui.router.state.$state#methods_is $state.is("stateName")}.
+ */
+$IsStateFilter.$inject = ['$state'];
+function $IsStateFilter($state) {
+  return function(state) {
+    return $state.is(state);
+  };
+}
+
+/**
+ * @ngdoc filter
+ * @name ui.router.state.filter:includedByState
+ *
+ * @requires ui.router.state.$state
+ *
+ * @description
+ * Translates to {@link ui.router.state.$state#methods_includes $state.includes('fullOrPartialStateName')}.
+ */
+$IncludedByStateFilter.$inject = ['$state'];
+function $IncludedByStateFilter($state) {
+  return function(state) {
+    return $state.includes(state);
+  };
+}
+
+angular.module('ui.router.state')
+  .filter('isState', $IsStateFilter)
+  .filter('includedByState', $IncludedByStateFilter);
+
+/*
+ * @ngdoc object
+ * @name ui.router.compat.$routeProvider
+ *
+ * @requires ui.router.state.$stateProvider
+ * @requires ui.router.router.$urlRouterProvider
+ *
+ * @description
+ * `$routeProvider` of the `ui.router.compat` module overwrites the existing
+ * `routeProvider` from the core. This is done to provide compatibility between
+ * the UI Router and the core router.
+ *
+ * It also provides a `when()` method to register routes that map to certain urls.
+ * Behind the scenes it actually delegates either to 
+ * {@link ui.router.router.$urlRouterProvider $urlRouterProvider} or to the 
+ * {@link ui.router.state.$stateProvider $stateProvider} to postprocess the given 
+ * router definition object.
+ */
+$RouteProvider.$inject = ['$stateProvider', '$urlRouterProvider'];
+function $RouteProvider(  $stateProvider,    $urlRouterProvider) {
+
+  var routes = [];
+
+  onEnterRoute.$inject = ['$$state'];
+  function onEnterRoute(   $$state) {
+    /*jshint validthis: true */
+    this.locals = $$state.locals.globals;
+    this.params = this.locals.$stateParams;
+  }
+
+  function onExitRoute() {
+    /*jshint validthis: true */
+    this.locals = null;
+    this.params = null;
+  }
+
+  this.when = when;
+  /*
+   * @ngdoc function
+   * @name ui.router.compat.$routeProvider#when
+   * @methodOf ui.router.compat.$routeProvider
+   *
+   * @description
+   * Registers a route with a given route definition object. The route definition
+   * object has the same interface the angular core route definition object has.
+   * 
+   * @example
+   * <pre>
+   * var app = angular.module('app', ['ui.router.compat']);
+   *
+   * app.config(function ($routeProvider) {
+   *   $routeProvider.when('home', {
+   *     controller: function () { ... },
+   *     templateUrl: 'path/to/template'
+   *   });
+   * });
+   * </pre>
+   *
+   * @param {string} url URL as string
+   * @param {object} route Route definition object
+   *
+   * @return {object} $routeProvider - $routeProvider instance
+   */
+  function when(url, route) {
+    /*jshint validthis: true */
+    if (route.redirectTo != null) {
+      // Redirect, configure directly on $urlRouterProvider
+      var redirect = route.redirectTo, handler;
+      if (isString(redirect)) {
+        handler = redirect; // leave $urlRouterProvider to handle
+      } else if (isFunction(redirect)) {
+        // Adapt to $urlRouterProvider API
+        handler = function (params, $location) {
+          return redirect(params, $location.path(), $location.search());
+        };
+      } else {
+        throw new Error("Invalid 'redirectTo' in when()");
+      }
+      $urlRouterProvider.when(url, handler);
+    } else {
+      // Regular route, configure as state
+      $stateProvider.state(inherit(route, {
+        parent: null,
+        name: 'route:' + encodeURIComponent(url),
+        url: url,
+        onEnter: onEnterRoute,
+        onExit: onExitRoute
+      }));
+    }
+    routes.push(route);
+    return this;
+  }
+
+  /*
+   * @ngdoc object
+   * @name ui.router.compat.$route
+   *
+   * @requires ui.router.state.$state
+   * @requires $rootScope
+   * @requires $routeParams
+   *
+   * @property {object} routes - Array of registered routes.
+   * @property {object} params - Current route params as object.
+   * @property {string} current - Name of the current route.
+   *
+   * @description
+   * The `$route` service provides interfaces to access defined routes. It also let's
+   * you access route params through `$routeParams` service, so you have fully
+   * control over all the stuff you would actually get from angular's core `$route`
+   * service.
+   */
+  this.$get = $get;
+  $get.$inject = ['$state', '$rootScope', '$routeParams'];
+  function $get(   $state,   $rootScope,   $routeParams) {
+
+    var $route = {
+      routes: routes,
+      params: $routeParams,
+      current: undefined
+    };
+
+    function stateAsRoute(state) {
+      return (state.name !== '') ? state : undefined;
+    }
+
+    $rootScope.$on('$stateChangeStart', function (ev, to, toParams, from, fromParams) {
+      $rootScope.$broadcast('$routeChangeStart', stateAsRoute(to), stateAsRoute(from));
+    });
+
+    $rootScope.$on('$stateChangeSuccess', function (ev, to, toParams, from, fromParams) {
+      $route.current = stateAsRoute(to);
+      $rootScope.$broadcast('$routeChangeSuccess', stateAsRoute(to), stateAsRoute(from));
+      copy(toParams, $route.params);
+    });
+
+    $rootScope.$on('$stateChangeError', function (ev, to, toParams, from, fromParams, error) {
+      $rootScope.$broadcast('$routeChangeError', stateAsRoute(to), stateAsRoute(from), error);
+    });
+
+    return $route;
+  }
+}
+
+angular.module('ui.router.compat')
+  .provider('$route', $RouteProvider)
+  .directive('ngView', $ViewDirective);
+})(window, window.angular);
 //! moment.js
-//! version : 2.8.1
+//! version : 2.8.3
 //! authors : Tim Wood, Iskren Chernev, Moment.js contributors
 //! license : MIT
 //! momentjs.com
@@ -47046,11 +50552,12 @@ IonicModule
     ************************************/
 
     var moment,
-        VERSION = '2.8.1',
+        VERSION = '2.8.3',
         // the global-scope this is NOT the global object in Node.js
         globalScope = typeof global !== 'undefined' ? global : this,
         oldGlobalMoment,
         round = Math.round,
+        hasOwnProperty = Object.prototype.hasOwnProperty,
         i,
 
         YEAR = 0,
@@ -47124,7 +50631,7 @@ IonicModule
             ['HH', /(T| )\d\d/]
         ],
 
-        // timezone chunker "+10:00" > ["10", "00"] or "-1530" > ["-15", "30"]
+        // timezone chunker '+10:00' > ['10', '00'] or '-1530' > ['-15', '30']
         parseTimezoneChunker = /([\+\-]|\d\d)/gi,
 
         // getter and setter names
@@ -47329,6 +50836,10 @@ IonicModule
         }
     }
 
+    function hasOwnProp(a, b) {
+        return hasOwnProperty.call(a, b);
+    }
+
     function defaultParsingFlags() {
         // We need to deep clone this object, and es5 standard is not very
         // helpful.
@@ -47349,7 +50860,7 @@ IonicModule
     function printMsg(msg) {
         if (moment.suppressDeprecationWarnings === false &&
                 typeof console !== 'undefined' && console.warn) {
-            console.warn("Deprecation warning: " + msg);
+            console.warn('Deprecation warning: ' + msg);
         }
     }
 
@@ -47452,16 +50963,16 @@ IonicModule
 
     function extend(a, b) {
         for (var i in b) {
-            if (b.hasOwnProperty(i)) {
+            if (hasOwnProp(b, i)) {
                 a[i] = b[i];
             }
         }
 
-        if (b.hasOwnProperty('toString')) {
+        if (hasOwnProp(b, 'toString')) {
             a.toString = b.toString;
         }
 
-        if (b.hasOwnProperty('valueOf')) {
+        if (hasOwnProp(b, 'valueOf')) {
             a.valueOf = b.valueOf;
         }
 
@@ -47569,7 +51080,7 @@ IonicModule
             var dur, tmp;
             //invert the arguments, but complain about it
             if (period !== null && !isNaN(+period)) {
-                deprecateSimple(name, "moment()." + name  + "(period, number) is deprecated. Please use moment()." + name + "(number, period).");
+                deprecateSimple(name, 'moment().' + name  + '(period, number) is deprecated. Please use moment().' + name + '(number, period).');
                 tmp = val; val = period; period = tmp;
             }
 
@@ -47639,7 +51150,7 @@ IonicModule
             prop;
 
         for (prop in inputObject) {
-            if (inputObject.hasOwnProperty(prop)) {
+            if (hasOwnProp(inputObject, prop)) {
                 normalizedProp = normalizeUnits(prop);
                 if (normalizedProp) {
                     normalizedInput[normalizedProp] = inputObject[prop];
@@ -48524,6 +52035,9 @@ IonicModule
         for (i = 0; i < config._f.length; i++) {
             currentScore = 0;
             tempConfig = copyConfig({}, config);
+            if (config._useUTC != null) {
+                tempConfig._useUTC = config._useUTC;
+            }
             tempConfig._pf = defaultParsingFlags();
             tempConfig._f = config._f[i];
             makeDateFromStringAndFormat(tempConfig);
@@ -48559,7 +52073,7 @@ IonicModule
             config._pf.iso = true;
             for (i = 0, l = isoDates.length; i < l; i++) {
                 if (isoDates[i][1].exec(string)) {
-                    // match[5] should be "T" or undefined
+                    // match[5] should be 'T' or undefined
                     config._f = isoDates[i][0] + (match[6] || ' ');
                     break;
                 }
@@ -48588,6 +52102,14 @@ IonicModule
         }
     }
 
+    function map(arr, fn) {
+        var res = [], i;
+        for (i = 0; i < arr.length; ++i) {
+            res.push(fn(arr[i], i));
+        }
+        return res;
+    }
+
     function makeDateFromInput(config) {
         var input = config._i, matched;
         if (input === undefined) {
@@ -48599,7 +52121,9 @@ IonicModule
         } else if (typeof input === 'string') {
             makeDateFromString(config);
         } else if (isArray(input)) {
-            config._a = input.slice(0);
+            config._a = map(input.slice(0), function (obj) {
+                return parseInt(obj, 10);
+            });
             dateFromConfig(config);
         } else if (typeof(input) === 'object') {
             dateFromObject(config);
@@ -48767,7 +52291,7 @@ IonicModule
     moment = function (input, format, locale, strict) {
         var c;
 
-        if (typeof(locale) === "boolean") {
+        if (typeof(locale) === 'boolean') {
             strict = locale;
             locale = undefined;
         }
@@ -48835,7 +52359,7 @@ IonicModule
     moment.utc = function (input, format, locale, strict) {
         var c;
 
-        if (typeof(locale) === "boolean") {
+        if (typeof(locale) === 'boolean') {
             strict = locale;
             locale = undefined;
         }
@@ -48922,7 +52446,7 @@ IonicModule
 
         ret = new Duration(duration);
 
-        if (moment.isDuration(input) && input.hasOwnProperty('_locale')) {
+        if (moment.isDuration(input) && hasOwnProp(input, '_locale')) {
             ret._locale = input._locale;
         }
 
@@ -48959,7 +52483,7 @@ IonicModule
     };
 
     moment.lang = deprecate(
-        "moment.lang is deprecated. Use moment.locale instead.",
+        'moment.lang is deprecated. Use moment.locale instead.',
         function (key, value) {
             return moment.locale(key, value);
         }
@@ -48971,7 +52495,7 @@ IonicModule
     moment.locale = function (key, values) {
         var data;
         if (key) {
-            if (typeof(values) !== "undefined") {
+            if (typeof(values) !== 'undefined') {
                 data = moment.defineLocale(key, values);
             }
             else {
@@ -49006,7 +52530,7 @@ IonicModule
     };
 
     moment.langData = deprecate(
-        "moment.langData is deprecated. Use moment.localeData instead.",
+        'moment.langData is deprecated. Use moment.localeData instead.',
         function (key) {
             return moment.localeData(key);
         }
@@ -49039,7 +52563,7 @@ IonicModule
     // compare moment object
     moment.isMoment = function (obj) {
         return obj instanceof Moment ||
-            (obj != null &&  obj.hasOwnProperty('_isAMomentObject'));
+            (obj != null && hasOwnProp(obj, '_isAMomentObject'));
     };
 
     // for typechecking Duration objects
@@ -49095,7 +52619,7 @@ IonicModule
         },
 
         toString : function () {
-            return this.clone().locale('en').format("ddd MMM DD YYYY HH:mm:ss [GMT]ZZ");
+            return this.clone().locale('en').format('ddd MMM DD YYYY HH:mm:ss [GMT]ZZ');
         },
 
         toDate : function () {
@@ -49154,7 +52678,7 @@ IonicModule
                 this._isUTC = false;
 
                 if (keepLocalTime) {
-                    this.add(this._d.getTimezoneOffset(), 'm');
+                    this.add(this._dateTzOffset(), 'm');
                 }
             }
             return this;
@@ -49172,7 +52696,7 @@ IonicModule
         diff : function (input, units, asFloat) {
             var that = makeAs(input, this),
                 zoneDiff = (this.zone() - that.zone()) * 6e4,
-                diff, output;
+                diff, output, daysAdjust;
 
             units = normalizeUnits(units);
 
@@ -49183,11 +52707,12 @@ IonicModule
                 output = ((this.year() - that.year()) * 12) + (this.month() - that.month());
                 // adjust by taking difference in days, average number of days
                 // and dst in the given months.
-                output += ((this - moment(this).startOf('month')) -
-                        (that - moment(that).startOf('month'))) / diff;
+                daysAdjust = (this - moment(this).startOf('month')) -
+                    (that - moment(that).startOf('month'));
                 // same as above but with zones, to negate all dst
-                output -= ((this.zone() - moment(this).startOf('month').zone()) -
-                        (that.zone() - moment(that).startOf('month').zone())) * 6e4 / diff;
+                daysAdjust -= ((this.zone() - moment(this).startOf('month').zone()) -
+                        (that.zone() - moment(that).startOf('month').zone())) * 6e4;
+                output += daysAdjust / diff;
                 if (units === 'year') {
                     output = output / 12;
                 }
@@ -49296,18 +52821,33 @@ IonicModule
         },
 
         isAfter: function (input, units) {
-            units = typeof units !== 'undefined' ? units : 'millisecond';
-            return +this.clone().startOf(units) > +moment(input).startOf(units);
+            units = normalizeUnits(typeof units !== 'undefined' ? units : 'millisecond');
+            if (units === 'millisecond') {
+                input = moment.isMoment(input) ? input : moment(input);
+                return +this > +input;
+            } else {
+                return +this.clone().startOf(units) > +moment(input).startOf(units);
+            }
         },
 
         isBefore: function (input, units) {
-            units = typeof units !== 'undefined' ? units : 'millisecond';
-            return +this.clone().startOf(units) < +moment(input).startOf(units);
+            units = normalizeUnits(typeof units !== 'undefined' ? units : 'millisecond');
+            if (units === 'millisecond') {
+                input = moment.isMoment(input) ? input : moment(input);
+                return +this < +input;
+            } else {
+                return +this.clone().startOf(units) < +moment(input).startOf(units);
+            }
         },
 
         isSame: function (input, units) {
-            units = units || 'ms';
-            return +this.clone().startOf(units) === +makeAs(input, this).startOf(units);
+            units = normalizeUnits(units || 'millisecond');
+            if (units === 'millisecond') {
+                input = moment.isMoment(input) ? input : moment(input);
+                return +this === +input;
+            } else {
+                return +this.clone().startOf(units) === +makeAs(input, this).startOf(units);
+            }
         },
 
         min: deprecate(
@@ -49347,7 +52887,7 @@ IonicModule
                     input = input * 60;
                 }
                 if (!this._isUTC && keepLocalTime) {
-                    localAdjust = this._d.getTimezoneOffset();
+                    localAdjust = this._dateTzOffset();
                 }
                 this._offset = input;
                 this._isUTC = true;
@@ -49365,7 +52905,7 @@ IonicModule
                     }
                 }
             } else {
-                return this._isUTC ? offset : this._d.getTimezoneOffset();
+                return this._isUTC ? offset : this._dateTzOffset();
             }
             return this;
         },
@@ -49469,28 +53009,38 @@ IonicModule
         // instance.  Otherwise, it will return the locale configuration
         // variables for this instance.
         locale : function (key) {
+            var newLocaleData;
+
             if (key === undefined) {
                 return this._locale._abbr;
             } else {
-                this._locale = moment.localeData(key);
+                newLocaleData = moment.localeData(key);
+                if (newLocaleData != null) {
+                    this._locale = newLocaleData;
+                }
                 return this;
             }
         },
 
         lang : deprecate(
-            "moment().lang() is deprecated. Use moment().localeData() instead.",
+            'moment().lang() is deprecated. Use moment().localeData() instead.',
             function (key) {
                 if (key === undefined) {
                     return this.localeData();
                 } else {
-                    this._locale = moment.localeData(key);
-                    return this;
+                    return this.locale(key);
                 }
             }
         ),
 
         localeData : function () {
             return this._locale;
+        },
+
+        _dateTzOffset : function () {
+            // On Firefox.24 Date#getTimezoneOffset returns a floating point.
+            // https://github.com/moment/moment/pull/1871
+            return Math.round(this._d.getTimezoneOffset() / 15) * 15;
         }
     });
 
@@ -49688,19 +53238,21 @@ IonicModule
             var days, months;
             units = normalizeUnits(units);
 
-            days = this._days + this._milliseconds / 864e5;
             if (units === 'month' || units === 'year') {
+                days = this._days + this._milliseconds / 864e5;
                 months = this._months + daysToYears(days) * 12;
                 return units === 'month' ? months : months / 12;
             } else {
-                days += yearsToDays(this._months / 12);
+                // handle milliseconds separately because of floating point math errors (issue #1867)
+                days = this._days + yearsToDays(this._months / 12);
                 switch (units) {
-                    case 'week': return days / 7;
-                    case 'day': return days;
-                    case 'hour': return days * 24;
-                    case 'minute': return days * 24 * 60;
-                    case 'second': return days * 24 * 60 * 60;
-                    case 'millisecond': return days * 24 * 60 * 60 * 1000;
+                    case 'week': return days / 7 + this._milliseconds / 6048e5;
+                    case 'day': return days + this._milliseconds / 864e5;
+                    case 'hour': return days * 24 + this._milliseconds / 36e5;
+                    case 'minute': return days * 24 * 60 + this._milliseconds / 6e4;
+                    case 'second': return days * 24 * 60 * 60 + this._milliseconds / 1000;
+                    // Math.floor prevents floating point math errors here
+                    case 'millisecond': return Math.floor(days * 24 * 60 * 60 * 1000) + this._milliseconds;
                     default: throw new Error('Unknown unit ' + units);
                 }
             }
@@ -49710,8 +53262,8 @@ IonicModule
         locale : moment.fn.locale,
 
         toIsoString : deprecate(
-            "toIsoString() is deprecated. Please use toISOString() instead " +
-            "(notice the capitals)",
+            'toIsoString() is deprecated. Please use toISOString() instead ' +
+            '(notice the capitals)',
             function () {
                 return this.toISOString();
             }
@@ -49748,6 +53300,8 @@ IonicModule
         }
     });
 
+    moment.duration.fn.toString = moment.duration.fn.toISOString;
+
     function makeDurationGetter(name) {
         moment.duration.fn[name] = function () {
             return this._data[name];
@@ -49755,7 +53309,7 @@ IonicModule
     }
 
     for (i in unitMillisecondFactors) {
-        if (unitMillisecondFactors.hasOwnProperty(i)) {
+        if (hasOwnProp(unitMillisecondFactors, i)) {
             makeDurationGetter(i.toLowerCase());
         }
     }
@@ -49810,11 +53364,11 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('af', {
-        months : "Januarie_Februarie_Maart_April_Mei_Junie_Julie_Augustus_September_Oktober_November_Desember".split("_"),
-        monthsShort : "Jan_Feb_Mar_Apr_Mei_Jun_Jul_Aug_Sep_Okt_Nov_Des".split("_"),
-        weekdays : "Sondag_Maandag_Dinsdag_Woensdag_Donderdag_Vrydag_Saterdag".split("_"),
-        weekdaysShort : "Son_Maa_Din_Woe_Don_Vry_Sat".split("_"),
-        weekdaysMin : "So_Ma_Di_Wo_Do_Vr_Sa".split("_"),
+        months : 'Januarie_Februarie_Maart_April_Mei_Junie_Julie_Augustus_September_Oktober_November_Desember'.split('_'),
+        monthsShort : 'Jan_Feb_Mar_Apr_Mei_Jun_Jul_Aug_Sep_Okt_Nov_Des'.split('_'),
+        weekdays : 'Sondag_Maandag_Dinsdag_Woensdag_Donderdag_Vrydag_Saterdag'.split('_'),
+        weekdaysShort : 'Son_Maa_Din_Woe_Don_Vry_Sat'.split('_'),
+        weekdaysMin : 'So_Ma_Di_Wo_Do_Vr_Sa'.split('_'),
         meridiem : function (hours, minutes, isLower) {
             if (hours < 12) {
                 return isLower ? 'vm' : 'VM';
@@ -49823,11 +53377,11 @@ IonicModule
             }
         },
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[Vandag om] LT',
@@ -49838,19 +53392,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "oor %s",
-            past : "%s gelede",
-            s : "'n paar sekondes",
-            m : "'n minuut",
-            mm : "%d minute",
-            h : "'n uur",
-            hh : "%d ure",
-            d : "'n dag",
-            dd : "%d dae",
-            M : "'n maand",
-            MM : "%d maande",
-            y : "'n jaar",
-            yy : "%d jaar"
+            future : 'oor %s',
+            past : '%s gelede',
+            s : '\'n paar sekondes',
+            m : '\'n minuut',
+            mm : '%d minute',
+            h : '\'n uur',
+            hh : '%d ure',
+            d : '\'n dag',
+            dd : '%d dae',
+            M : '\'n maand',
+            MM : '%d maande',
+            y : '\'n jaar',
+            yy : '%d jaar'
         },
         ordinal : function (number) {
             return number + ((number === 1 || number === 8 || number >= 20) ? 'ste' : 'de'); // Thanks to Joris Röling : https://github.com/jjupiter
@@ -49870,20 +53424,20 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('ar-ma', {
-        months : "يناير_فبراير_مارس_أبريل_ماي_يونيو_يوليوز_غشت_شتنبر_أكتوبر_نونبر_دجنبر".split("_"),
-        monthsShort : "يناير_فبراير_مارس_أبريل_ماي_يونيو_يوليوز_غشت_شتنبر_أكتوبر_نونبر_دجنبر".split("_"),
-        weekdays : "الأحد_الإتنين_الثلاثاء_الأربعاء_الخميس_الجمعة_السبت".split("_"),
-        weekdaysShort : "احد_اتنين_ثلاثاء_اربعاء_خميس_جمعة_سبت".split("_"),
-        weekdaysMin : "ح_ن_ث_ر_خ_ج_س".split("_"),
+        months : 'يناير_فبراير_مارس_أبريل_ماي_يونيو_يوليوز_غشت_شتنبر_أكتوبر_نونبر_دجنبر'.split('_'),
+        monthsShort : 'يناير_فبراير_مارس_أبريل_ماي_يونيو_يوليوز_غشت_شتنبر_أكتوبر_نونبر_دجنبر'.split('_'),
+        weekdays : 'الأحد_الإتنين_الثلاثاء_الأربعاء_الخميس_الجمعة_السبت'.split('_'),
+        weekdaysShort : 'احد_اتنين_ثلاثاء_اربعاء_خميس_جمعة_سبت'.split('_'),
+        weekdaysMin : 'ح_ن_ث_ر_خ_ج_س'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[اليوم على الساعة] LT",
+            sameDay: '[اليوم على الساعة] LT',
             nextDay: '[غدا على الساعة] LT',
             nextWeek: 'dddd [على الساعة] LT',
             lastDay: '[أمس على الساعة] LT',
@@ -49891,19 +53445,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "في %s",
-            past : "منذ %s",
-            s : "ثوان",
-            m : "دقيقة",
-            mm : "%d دقائق",
-            h : "ساعة",
-            hh : "%d ساعات",
-            d : "يوم",
-            dd : "%d أيام",
-            M : "شهر",
-            MM : "%d أشهر",
-            y : "سنة",
-            yy : "%d سنوات"
+            future : 'في %s',
+            past : 'منذ %s',
+            s : 'ثوان',
+            m : 'دقيقة',
+            mm : '%d دقائق',
+            h : 'ساعة',
+            hh : '%d ساعات',
+            d : 'يوم',
+            dd : '%d أيام',
+            M : 'شهر',
+            MM : '%d أشهر',
+            y : 'سنة',
+            yy : '%d سنوات'
         },
         week : {
             dow : 6, // Saturday is the first day of the week.
@@ -49943,27 +53497,27 @@ IonicModule
     };
 
     return moment.defineLocale('ar-sa', {
-        months : "يناير_فبراير_مارس_أبريل_مايو_يونيو_يوليو_أغسطس_سبتمبر_أكتوبر_نوفمبر_ديسمبر".split("_"),
-        monthsShort : "يناير_فبراير_مارس_أبريل_مايو_يونيو_يوليو_أغسطس_سبتمبر_أكتوبر_نوفمبر_ديسمبر".split("_"),
-        weekdays : "الأحد_الإثنين_الثلاثاء_الأربعاء_الخميس_الجمعة_السبت".split("_"),
-        weekdaysShort : "أحد_إثنين_ثلاثاء_أربعاء_خميس_جمعة_سبت".split("_"),
-        weekdaysMin : "ح_ن_ث_ر_خ_ج_س".split("_"),
+        months : 'يناير_فبراير_مارس_أبريل_مايو_يونيو_يوليو_أغسطس_سبتمبر_أكتوبر_نوفمبر_ديسمبر'.split('_'),
+        monthsShort : 'يناير_فبراير_مارس_أبريل_مايو_يونيو_يوليو_أغسطس_سبتمبر_أكتوبر_نوفمبر_ديسمبر'.split('_'),
+        weekdays : 'الأحد_الإثنين_الثلاثاء_الأربعاء_الخميس_الجمعة_السبت'.split('_'),
+        weekdaysShort : 'أحد_إثنين_ثلاثاء_أربعاء_خميس_جمعة_سبت'.split('_'),
+        weekdaysMin : 'ح_ن_ث_ر_خ_ج_س'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 12) {
-                return "ص";
+                return 'ص';
             } else {
-                return "م";
+                return 'م';
             }
         },
         calendar : {
-            sameDay: "[اليوم على الساعة] LT",
+            sameDay: '[اليوم على الساعة] LT',
             nextDay: '[غدا على الساعة] LT',
             nextWeek: 'dddd [على الساعة] LT',
             lastDay: '[أمس على الساعة] LT',
@@ -49971,19 +53525,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "في %s",
-            past : "منذ %s",
-            s : "ثوان",
-            m : "دقيقة",
-            mm : "%d دقائق",
-            h : "ساعة",
-            hh : "%d ساعات",
-            d : "يوم",
-            dd : "%d أيام",
-            M : "شهر",
-            MM : "%d أشهر",
-            y : "سنة",
-            yy : "%d سنوات"
+            future : 'في %s',
+            past : 'منذ %s',
+            s : 'ثوان',
+            m : 'دقيقة',
+            mm : '%d دقائق',
+            h : 'ساعة',
+            hh : '%d ساعات',
+            d : 'يوم',
+            dd : '%d أيام',
+            M : 'شهر',
+            MM : '%d أشهر',
+            y : 'سنة',
+            yy : '%d سنوات'
         },
         preparse: function (string) {
             return string.replace(/[۰-۹]/g, function (match) {
@@ -50002,9 +53556,10 @@ IonicModule
     });
 }));
 // moment.js locale configuration
-// locale : Arabic (ar)
-// author : Abdel Said : https://github.com/abdelsaid
-// changes in months, weekdays : Ahmed Elkhatib
+// Locale: Arabic (ar)
+// Author: Abdel Said: https://github.com/abdelsaid
+// Changes in months, weekdays: Ahmed Elkhatib
+// Native plural forms: forabi https://github.com/forabi
 
 (function (factory) {
     factory(moment);
@@ -50031,50 +53586,81 @@ IonicModule
         '٨': '8',
         '٩': '9',
         '٠': '0'
-    };
+    }, pluralForm = function (n) {
+        return n === 0 ? 0 : n === 1 ? 1 : n === 2 ? 2 : n % 100 >= 3 && n % 100 <= 10 ? 3 : n % 100 >= 11 ? 4 : 5;
+    }, plurals = {
+        s : ['أقل من ثانية', 'ثانية واحدة', ['ثانيتان', 'ثانيتين'], '%d ثوان', '%d ثانية', '%d ثانية'],
+        m : ['أقل من دقيقة', 'دقيقة واحدة', ['دقيقتان', 'دقيقتين'], '%d دقائق', '%d دقيقة', '%d دقيقة'],
+        h : ['أقل من ساعة', 'ساعة واحدة', ['ساعتان', 'ساعتين'], '%d ساعات', '%d ساعة', '%d ساعة'],
+        d : ['أقل من يوم', 'يوم واحد', ['يومان', 'يومين'], '%d أيام', '%d يومًا', '%d يوم'],
+        M : ['أقل من شهر', 'شهر واحد', ['شهران', 'شهرين'], '%d أشهر', '%d شهرا', '%d شهر'],
+        y : ['أقل من عام', 'عام واحد', ['عامان', 'عامين'], '%d أعوام', '%d عامًا', '%d عام']
+    }, pluralize = function (u) {
+        return function (number, withoutSuffix, string, isFuture) {
+            var f = pluralForm(number),
+                str = plurals[u][pluralForm(number)];
+            if (f === 2) {
+                str = str[withoutSuffix ? 0 : 1];
+            }
+            return str.replace(/%d/i, number);
+        };
+    }, months = [
+        'كانون الثاني يناير',
+        'شباط فبراير',
+        'آذار مارس',
+        'نيسان أبريل',
+        'أيار مايو',
+        'حزيران يونيو',
+        'تموز يوليو',
+        'آب أغسطس',
+        'أيلول سبتمبر',
+        'تشرين الأول أكتوبر',
+        'تشرين الثاني نوفمبر',
+        'كانون الأول ديسمبر'
+    ];
 
     return moment.defineLocale('ar', {
-        months : "يناير/ كانون الثاني_فبراير/ شباط_مارس/ آذار_أبريل/ نيسان_مايو/ أيار_يونيو/ حزيران_يوليو/ تموز_أغسطس/ آب_سبتمبر/ أيلول_أكتوبر/ تشرين الأول_نوفمبر/ تشرين الثاني_ديسمبر/ كانون الأول".split("_"),
-        monthsShort : "يناير/ كانون الثاني_فبراير/ شباط_مارس/ آذار_أبريل/ نيسان_مايو/ أيار_يونيو/ حزيران_يوليو/ تموز_أغسطس/ آب_سبتمبر/ أيلول_أكتوبر/ تشرين الأول_نوفمبر/ تشرين الثاني_ديسمبر/ كانون الأول".split("_"),
-        weekdays : "الأحد_الإثنين_الثلاثاء_الأربعاء_الخميس_الجمعة_السبت".split("_"),
-        weekdaysShort : "أحد_إثنين_ثلاثاء_أربعاء_خميس_جمعة_سبت".split("_"),
-        weekdaysMin : "ح_ن_ث_ر_خ_ج_س".split("_"),
+        months : months,
+        monthsShort : months,
+        weekdays : 'الأحد_الإثنين_الثلاثاء_الأربعاء_الخميس_الجمعة_السبت'.split('_'),
+        weekdaysShort : 'أحد_إثنين_ثلاثاء_أربعاء_خميس_جمعة_سبت'.split('_'),
+        weekdaysMin : 'ح_ن_ث_ر_خ_ج_س'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 12) {
-                return "ص";
+                return 'ص';
             } else {
-                return "م";
+                return 'م';
             }
         },
         calendar : {
-            sameDay: "[اليوم على الساعة] LT",
-            nextDay: '[غدا على الساعة] LT',
-            nextWeek: 'dddd [على الساعة] LT',
-            lastDay: '[أمس على الساعة] LT',
-            lastWeek: 'dddd [على الساعة] LT',
+            sameDay: '[اليوم عند الساعة] LT',
+            nextDay: '[غدًا عند الساعة] LT',
+            nextWeek: 'dddd [عند الساعة] LT',
+            lastDay: '[أمس عند الساعة] LT',
+            lastWeek: 'dddd [عند الساعة] LT',
             sameElse: 'L'
         },
         relativeTime : {
-            future : "في %s",
-            past : "منذ %s",
-            s : "ثوان",
-            m : "دقيقة",
-            mm : "%d دقائق",
-            h : "ساعة",
-            hh : "%d ساعات",
-            d : "يوم",
-            dd : "%d أيام",
-            M : "شهر",
-            MM : "%d أشهر",
-            y : "سنة",
-            yy : "%d سنوات"
+            future : 'بعد %s',
+            past : 'منذ %s',
+            s : pluralize('s'),
+            m : pluralize('m'),
+            mm : pluralize('m'),
+            h : pluralize('h'),
+            hh : pluralize('h'),
+            d : pluralize('d'),
+            dd : pluralize('d'),
+            M : pluralize('M'),
+            MM : pluralize('M'),
+            y : pluralize('y'),
+            yy : pluralize('y')
         },
         preparse: function (string) {
             return string.replace(/[۰-۹]/g, function (match) {
@@ -50100,42 +53686,42 @@ IonicModule
     factory(moment);
 }(function (moment) {
     var suffixes = {
-        1: "-inci",
-        5: "-inci",
-        8: "-inci",
-        70: "-inci",
-        80: "-inci",
+        1: '-inci',
+        5: '-inci',
+        8: '-inci',
+        70: '-inci',
+        80: '-inci',
 
-        2: "-nci",
-        7: "-nci",
-        20: "-nci",
-        50: "-nci",
+        2: '-nci',
+        7: '-nci',
+        20: '-nci',
+        50: '-nci',
 
-        3: "-üncü",
-        4: "-üncü",
-        100: "-üncü",
+        3: '-üncü',
+        4: '-üncü',
+        100: '-üncü',
 
-        6: "-ncı",
+        6: '-ncı',
 
-        9: "-uncu",
-        10: "-uncu",
-        30: "-uncu",
+        9: '-uncu',
+        10: '-uncu',
+        30: '-uncu',
 
-        60: "-ıncı",
-        90: "-ıncı"
+        60: '-ıncı',
+        90: '-ıncı'
     };
     return moment.defineLocale('az', {
-        months : "yanvar_fevral_mart_aprel_may_iyun_iyul_avqust_sentyabr_oktyabr_noyabr_dekabr".split("_"),
-        monthsShort : "yan_fev_mar_apr_may_iyn_iyl_avq_sen_okt_noy_dek".split("_"),
-        weekdays : "Bazar_Bazar ertəsi_Çərşənbə axşamı_Çərşənbə_Cümə axşamı_Cümə_Şənbə".split("_"),
-        weekdaysShort : "Baz_BzE_ÇAx_Çər_CAx_Cüm_Şən".split("_"),
-        weekdaysMin : "Bz_BE_ÇA_Çə_CA_Cü_Şə".split("_"),
+        months : 'yanvar_fevral_mart_aprel_may_iyun_iyul_avqust_sentyabr_oktyabr_noyabr_dekabr'.split('_'),
+        monthsShort : 'yan_fev_mar_apr_may_iyn_iyl_avq_sen_okt_noy_dek'.split('_'),
+        weekdays : 'Bazar_Bazar ertəsi_Çərşənbə axşamı_Çərşənbə_Cümə axşamı_Cümə_Şənbə'.split('_'),
+        weekdaysShort : 'Baz_BzE_ÇAx_Çər_CAx_Cüm_Şən'.split('_'),
+        weekdaysMin : 'Bz_BE_ÇA_Çə_CA_Cü_Şə'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[bugün saat] LT',
@@ -50146,34 +53732,34 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s sonra",
-            past : "%s əvvəl",
-            s : "birneçə saniyyə",
-            m : "bir dəqiqə",
-            mm : "%d dəqiqə",
-            h : "bir saat",
-            hh : "%d saat",
-            d : "bir gün",
-            dd : "%d gün",
-            M : "bir ay",
-            MM : "%d ay",
-            y : "bir il",
-            yy : "%d il"
+            future : '%s sonra',
+            past : '%s əvvəl',
+            s : 'birneçə saniyyə',
+            m : 'bir dəqiqə',
+            mm : '%d dəqiqə',
+            h : 'bir saat',
+            hh : '%d saat',
+            d : 'bir gün',
+            dd : '%d gün',
+            M : 'bir ay',
+            MM : '%d ay',
+            y : 'bir il',
+            yy : '%d il'
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 4) {
-                return "gecə";
+                return 'gecə';
             } else if (hour < 12) {
-                return "səhər";
+                return 'səhər';
             } else if (hour < 17) {
-                return "gündüz";
+                return 'gündüz';
             } else {
-                return "axşam";
+                return 'axşam';
             }
         },
         ordinal : function (number) {
             if (number === 0) {  // special case for zero
-                return number + "-ıncı";
+                return number + '-ıncı';
             }
             var a = number % 10,
                 b = number % 100 - a,
@@ -50250,14 +53836,14 @@ IonicModule
         months : monthsCaseReplace,
         monthsShort : 'студ_лют_сак_крас_трав_чэрв_ліп_жнів_вер_каст_ліст_снеж'.split('_'),
         weekdays : weekdaysCaseReplace,
-        weekdaysShort : "нд_пн_ат_ср_чц_пт_сб".split("_"),
-        weekdaysMin : "нд_пн_ат_ср_чц_пт_сб".split("_"),
+        weekdaysShort : 'нд_пн_ат_ср_чц_пт_сб'.split('_'),
+        weekdaysMin : 'нд_пн_ат_ср_чц_пт_сб'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY г.",
-            LLL : "D MMMM YYYY г., LT",
-            LLLL : "dddd, D MMMM YYYY г., LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY г.',
+            LLL : 'D MMMM YYYY г., LT',
+            LLLL : 'dddd, D MMMM YYYY г., LT'
         },
         calendar : {
             sameDay: '[Сёння ў] LT',
@@ -50282,31 +53868,31 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "праз %s",
-            past : "%s таму",
-            s : "некалькі секунд",
+            future : 'праз %s',
+            past : '%s таму',
+            s : 'некалькі секунд',
             m : relativeTimeWithPlural,
             mm : relativeTimeWithPlural,
             h : relativeTimeWithPlural,
             hh : relativeTimeWithPlural,
-            d : "дзень",
+            d : 'дзень',
             dd : relativeTimeWithPlural,
-            M : "месяц",
+            M : 'месяц',
             MM : relativeTimeWithPlural,
-            y : "год",
+            y : 'год',
             yy : relativeTimeWithPlural
         },
 
 
         meridiem : function (hour, minute, isLower) {
             if (hour < 4) {
-                return "ночы";
+                return 'ночы';
             } else if (hour < 12) {
-                return "раніцы";
+                return 'раніцы';
             } else if (hour < 17) {
-                return "дня";
+                return 'дня';
             } else {
-                return "вечара";
+                return 'вечара';
             }
         },
 
@@ -50339,17 +53925,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('bg', {
-        months : "януари_февруари_март_април_май_юни_юли_август_септември_октомври_ноември_декември".split("_"),
-        monthsShort : "янр_фев_мар_апр_май_юни_юли_авг_сеп_окт_ное_дек".split("_"),
-        weekdays : "неделя_понеделник_вторник_сряда_четвъртък_петък_събота".split("_"),
-        weekdaysShort : "нед_пон_вто_сря_чет_пет_съб".split("_"),
-        weekdaysMin : "нд_пн_вт_ср_чт_пт_сб".split("_"),
+        months : 'януари_февруари_март_април_май_юни_юли_август_септември_октомври_ноември_декември'.split('_'),
+        monthsShort : 'янр_фев_мар_апр_май_юни_юли_авг_сеп_окт_ное_дек'.split('_'),
+        weekdays : 'неделя_понеделник_вторник_сряда_четвъртък_петък_събота'.split('_'),
+        weekdaysShort : 'нед_пон_вто_сря_чет_пет_съб'.split('_'),
+        weekdaysMin : 'нд_пн_вт_ср_чт_пт_сб'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "D.MM.YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'H:mm',
+            L : 'D.MM.YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[Днес в] LT',
@@ -50372,19 +53958,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "след %s",
-            past : "преди %s",
-            s : "няколко секунди",
-            m : "минута",
-            mm : "%d минути",
-            h : "час",
-            hh : "%d часа",
-            d : "ден",
-            dd : "%d дни",
-            M : "месец",
-            MM : "%d месеца",
-            y : "година",
-            yy : "%d години"
+            future : 'след %s',
+            past : 'преди %s',
+            s : 'няколко секунди',
+            m : 'минута',
+            mm : '%d минути',
+            h : 'час',
+            hh : '%d часа',
+            d : 'ден',
+            dd : '%d дни',
+            M : 'месец',
+            MM : '%d месеца',
+            y : 'година',
+            yy : '%d години'
         },
         ordinal : function (number) {
             var lastDigit = number % 10,
@@ -50444,17 +54030,17 @@ IonicModule
     };
 
     return moment.defineLocale('bn', {
-        months : 'জানুয়ারী_ফেবুয়ারী_মার্চ_এপ্রিল_মে_জুন_জুলাই_অগাস্ট_সেপ্টেম্বর_অক্টোবর_নভেম্বর_ডিসেম্বর'.split("_"),
-        monthsShort : 'জানু_ফেব_মার্চ_এপর_মে_জুন_জুল_অগ_সেপ্ট_অক্টো_নভ_ডিসেম্'.split("_"),
-        weekdays : 'রবিবার_সোমবার_মঙ্গলবার_বুধবার_বৃহস্পত্তিবার_শুক্রুবার_শনিবার'.split("_"),
-        weekdaysShort : 'রবি_সোম_মঙ্গল_বুধ_বৃহস্পত্তি_শুক্রু_শনি'.split("_"),
-        weekdaysMin : 'রব_সম_মঙ্গ_বু_ব্রিহ_শু_শনি'.split("_"),
+        months : 'জানুয়ারী_ফেবুয়ারী_মার্চ_এপ্রিল_মে_জুন_জুলাই_অগাস্ট_সেপ্টেম্বর_অক্টোবর_নভেম্বর_ডিসেম্বর'.split('_'),
+        monthsShort : 'জানু_ফেব_মার্চ_এপর_মে_জুন_জুল_অগ_সেপ্ট_অক্টো_নভ_ডিসেম্'.split('_'),
+        weekdays : 'রবিবার_সোমবার_মঙ্গলবার_বুধবার_বৃহস্পত্তিবার_শুক্রুবার_শনিবার'.split('_'),
+        weekdaysShort : 'রবি_সোম_মঙ্গল_বুধ_বৃহস্পত্তি_শুক্রু_শনি'.split('_'),
+        weekdaysMin : 'রব_সম_মঙ্গ_বু_ব্রিহ_শু_শনি'.split('_'),
         longDateFormat : {
-            LT : "A h:mm সময়",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY, LT",
-            LLLL : "dddd, D MMMM YYYY, LT"
+            LT : 'A h:mm সময়',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY, LT',
+            LLLL : 'dddd, D MMMM YYYY, LT'
         },
         calendar : {
             sameDay : '[আজ] LT',
@@ -50465,19 +54051,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s পরে",
-            past : "%s আগে",
-            s : "কএক সেকেন্ড",
-            m : "এক মিনিট",
-            mm : "%d মিনিট",
-            h : "এক ঘন্টা",
-            hh : "%d ঘন্টা",
-            d : "এক দিন",
-            dd : "%d দিন",
-            M : "এক মাস",
-            MM : "%d মাস",
-            y : "এক বছর",
-            yy : "%d বছর"
+            future : '%s পরে',
+            past : '%s আগে',
+            s : 'কএক সেকেন্ড',
+            m : 'এক মিনিট',
+            mm : '%d মিনিট',
+            h : 'এক ঘন্টা',
+            hh : '%d ঘন্টা',
+            d : 'এক দিন',
+            dd : '%d দিন',
+            M : 'এক মাস',
+            MM : '%d মাস',
+            y : 'এক বছর',
+            yy : '%d বছর'
         },
         preparse: function (string) {
             return string.replace(/[১২৩৪৫৬৭৮৯০]/g, function (match) {
@@ -50494,15 +54080,15 @@ IonicModule
         //I have just generalized with most common one used
         meridiem : function (hour, minute, isLower) {
             if (hour < 4) {
-                return "রাত";
+                return 'রাত';
             } else if (hour < 10) {
-                return "শকাল";
+                return 'শকাল';
             } else if (hour < 17) {
-                return "দুপুর";
+                return 'দুপুর';
             } else if (hour < 20) {
-                return "বিকেল";
+                return 'বিকেল';
             } else {
-                return "রাত";
+                return 'রাত';
             }
         },
         week : {
@@ -50544,17 +54130,17 @@ IonicModule
     };
 
     return moment.defineLocale('bo', {
-        months : 'ཟླ་བ་དང་པོ_ཟླ་བ་གཉིས་པ_ཟླ་བ་གསུམ་པ_ཟླ་བ་བཞི་པ_ཟླ་བ་ལྔ་པ_ཟླ་བ་དྲུག་པ_ཟླ་བ་བདུན་པ_ཟླ་བ་བརྒྱད་པ_ཟླ་བ་དགུ་པ_ཟླ་བ་བཅུ་པ_ཟླ་བ་བཅུ་གཅིག་པ_ཟླ་བ་བཅུ་གཉིས་པ'.split("_"),
-        monthsShort : 'ཟླ་བ་དང་པོ_ཟླ་བ་གཉིས་པ_ཟླ་བ་གསུམ་པ_ཟླ་བ་བཞི་པ_ཟླ་བ་ལྔ་པ_ཟླ་བ་དྲུག་པ_ཟླ་བ་བདུན་པ_ཟླ་བ་བརྒྱད་པ_ཟླ་བ་དགུ་པ_ཟླ་བ་བཅུ་པ_ཟླ་བ་བཅུ་གཅིག་པ_ཟླ་བ་བཅུ་གཉིས་པ'.split("_"),
-        weekdays : 'གཟའ་ཉི་མ་_གཟའ་ཟླ་བ་_གཟའ་མིག་དམར་_གཟའ་ལྷག་པ་_གཟའ་ཕུར་བུ_གཟའ་པ་སངས་_གཟའ་སྤེན་པ་'.split("_"),
-        weekdaysShort : 'ཉི་མ་_ཟླ་བ་_མིག་དམར་_ལྷག་པ་_ཕུར་བུ_པ་སངས་_སྤེན་པ་'.split("_"),
-        weekdaysMin : 'ཉི་མ་_ཟླ་བ་_མིག་དམར་_ལྷག་པ་_ཕུར་བུ_པ་སངས་_སྤེན་པ་'.split("_"),
+        months : 'ཟླ་བ་དང་པོ_ཟླ་བ་གཉིས་པ_ཟླ་བ་གསུམ་པ_ཟླ་བ་བཞི་པ_ཟླ་བ་ལྔ་པ_ཟླ་བ་དྲུག་པ_ཟླ་བ་བདུན་པ_ཟླ་བ་བརྒྱད་པ_ཟླ་བ་དགུ་པ_ཟླ་བ་བཅུ་པ_ཟླ་བ་བཅུ་གཅིག་པ_ཟླ་བ་བཅུ་གཉིས་པ'.split('_'),
+        monthsShort : 'ཟླ་བ་དང་པོ_ཟླ་བ་གཉིས་པ_ཟླ་བ་གསུམ་པ_ཟླ་བ་བཞི་པ_ཟླ་བ་ལྔ་པ_ཟླ་བ་དྲུག་པ_ཟླ་བ་བདུན་པ_ཟླ་བ་བརྒྱད་པ_ཟླ་བ་དགུ་པ_ཟླ་བ་བཅུ་པ_ཟླ་བ་བཅུ་གཅིག་པ_ཟླ་བ་བཅུ་གཉིས་པ'.split('_'),
+        weekdays : 'གཟའ་ཉི་མ་_གཟའ་ཟླ་བ་_གཟའ་མིག་དམར་_གཟའ་ལྷག་པ་_གཟའ་ཕུར་བུ_གཟའ་པ་སངས་_གཟའ་སྤེན་པ་'.split('_'),
+        weekdaysShort : 'ཉི་མ་_ཟླ་བ་_མིག་དམར་_ལྷག་པ་_ཕུར་བུ_པ་སངས་_སྤེན་པ་'.split('_'),
+        weekdaysMin : 'ཉི་མ་_ཟླ་བ་_མིག་དམར་_ལྷག་པ་_ཕུར་བུ_པ་སངས་_སྤེན་པ་'.split('_'),
         longDateFormat : {
-            LT : "A h:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY, LT",
-            LLLL : "dddd, D MMMM YYYY, LT"
+            LT : 'A h:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY, LT',
+            LLLL : 'dddd, D MMMM YYYY, LT'
         },
         calendar : {
             sameDay : '[དི་རིང] LT',
@@ -50565,19 +54151,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s ལ་",
-            past : "%s སྔན་ལ",
-            s : "ལམ་སང",
-            m : "སྐར་མ་གཅིག",
-            mm : "%d སྐར་མ",
-            h : "ཆུ་ཚོད་གཅིག",
-            hh : "%d ཆུ་ཚོད",
-            d : "ཉིན་གཅིག",
-            dd : "%d ཉིན་",
-            M : "ཟླ་བ་གཅིག",
-            MM : "%d ཟླ་བ",
-            y : "ལོ་གཅིག",
-            yy : "%d ལོ"
+            future : '%s ལ་',
+            past : '%s སྔན་ལ',
+            s : 'ལམ་སང',
+            m : 'སྐར་མ་གཅིག',
+            mm : '%d སྐར་མ',
+            h : 'ཆུ་ཚོད་གཅིག',
+            hh : '%d ཆུ་ཚོད',
+            d : 'ཉིན་གཅིག',
+            dd : '%d ཉིན་',
+            M : 'ཟླ་བ་གཅིག',
+            MM : '%d ཟླ་བ',
+            y : 'ལོ་གཅིག',
+            yy : '%d ལོ'
         },
         preparse: function (string) {
             return string.replace(/[༡༢༣༤༥༦༧༨༩༠]/g, function (match) {
@@ -50591,15 +54177,15 @@ IonicModule
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 4) {
-                return "མཚན་མོ";
+                return 'མཚན་མོ';
             } else if (hour < 10) {
-                return "ཞོགས་ཀས";
+                return 'ཞོགས་ཀས';
             } else if (hour < 17) {
-                return "ཉིན་གུང";
+                return 'ཉིན་གུང';
             } else if (hour < 20) {
-                return "དགོང་དག";
+                return 'དགོང་དག';
             } else {
-                return "མཚན་མོ";
+                return 'མཚན་མོ';
             }
         },
         week : {
@@ -50617,9 +54203,9 @@ IonicModule
 }(function (moment) {
     function relativeTimeWithMutation(number, withoutSuffix, key) {
         var format = {
-            'mm': "munutenn",
-            'MM': "miz",
-            'dd': "devezh"
+            'mm': 'munutenn',
+            'MM': 'miz',
+            'dd': 'devezh'
         };
         return number + ' ' + mutation(format[key], number);
     }
@@ -50664,17 +54250,17 @@ IonicModule
     }
 
     return moment.defineLocale('br', {
-        months : "Genver_C'hwevrer_Meurzh_Ebrel_Mae_Mezheven_Gouere_Eost_Gwengolo_Here_Du_Kerzu".split("_"),
-        monthsShort : "Gen_C'hwe_Meu_Ebr_Mae_Eve_Gou_Eos_Gwe_Her_Du_Ker".split("_"),
-        weekdays : "Sul_Lun_Meurzh_Merc'her_Yaou_Gwener_Sadorn".split("_"),
-        weekdaysShort : "Sul_Lun_Meu_Mer_Yao_Gwe_Sad".split("_"),
-        weekdaysMin : "Su_Lu_Me_Mer_Ya_Gw_Sa".split("_"),
+        months : 'Genver_C\'hwevrer_Meurzh_Ebrel_Mae_Mezheven_Gouere_Eost_Gwengolo_Here_Du_Kerzu'.split('_'),
+        monthsShort : 'Gen_C\'hwe_Meu_Ebr_Mae_Eve_Gou_Eos_Gwe_Her_Du_Ker'.split('_'),
+        weekdays : 'Sul_Lun_Meurzh_Merc\'her_Yaou_Gwener_Sadorn'.split('_'),
+        weekdaysShort : 'Sul_Lun_Meu_Mer_Yao_Gwe_Sad'.split('_'),
+        weekdaysMin : 'Su_Lu_Me_Mer_Ya_Gw_Sa'.split('_'),
         longDateFormat : {
-            LT : "h[e]mm A",
-            L : "DD/MM/YYYY",
-            LL : "D [a viz] MMMM YYYY",
-            LLL : "D [a viz] MMMM YYYY LT",
-            LLLL : "dddd, D [a viz] MMMM YYYY LT"
+            LT : 'h[e]mm A',
+            L : 'DD/MM/YYYY',
+            LL : 'D [a viz] MMMM YYYY',
+            LLL : 'D [a viz] MMMM YYYY LT',
+            LLLL : 'dddd, D [a viz] MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[Hiziv da] LT',
@@ -50685,18 +54271,18 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "a-benn %s",
-            past : "%s 'zo",
-            s : "un nebeud segondennoù",
-            m : "ur vunutenn",
+            future : 'a-benn %s',
+            past : '%s \'zo',
+            s : 'un nebeud segondennoù',
+            m : 'ur vunutenn',
             mm : relativeTimeWithMutation,
-            h : "un eur",
-            hh : "%d eur",
-            d : "un devezh",
+            h : 'un eur',
+            hh : '%d eur',
+            d : 'un devezh',
             dd : relativeTimeWithMutation,
-            M : "ur miz",
+            M : 'ur miz',
             MM : relativeTimeWithMutation,
-            y : "ur bloaz",
+            y : 'ur bloaz',
             yy : specialMutationForYears
         },
         ordinal : function (number) {
@@ -50718,7 +54304,7 @@ IonicModule
     factory(moment);
 }(function (moment) {
     function translate(number, withoutSuffix, key) {
-        var result = number + " ";
+        var result = number + ' ';
         switch (key) {
         case 'm':
             return withoutSuffix ? 'jedna minuta' : 'jedne minute';
@@ -50771,17 +54357,17 @@ IonicModule
     }
 
     return moment.defineLocale('bs', {
-        months : "januar_februar_mart_april_maj_juni_juli_avgust_septembar_oktobar_novembar_decembar".split("_"),
-        monthsShort : "jan._feb._mar._apr._maj._jun._jul._avg._sep._okt._nov._dec.".split("_"),
-        weekdays : "nedjelja_ponedjeljak_utorak_srijeda_četvrtak_petak_subota".split("_"),
-        weekdaysShort : "ned._pon._uto._sri._čet._pet._sub.".split("_"),
-        weekdaysMin : "ne_po_ut_sr_če_pe_su".split("_"),
+        months : 'januar_februar_mart_april_maj_juni_juli_avgust_septembar_oktobar_novembar_decembar'.split('_'),
+        monthsShort : 'jan._feb._mar._apr._maj._jun._jul._avg._sep._okt._nov._dec.'.split('_'),
+        weekdays : 'nedjelja_ponedjeljak_utorak_srijeda_četvrtak_petak_subota'.split('_'),
+        weekdaysShort : 'ned._pon._uto._sri._čet._pet._sub.'.split('_'),
+        weekdaysMin : 'ne_po_ut_sr_če_pe_su'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "DD. MM. YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY LT",
-            LLLL : "dddd, D. MMMM YYYY LT"
+            LT : 'H:mm',
+            L : 'DD. MM. YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY LT',
+            LLLL : 'dddd, D. MMMM YYYY LT'
         },
         calendar : {
             sameDay  : '[danas u] LT',
@@ -50820,18 +54406,18 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "za %s",
-            past   : "prije %s",
-            s      : "par sekundi",
+            future : 'za %s',
+            past   : 'prije %s',
+            s      : 'par sekundi',
             m      : translate,
             mm     : translate,
             h      : translate,
             hh     : translate,
-            d      : "dan",
+            d      : 'dan',
             dd     : translate,
-            M      : "mjesec",
+            M      : 'mjesec',
             MM     : translate,
-            y      : "godinu",
+            y      : 'godinu',
             yy     : translate
         },
         ordinal : '%d.',
@@ -50849,17 +54435,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('ca', {
-        months : "gener_febrer_març_abril_maig_juny_juliol_agost_setembre_octubre_novembre_desembre".split("_"),
-        monthsShort : "gen._febr._mar._abr._mai._jun._jul._ag._set._oct._nov._des.".split("_"),
-        weekdays : "diumenge_dilluns_dimarts_dimecres_dijous_divendres_dissabte".split("_"),
-        weekdaysShort : "dg._dl._dt._dc._dj._dv._ds.".split("_"),
-        weekdaysMin : "Dg_Dl_Dt_Dc_Dj_Dv_Ds".split("_"),
+        months : 'gener_febrer_març_abril_maig_juny_juliol_agost_setembre_octubre_novembre_desembre'.split('_'),
+        monthsShort : 'gen._febr._mar._abr._mai._jun._jul._ag._set._oct._nov._des.'.split('_'),
+        weekdays : 'diumenge_dilluns_dimarts_dimecres_dijous_divendres_dissabte'.split('_'),
+        weekdaysShort : 'dg._dl._dt._dc._dj._dv._ds.'.split('_'),
+        weekdaysMin : 'Dg_Dl_Dt_Dc_Dj_Dv_Ds'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'H:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
             sameDay : function () {
@@ -50880,19 +54466,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "en %s",
-            past : "fa %s",
-            s : "uns segons",
-            m : "un minut",
-            mm : "%d minuts",
-            h : "una hora",
-            hh : "%d hores",
-            d : "un dia",
-            dd : "%d dies",
-            M : "un mes",
-            MM : "%d mesos",
-            y : "un any",
-            yy : "%d anys"
+            future : 'en %s',
+            past : 'fa %s',
+            s : 'uns segons',
+            m : 'un minut',
+            mm : '%d minuts',
+            h : 'una hora',
+            hh : '%d hores',
+            d : 'un dia',
+            dd : '%d dies',
+            M : 'un mes',
+            MM : '%d mesos',
+            y : 'un any',
+            yy : '%d anys'
         },
         ordinal : '%dº',
         week : {
@@ -50908,15 +54494,15 @@ IonicModule
 (function (factory) {
     factory(moment);
 }(function (moment) {
-    var months = "leden_únor_březen_duben_květen_červen_červenec_srpen_září_říjen_listopad_prosinec".split("_"),
-        monthsShort = "led_úno_bře_dub_kvě_čvn_čvc_srp_zář_říj_lis_pro".split("_");
+    var months = 'leden_únor_březen_duben_květen_červen_červenec_srpen_září_říjen_listopad_prosinec'.split('_'),
+        monthsShort = 'led_úno_bře_dub_kvě_čvn_čvc_srp_zář_říj_lis_pro'.split('_');
 
     function plural(n) {
         return (n > 1) && (n < 5) && (~~(n / 10) !== 1);
     }
 
     function translate(number, withoutSuffix, key, isFuture) {
-        var result = number + " ";
+        var result = number + ' ';
         switch (key) {
         case 's':  // a few seconds / in a few seconds / a few seconds ago
             return (withoutSuffix || isFuture) ? 'pár sekund' : 'pár sekundami';
@@ -50979,18 +54565,18 @@ IonicModule
             }
             return _monthsParse;
         }(months, monthsShort)),
-        weekdays : "neděle_pondělí_úterý_středa_čtvrtek_pátek_sobota".split("_"),
-        weekdaysShort : "ne_po_út_st_čt_pá_so".split("_"),
-        weekdaysMin : "ne_po_út_st_čt_pá_so".split("_"),
+        weekdays : 'neděle_pondělí_úterý_středa_čtvrtek_pátek_sobota'.split('_'),
+        weekdaysShort : 'ne_po_út_st_čt_pá_so'.split('_'),
+        weekdaysMin : 'ne_po_út_st_čt_pá_so'.split('_'),
         longDateFormat : {
-            LT: "H.mm",
-            L : "DD. MM. YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY LT",
-            LLLL : "dddd D. MMMM YYYY LT"
+            LT: 'H:mm',
+            L : 'DD. MM. YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY LT',
+            LLLL : 'dddd D. MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[dnes v] LT",
+            sameDay: '[dnes v] LT',
             nextDay: '[zítra v] LT',
             nextWeek: function () {
                 switch (this.day()) {
@@ -51026,11 +54612,11 @@ IonicModule
                     return '[minulou sobotu v] LT';
                 }
             },
-            sameElse: "L"
+            sameElse: 'L'
         },
         relativeTime : {
-            future : "za %s",
-            past : "před %s",
+            future : 'za %s',
+            past : 'před %s',
             s : translate,
             m : translate,
             mm : translate,
@@ -51058,17 +54644,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('cv', {
-        months : "кăрлач_нарăс_пуш_ака_май_çĕртме_утă_çурла_авăн_юпа_чӳк_раштав".split("_"),
-        monthsShort : "кăр_нар_пуш_ака_май_çĕр_утă_çур_ав_юпа_чӳк_раш".split("_"),
-        weekdays : "вырсарникун_тунтикун_ытларикун_юнкун_кĕçнерникун_эрнекун_шăматкун".split("_"),
-        weekdaysShort : "выр_тун_ытл_юн_кĕç_эрн_шăм".split("_"),
-        weekdaysMin : "вр_тн_ыт_юн_кç_эр_шм".split("_"),
+        months : 'кăрлач_нарăс_пуш_ака_май_çĕртме_утă_çурла_авăн_юпа_чӳк_раштав'.split('_'),
+        monthsShort : 'кăр_нар_пуш_ака_май_çĕр_утă_çур_ав_юпа_чӳк_раш'.split('_'),
+        weekdays : 'вырсарникун_тунтикун_ытларикун_юнкун_кĕçнерникун_эрнекун_шăматкун'.split('_'),
+        weekdaysShort : 'выр_тун_ытл_юн_кĕç_эрн_шăм'.split('_'),
+        weekdaysMin : 'вр_тн_ыт_юн_кç_эр_шм'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD-MM-YYYY",
-            LL : "YYYY [çулхи] MMMM [уйăхĕн] D[-мĕшĕ]",
-            LLL : "YYYY [çулхи] MMMM [уйăхĕн] D[-мĕшĕ], LT",
-            LLLL : "dddd, YYYY [çулхи] MMMM [уйăхĕн] D[-мĕшĕ], LT"
+            LT : 'HH:mm',
+            L : 'DD-MM-YYYY',
+            LL : 'YYYY [çулхи] MMMM [уйăхĕн] D[-мĕшĕ]',
+            LLL : 'YYYY [çулхи] MMMM [уйăхĕн] D[-мĕшĕ], LT',
+            LLLL : 'dddd, YYYY [çулхи] MMMM [уйăхĕн] D[-мĕшĕ], LT'
         },
         calendar : {
             sameDay: '[Паян] LT [сехетре]',
@@ -51080,21 +54666,21 @@ IonicModule
         },
         relativeTime : {
             future : function (output) {
-                var affix = /сехет$/i.exec(output) ? "рен" : /çул$/i.exec(output) ? "тан" : "ран";
+                var affix = /сехет$/i.exec(output) ? 'рен' : /çул$/i.exec(output) ? 'тан' : 'ран';
                 return output + affix;
             },
-            past : "%s каялла",
-            s : "пĕр-ик çеккунт",
-            m : "пĕр минут",
-            mm : "%d минут",
-            h : "пĕр сехет",
-            hh : "%d сехет",
-            d : "пĕр кун",
-            dd : "%d кун",
-            M : "пĕр уйăх",
-            MM : "%d уйăх",
-            y : "пĕр çул",
-            yy : "%d çул"
+            past : '%s каялла',
+            s : 'пĕр-ик çеккунт',
+            m : 'пĕр минут',
+            mm : '%d минут',
+            h : 'пĕр сехет',
+            hh : '%d сехет',
+            d : 'пĕр кун',
+            dd : '%d кун',
+            M : 'пĕр уйăх',
+            MM : '%d уйăх',
+            y : 'пĕр çул',
+            yy : '%d çул'
         },
         ordinal : '%d-мĕш',
         week : {
@@ -51110,19 +54696,19 @@ IonicModule
 (function (factory) {
     factory(moment);
 }(function (moment) {
-    return moment.defineLocale("cy", {
-        months: "Ionawr_Chwefror_Mawrth_Ebrill_Mai_Mehefin_Gorffennaf_Awst_Medi_Hydref_Tachwedd_Rhagfyr".split("_"),
-        monthsShort: "Ion_Chwe_Maw_Ebr_Mai_Meh_Gor_Aws_Med_Hyd_Tach_Rhag".split("_"),
-        weekdays: "Dydd Sul_Dydd Llun_Dydd Mawrth_Dydd Mercher_Dydd Iau_Dydd Gwener_Dydd Sadwrn".split("_"),
-        weekdaysShort: "Sul_Llun_Maw_Mer_Iau_Gwe_Sad".split("_"),
-        weekdaysMin: "Su_Ll_Ma_Me_Ia_Gw_Sa".split("_"),
+    return moment.defineLocale('cy', {
+        months: 'Ionawr_Chwefror_Mawrth_Ebrill_Mai_Mehefin_Gorffennaf_Awst_Medi_Hydref_Tachwedd_Rhagfyr'.split('_'),
+        monthsShort: 'Ion_Chwe_Maw_Ebr_Mai_Meh_Gor_Aws_Med_Hyd_Tach_Rhag'.split('_'),
+        weekdays: 'Dydd Sul_Dydd Llun_Dydd Mawrth_Dydd Mercher_Dydd Iau_Dydd Gwener_Dydd Sadwrn'.split('_'),
+        weekdaysShort: 'Sul_Llun_Maw_Mer_Iau_Gwe_Sad'.split('_'),
+        weekdaysMin: 'Su_Ll_Ma_Me_Ia_Gw_Sa'.split('_'),
         // time formats are the same as en-gb
         longDateFormat: {
-            LT: "HH:mm",
-            L: "DD/MM/YYYY",
-            LL: "D MMMM YYYY",
-            LLL: "D MMMM YYYY LT",
-            LLLL: "dddd, D MMMM YYYY LT"
+            LT: 'HH:mm',
+            L: 'DD/MM/YYYY',
+            LL: 'D MMMM YYYY',
+            LLL: 'D MMMM YYYY LT',
+            LLLL: 'dddd, D MMMM YYYY LT'
         },
         calendar: {
             sameDay: '[Heddiw am] LT',
@@ -51133,19 +54719,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime: {
-            future: "mewn %s",
-            past: "%s yn ôl",
-            s: "ychydig eiliadau",
-            m: "munud",
-            mm: "%d munud",
-            h: "awr",
-            hh: "%d awr",
-            d: "diwrnod",
-            dd: "%d diwrnod",
-            M: "mis",
-            MM: "%d mis",
-            y: "blwyddyn",
-            yy: "%d flynedd"
+            future: 'mewn %s',
+            past: '%s yn ôl',
+            s: 'ychydig eiliadau',
+            m: 'munud',
+            mm: '%d munud',
+            h: 'awr',
+            hh: '%d awr',
+            d: 'diwrnod',
+            dd: '%d diwrnod',
+            M: 'mis',
+            MM: '%d mis',
+            y: 'blwyddyn',
+            yy: '%d flynedd'
         },
         // traditional ordinal numbers above 31 are not commonly used in colloquial Welsh
         ordinal: function (number) {
@@ -51182,17 +54768,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('da', {
-        months : "januar_februar_marts_april_maj_juni_juli_august_september_oktober_november_december".split("_"),
-        monthsShort : "jan_feb_mar_apr_maj_jun_jul_aug_sep_okt_nov_dec".split("_"),
-        weekdays : "søndag_mandag_tirsdag_onsdag_torsdag_fredag_lørdag".split("_"),
-        weekdaysShort : "søn_man_tir_ons_tor_fre_lør".split("_"),
-        weekdaysMin : "sø_ma_ti_on_to_fr_lø".split("_"),
+        months : 'januar_februar_marts_april_maj_juni_juli_august_september_oktober_november_december'.split('_'),
+        monthsShort : 'jan_feb_mar_apr_maj_jun_jul_aug_sep_okt_nov_dec'.split('_'),
+        weekdays : 'søndag_mandag_tirsdag_onsdag_torsdag_fredag_lørdag'.split('_'),
+        weekdaysShort : 'søn_man_tir_ons_tor_fre_lør'.split('_'),
+        weekdaysMin : 'sø_ma_ti_on_to_fr_lø'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY LT",
-            LLLL : "dddd [d.] D. MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY LT',
+            LLLL : 'dddd [d.] D. MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[I dag kl.] LT',
@@ -51203,19 +54789,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "om %s",
-            past : "%s siden",
-            s : "få sekunder",
-            m : "et minut",
-            mm : "%d minutter",
-            h : "en time",
-            hh : "%d timer",
-            d : "en dag",
-            dd : "%d dage",
-            M : "en måned",
-            MM : "%d måneder",
-            y : "et år",
-            yy : "%d år"
+            future : 'om %s',
+            past : '%s siden',
+            s : 'få sekunder',
+            m : 'et minut',
+            mm : '%d minutter',
+            h : 'en time',
+            hh : '%d timer',
+            d : 'en dag',
+            dd : '%d dage',
+            M : 'en måned',
+            MM : '%d måneder',
+            y : 'et år',
+            yy : '%d år'
         },
         ordinal : '%d.',
         week : {
@@ -51248,34 +54834,34 @@ IonicModule
     }
 
     return moment.defineLocale('de-at', {
-        months : "Jänner_Februar_März_April_Mai_Juni_Juli_August_September_Oktober_November_Dezember".split("_"),
-        monthsShort : "Jän._Febr._Mrz._Apr._Mai_Jun._Jul._Aug._Sept._Okt._Nov._Dez.".split("_"),
-        weekdays : "Sonntag_Montag_Dienstag_Mittwoch_Donnerstag_Freitag_Samstag".split("_"),
-        weekdaysShort : "So._Mo._Di._Mi._Do._Fr._Sa.".split("_"),
-        weekdaysMin : "So_Mo_Di_Mi_Do_Fr_Sa".split("_"),
+        months : 'Jänner_Februar_März_April_Mai_Juni_Juli_August_September_Oktober_November_Dezember'.split('_'),
+        monthsShort : 'Jän._Febr._Mrz._Apr._Mai_Jun._Jul._Aug._Sept._Okt._Nov._Dez.'.split('_'),
+        weekdays : 'Sonntag_Montag_Dienstag_Mittwoch_Donnerstag_Freitag_Samstag'.split('_'),
+        weekdaysShort : 'So._Mo._Di._Mi._Do._Fr._Sa.'.split('_'),
+        weekdaysMin : 'So_Mo_Di_Mi_Do_Fr_Sa'.split('_'),
         longDateFormat : {
-            LT: "HH:mm [Uhr]",
-            L : "DD.MM.YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY LT",
-            LLLL : "dddd, D. MMMM YYYY LT"
+            LT: 'HH:mm [Uhr]',
+            L : 'DD.MM.YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY LT',
+            LLLL : 'dddd, D. MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[Heute um] LT",
-            sameElse: "L",
+            sameDay: '[Heute um] LT',
+            sameElse: 'L',
             nextDay: '[Morgen um] LT',
             nextWeek: 'dddd [um] LT',
             lastDay: '[Gestern um] LT',
             lastWeek: '[letzten] dddd [um] LT'
         },
         relativeTime : {
-            future : "in %s",
-            past : "vor %s",
-            s : "ein paar Sekunden",
+            future : 'in %s',
+            past : 'vor %s',
+            s : 'ein paar Sekunden',
             m : processRelativeTime,
-            mm : "%d Minuten",
+            mm : '%d Minuten',
             h : processRelativeTime,
-            hh : "%d Stunden",
+            hh : '%d Stunden',
             d : processRelativeTime,
             dd : processRelativeTime,
             M : processRelativeTime,
@@ -51313,34 +54899,34 @@ IonicModule
     }
 
     return moment.defineLocale('de', {
-        months : "Januar_Februar_März_April_Mai_Juni_Juli_August_September_Oktober_November_Dezember".split("_"),
-        monthsShort : "Jan._Febr._Mrz._Apr._Mai_Jun._Jul._Aug._Sept._Okt._Nov._Dez.".split("_"),
-        weekdays : "Sonntag_Montag_Dienstag_Mittwoch_Donnerstag_Freitag_Samstag".split("_"),
-        weekdaysShort : "So._Mo._Di._Mi._Do._Fr._Sa.".split("_"),
-        weekdaysMin : "So_Mo_Di_Mi_Do_Fr_Sa".split("_"),
+        months : 'Januar_Februar_März_April_Mai_Juni_Juli_August_September_Oktober_November_Dezember'.split('_'),
+        monthsShort : 'Jan._Febr._Mrz._Apr._Mai_Jun._Jul._Aug._Sept._Okt._Nov._Dez.'.split('_'),
+        weekdays : 'Sonntag_Montag_Dienstag_Mittwoch_Donnerstag_Freitag_Samstag'.split('_'),
+        weekdaysShort : 'So._Mo._Di._Mi._Do._Fr._Sa.'.split('_'),
+        weekdaysMin : 'So_Mo_Di_Mi_Do_Fr_Sa'.split('_'),
         longDateFormat : {
-            LT: "HH:mm [Uhr]",
-            L : "DD.MM.YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY LT",
-            LLLL : "dddd, D. MMMM YYYY LT"
+            LT: 'HH:mm [Uhr]',
+            L : 'DD.MM.YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY LT',
+            LLLL : 'dddd, D. MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[Heute um] LT",
-            sameElse: "L",
+            sameDay: '[Heute um] LT',
+            sameElse: 'L',
             nextDay: '[Morgen um] LT',
             nextWeek: 'dddd [um] LT',
             lastDay: '[Gestern um] LT',
             lastWeek: '[letzten] dddd [um] LT'
         },
         relativeTime : {
-            future : "in %s",
-            past : "vor %s",
-            s : "ein paar Sekunden",
+            future : 'in %s',
+            past : 'vor %s',
+            s : 'ein paar Sekunden',
             m : processRelativeTime,
-            mm : "%d Minuten",
+            mm : '%d Minuten',
             h : processRelativeTime,
-            hh : "%d Stunden",
+            hh : '%d Stunden',
             d : processRelativeTime,
             dd : processRelativeTime,
             M : processRelativeTime,
@@ -51363,19 +54949,19 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('el', {
-        monthsNominativeEl : "Ιανουάριος_Φεβρουάριος_Μάρτιος_Απρίλιος_Μάιος_Ιούνιος_Ιούλιος_Αύγουστος_Σεπτέμβριος_Οκτώβριος_Νοέμβριος_Δεκέμβριος".split("_"),
-        monthsGenitiveEl : "Ιανουαρίου_Φεβρουαρίου_Μαρτίου_Απριλίου_Μαΐου_Ιουνίου_Ιουλίου_Αυγούστου_Σεπτεμβρίου_Οκτωβρίου_Νοεμβρίου_Δεκεμβρίου".split("_"),
+        monthsNominativeEl : 'Ιανουάριος_Φεβρουάριος_Μάρτιος_Απρίλιος_Μάιος_Ιούνιος_Ιούλιος_Αύγουστος_Σεπτέμβριος_Οκτώβριος_Νοέμβριος_Δεκέμβριος'.split('_'),
+        monthsGenitiveEl : 'Ιανουαρίου_Φεβρουαρίου_Μαρτίου_Απριλίου_Μαΐου_Ιουνίου_Ιουλίου_Αυγούστου_Σεπτεμβρίου_Οκτωβρίου_Νοεμβρίου_Δεκεμβρίου'.split('_'),
         months : function (momentToFormat, format) {
-            if (/D/.test(format.substring(0, format.indexOf("MMMM")))) { // if there is a day number before 'MMMM'
+            if (/D/.test(format.substring(0, format.indexOf('MMMM')))) { // if there is a day number before 'MMMM'
                 return this._monthsGenitiveEl[momentToFormat.month()];
             } else {
                 return this._monthsNominativeEl[momentToFormat.month()];
             }
         },
-        monthsShort : "Ιαν_Φεβ_Μαρ_Απρ_Μαϊ_Ιουν_Ιουλ_Αυγ_Σεπ_Οκτ_Νοε_Δεκ".split("_"),
-        weekdays : "Κυριακή_Δευτέρα_Τρίτη_Τετάρτη_Πέμπτη_Παρασκευή_Σάββατο".split("_"),
-        weekdaysShort : "Κυρ_Δευ_Τρι_Τετ_Πεμ_Παρ_Σαβ".split("_"),
-        weekdaysMin : "Κυ_Δε_Τρ_Τε_Πε_Πα_Σα".split("_"),
+        monthsShort : 'Ιαν_Φεβ_Μαρ_Απρ_Μαϊ_Ιουν_Ιουλ_Αυγ_Σεπ_Οκτ_Νοε_Δεκ'.split('_'),
+        weekdays : 'Κυριακή_Δευτέρα_Τρίτη_Τετάρτη_Πέμπτη_Παρασκευή_Σάββατο'.split('_'),
+        weekdaysShort : 'Κυρ_Δευ_Τρι_Τετ_Πεμ_Παρ_Σαβ'.split('_'),
+        weekdaysMin : 'Κυ_Δε_Τρ_Τε_Πε_Πα_Σα'.split('_'),
         meridiem : function (hours, minutes, isLower) {
             if (hours > 11) {
                 return isLower ? 'μμ' : 'ΜΜ';
@@ -51383,12 +54969,16 @@ IonicModule
                 return isLower ? 'πμ' : 'ΠΜ';
             }
         },
+        isPM : function (input) {
+            return ((input + '').toLowerCase()[0] === 'μ');
+        },
+        meridiemParse : /[ΠΜ]\.?Μ?\.?/i,
         longDateFormat : {
-            LT : "h:mm A",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'h:mm A',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendarEl : {
             sameDay : '[Σήμερα {}] LT',
@@ -51413,22 +55003,22 @@ IonicModule
                 output = output.apply(mom);
             }
 
-            return output.replace("{}", (hours % 12 === 1 ? "στη" : "στις"));
+            return output.replace('{}', (hours % 12 === 1 ? 'στη' : 'στις'));
         },
         relativeTime : {
-            future : "σε %s",
-            past : "%s πριν",
-            s : "δευτερόλεπτα",
-            m : "ένα λεπτό",
-            mm : "%d λεπτά",
-            h : "μία ώρα",
-            hh : "%d ώρες",
-            d : "μία μέρα",
-            dd : "%d μέρες",
-            M : "ένας μήνας",
-            MM : "%d μήνες",
-            y : "ένας χρόνος",
-            yy : "%d χρόνια"
+            future : 'σε %s',
+            past : '%s πριν',
+            s : 'δευτερόλεπτα',
+            m : 'ένα λεπτό',
+            mm : '%d λεπτά',
+            h : 'μία ώρα',
+            hh : '%d ώρες',
+            d : 'μία μέρα',
+            dd : '%d μέρες',
+            M : 'ένας μήνας',
+            MM : '%d μήνες',
+            y : 'ένας χρόνος',
+            yy : '%d χρόνια'
         },
         ordinal : function (number) {
             return number + 'η';
@@ -51446,17 +55036,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('en-au', {
-        months : "January_February_March_April_May_June_July_August_September_October_November_December".split("_"),
-        monthsShort : "Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec".split("_"),
-        weekdays : "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"),
-        weekdaysShort : "Sun_Mon_Tue_Wed_Thu_Fri_Sat".split("_"),
-        weekdaysMin : "Su_Mo_Tu_We_Th_Fr_Sa".split("_"),
+        months : 'January_February_March_April_May_June_July_August_September_October_November_December'.split('_'),
+        monthsShort : 'Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec'.split('_'),
+        weekdays : 'Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday'.split('_'),
+        weekdaysShort : 'Sun_Mon_Tue_Wed_Thu_Fri_Sat'.split('_'),
+        weekdaysMin : 'Su_Mo_Tu_We_Th_Fr_Sa'.split('_'),
         longDateFormat : {
-            LT : "h:mm A",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'h:mm A',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[Today at] LT',
@@ -51467,19 +55057,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "in %s",
-            past : "%s ago",
-            s : "a few seconds",
-            m : "a minute",
-            mm : "%d minutes",
-            h : "an hour",
-            hh : "%d hours",
-            d : "a day",
-            dd : "%d days",
-            M : "a month",
-            MM : "%d months",
-            y : "a year",
-            yy : "%d years"
+            future : 'in %s',
+            past : '%s ago',
+            s : 'a few seconds',
+            m : 'a minute',
+            mm : '%d minutes',
+            h : 'an hour',
+            hh : '%d hours',
+            d : 'a day',
+            dd : '%d days',
+            M : 'a month',
+            MM : '%d months',
+            y : 'a year',
+            yy : '%d years'
         },
         ordinal : function (number) {
             var b = number % 10,
@@ -51503,17 +55093,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('en-ca', {
-        months : "January_February_March_April_May_June_July_August_September_October_November_December".split("_"),
-        monthsShort : "Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec".split("_"),
-        weekdays : "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"),
-        weekdaysShort : "Sun_Mon_Tue_Wed_Thu_Fri_Sat".split("_"),
-        weekdaysMin : "Su_Mo_Tu_We_Th_Fr_Sa".split("_"),
+        months : 'January_February_March_April_May_June_July_August_September_October_November_December'.split('_'),
+        monthsShort : 'Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec'.split('_'),
+        weekdays : 'Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday'.split('_'),
+        weekdaysShort : 'Sun_Mon_Tue_Wed_Thu_Fri_Sat'.split('_'),
+        weekdaysMin : 'Su_Mo_Tu_We_Th_Fr_Sa'.split('_'),
         longDateFormat : {
-            LT : "h:mm A",
-            L : "YYYY-MM-DD",
-            LL : "D MMMM, YYYY",
-            LLL : "D MMMM, YYYY LT",
-            LLLL : "dddd, D MMMM, YYYY LT"
+            LT : 'h:mm A',
+            L : 'YYYY-MM-DD',
+            LL : 'D MMMM, YYYY',
+            LLL : 'D MMMM, YYYY LT',
+            LLLL : 'dddd, D MMMM, YYYY LT'
         },
         calendar : {
             sameDay : '[Today at] LT',
@@ -51524,19 +55114,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "in %s",
-            past : "%s ago",
-            s : "a few seconds",
-            m : "a minute",
-            mm : "%d minutes",
-            h : "an hour",
-            hh : "%d hours",
-            d : "a day",
-            dd : "%d days",
-            M : "a month",
-            MM : "%d months",
-            y : "a year",
-            yy : "%d years"
+            future : 'in %s',
+            past : '%s ago',
+            s : 'a few seconds',
+            m : 'a minute',
+            mm : '%d minutes',
+            h : 'an hour',
+            hh : '%d hours',
+            d : 'a day',
+            dd : '%d days',
+            M : 'a month',
+            MM : '%d months',
+            y : 'a year',
+            yy : '%d years'
         },
         ordinal : function (number) {
             var b = number % 10,
@@ -51556,17 +55146,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('en-gb', {
-        months : "January_February_March_April_May_June_July_August_September_October_November_December".split("_"),
-        monthsShort : "Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec".split("_"),
-        weekdays : "Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday".split("_"),
-        weekdaysShort : "Sun_Mon_Tue_Wed_Thu_Fri_Sat".split("_"),
-        weekdaysMin : "Su_Mo_Tu_We_Th_Fr_Sa".split("_"),
+        months : 'January_February_March_April_May_June_July_August_September_October_November_December'.split('_'),
+        monthsShort : 'Jan_Feb_Mar_Apr_May_Jun_Jul_Aug_Sep_Oct_Nov_Dec'.split('_'),
+        weekdays : 'Sunday_Monday_Tuesday_Wednesday_Thursday_Friday_Saturday'.split('_'),
+        weekdaysShort : 'Sun_Mon_Tue_Wed_Thu_Fri_Sat'.split('_'),
+        weekdaysMin : 'Su_Mo_Tu_We_Th_Fr_Sa'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[Today at] LT',
@@ -51577,19 +55167,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "in %s",
-            past : "%s ago",
-            s : "a few seconds",
-            m : "a minute",
-            mm : "%d minutes",
-            h : "an hour",
-            hh : "%d hours",
-            d : "a day",
-            dd : "%d days",
-            M : "a month",
-            MM : "%d months",
-            y : "a year",
-            yy : "%d years"
+            future : 'in %s',
+            past : '%s ago',
+            s : 'a few seconds',
+            m : 'a minute',
+            mm : '%d minutes',
+            h : 'an hour',
+            hh : '%d hours',
+            d : 'a day',
+            dd : '%d days',
+            M : 'a month',
+            MM : '%d months',
+            y : 'a year',
+            yy : '%d years'
         },
         ordinal : function (number) {
             var b = number % 10,
@@ -51615,17 +55205,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('eo', {
-        months : "januaro_februaro_marto_aprilo_majo_junio_julio_aŭgusto_septembro_oktobro_novembro_decembro".split("_"),
-        monthsShort : "jan_feb_mar_apr_maj_jun_jul_aŭg_sep_okt_nov_dec".split("_"),
-        weekdays : "Dimanĉo_Lundo_Mardo_Merkredo_Ĵaŭdo_Vendredo_Sabato".split("_"),
-        weekdaysShort : "Dim_Lun_Mard_Merk_Ĵaŭ_Ven_Sab".split("_"),
-        weekdaysMin : "Di_Lu_Ma_Me_Ĵa_Ve_Sa".split("_"),
+        months : 'januaro_februaro_marto_aprilo_majo_junio_julio_aŭgusto_septembro_oktobro_novembro_decembro'.split('_'),
+        monthsShort : 'jan_feb_mar_apr_maj_jun_jul_aŭg_sep_okt_nov_dec'.split('_'),
+        weekdays : 'Dimanĉo_Lundo_Mardo_Merkredo_Ĵaŭdo_Vendredo_Sabato'.split('_'),
+        weekdaysShort : 'Dim_Lun_Mard_Merk_Ĵaŭ_Ven_Sab'.split('_'),
+        weekdaysMin : 'Di_Lu_Ma_Me_Ĵa_Ve_Sa'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "YYYY-MM-DD",
-            LL : "D[-an de] MMMM, YYYY",
-            LLL : "D[-an de] MMMM, YYYY LT",
-            LLLL : "dddd, [la] D[-an de] MMMM, YYYY LT"
+            LT : 'HH:mm',
+            L : 'YYYY-MM-DD',
+            LL : 'D[-an de] MMMM, YYYY',
+            LLL : 'D[-an de] MMMM, YYYY LT',
+            LLLL : 'dddd, [la] D[-an de] MMMM, YYYY LT'
         },
         meridiem : function (hours, minutes, isLower) {
             if (hours > 11) {
@@ -51643,21 +55233,21 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "je %s",
-            past : "antaŭ %s",
-            s : "sekundoj",
-            m : "minuto",
-            mm : "%d minutoj",
-            h : "horo",
-            hh : "%d horoj",
-            d : "tago",//ne 'diurno', ĉar estas uzita por proksimumo
-            dd : "%d tagoj",
-            M : "monato",
-            MM : "%d monatoj",
-            y : "jaro",
-            yy : "%d jaroj"
+            future : 'je %s',
+            past : 'antaŭ %s',
+            s : 'sekundoj',
+            m : 'minuto',
+            mm : '%d minutoj',
+            h : 'horo',
+            hh : '%d horoj',
+            d : 'tago',//ne 'diurno', ĉar estas uzita por proksimumo
+            dd : '%d tagoj',
+            M : 'monato',
+            MM : '%d monatoj',
+            y : 'jaro',
+            yy : '%d jaroj'
         },
-        ordinal : "%da",
+        ordinal : '%da',
         week : {
             dow : 1, // Monday is the first day of the week.
             doy : 7  // The week that contains Jan 1st is the first week of the year.
@@ -51671,11 +55261,11 @@ IonicModule
 (function (factory) {
     factory(moment);
 }(function (moment) {
-    var monthsShortDot = "ene._feb._mar._abr._may._jun._jul._ago._sep._oct._nov._dic.".split("_"),
-        monthsShort = "ene_feb_mar_abr_may_jun_jul_ago_sep_oct_nov_dic".split("_");
+    var monthsShortDot = 'ene._feb._mar._abr._may._jun._jul._ago._sep._oct._nov._dic.'.split('_'),
+        monthsShort = 'ene_feb_mar_abr_may_jun_jul_ago_sep_oct_nov_dic'.split('_');
 
     return moment.defineLocale('es', {
-        months : "enero_febrero_marzo_abril_mayo_junio_julio_agosto_septiembre_octubre_noviembre_diciembre".split("_"),
+        months : 'enero_febrero_marzo_abril_mayo_junio_julio_agosto_septiembre_octubre_noviembre_diciembre'.split('_'),
         monthsShort : function (m, format) {
             if (/-MMM-/.test(format)) {
                 return monthsShort[m.month()];
@@ -51683,15 +55273,15 @@ IonicModule
                 return monthsShortDot[m.month()];
             }
         },
-        weekdays : "domingo_lunes_martes_miércoles_jueves_viernes_sábado".split("_"),
-        weekdaysShort : "dom._lun._mar._mié._jue._vie._sáb.".split("_"),
-        weekdaysMin : "Do_Lu_Ma_Mi_Ju_Vi_Sá".split("_"),
+        weekdays : 'domingo_lunes_martes_miércoles_jueves_viernes_sábado'.split('_'),
+        weekdaysShort : 'dom._lun._mar._mié._jue._vie._sáb.'.split('_'),
+        weekdaysMin : 'Do_Lu_Ma_Mi_Ju_Vi_Sá'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "DD/MM/YYYY",
-            LL : "D [de] MMMM [del] YYYY",
-            LLL : "D [de] MMMM [del] YYYY LT",
-            LLLL : "dddd, D [de] MMMM [del] YYYY LT"
+            LT : 'H:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D [de] MMMM [de] YYYY',
+            LLL : 'D [de] MMMM [de] YYYY LT',
+            LLLL : 'dddd, D [de] MMMM [de] YYYY LT'
         },
         calendar : {
             sameDay : function () {
@@ -51712,19 +55302,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "en %s",
-            past : "hace %s",
-            s : "unos segundos",
-            m : "un minuto",
-            mm : "%d minutos",
-            h : "una hora",
-            hh : "%d horas",
-            d : "un día",
-            dd : "%d días",
-            M : "un mes",
-            MM : "%d meses",
-            y : "un año",
-            yy : "%d años"
+            future : 'en %s',
+            past : 'hace %s',
+            s : 'unos segundos',
+            m : 'un minuto',
+            mm : '%d minutos',
+            h : 'una hora',
+            hh : '%d horas',
+            d : 'un día',
+            dd : '%d días',
+            M : 'un mes',
+            MM : '%d meses',
+            y : 'un año',
+            yy : '%d años'
         },
         ordinal : '%dº',
         week : {
@@ -51761,17 +55351,17 @@ IonicModule
     }
 
     return moment.defineLocale('et', {
-        months        : "jaanuar_veebruar_märts_aprill_mai_juuni_juuli_august_september_oktoober_november_detsember".split("_"),
-        monthsShort   : "jaan_veebr_märts_apr_mai_juuni_juuli_aug_sept_okt_nov_dets".split("_"),
-        weekdays      : "pühapäev_esmaspäev_teisipäev_kolmapäev_neljapäev_reede_laupäev".split("_"),
-        weekdaysShort : "P_E_T_K_N_R_L".split("_"),
-        weekdaysMin   : "P_E_T_K_N_R_L".split("_"),
+        months        : 'jaanuar_veebruar_märts_aprill_mai_juuni_juuli_august_september_oktoober_november_detsember'.split('_'),
+        monthsShort   : 'jaan_veebr_märts_apr_mai_juuni_juuli_aug_sept_okt_nov_dets'.split('_'),
+        weekdays      : 'pühapäev_esmaspäev_teisipäev_kolmapäev_neljapäev_reede_laupäev'.split('_'),
+        weekdaysShort : 'P_E_T_K_N_R_L'.split('_'),
+        weekdaysMin   : 'P_E_T_K_N_R_L'.split('_'),
         longDateFormat : {
-            LT   : "H:mm",
-            L    : "DD.MM.YYYY",
-            LL   : "D. MMMM YYYY",
-            LLL  : "D. MMMM YYYY LT",
-            LLLL : "dddd, D. MMMM YYYY LT"
+            LT   : 'H:mm',
+            L    : 'DD.MM.YYYY',
+            LL   : 'D. MMMM YYYY',
+            LLL  : 'D. MMMM YYYY LT',
+            LLLL : 'dddd, D. MMMM YYYY LT'
         },
         calendar : {
             sameDay  : '[Täna,] LT',
@@ -51782,8 +55372,8 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s pärast",
-            past   : "%s tagasi",
+            future : '%s pärast',
+            past   : '%s tagasi',
             s      : processRelativeTime,
             m      : processRelativeTime,
             mm     : processRelativeTime,
@@ -51811,21 +55401,21 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('eu', {
-        months : "urtarrila_otsaila_martxoa_apirila_maiatza_ekaina_uztaila_abuztua_iraila_urria_azaroa_abendua".split("_"),
-        monthsShort : "urt._ots._mar._api._mai._eka._uzt._abu._ira._urr._aza._abe.".split("_"),
-        weekdays : "igandea_astelehena_asteartea_asteazkena_osteguna_ostirala_larunbata".split("_"),
-        weekdaysShort : "ig._al._ar._az._og._ol._lr.".split("_"),
-        weekdaysMin : "ig_al_ar_az_og_ol_lr".split("_"),
+        months : 'urtarrila_otsaila_martxoa_apirila_maiatza_ekaina_uztaila_abuztua_iraila_urria_azaroa_abendua'.split('_'),
+        monthsShort : 'urt._ots._mar._api._mai._eka._uzt._abu._ira._urr._aza._abe.'.split('_'),
+        weekdays : 'igandea_astelehena_asteartea_asteazkena_osteguna_ostirala_larunbata'.split('_'),
+        weekdaysShort : 'ig._al._ar._az._og._ol._lr.'.split('_'),
+        weekdaysMin : 'ig_al_ar_az_og_ol_lr'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "YYYY-MM-DD",
-            LL : "YYYY[ko] MMMM[ren] D[a]",
-            LLL : "YYYY[ko] MMMM[ren] D[a] LT",
-            LLLL : "dddd, YYYY[ko] MMMM[ren] D[a] LT",
-            l : "YYYY-M-D",
-            ll : "YYYY[ko] MMM D[a]",
-            lll : "YYYY[ko] MMM D[a] LT",
-            llll : "ddd, YYYY[ko] MMM D[a] LT"
+            LT : 'HH:mm',
+            L : 'YYYY-MM-DD',
+            LL : 'YYYY[ko] MMMM[ren] D[a]',
+            LLL : 'YYYY[ko] MMMM[ren] D[a] LT',
+            LLLL : 'dddd, YYYY[ko] MMMM[ren] D[a] LT',
+            l : 'YYYY-M-D',
+            ll : 'YYYY[ko] MMM D[a]',
+            lll : 'YYYY[ko] MMM D[a] LT',
+            llll : 'ddd, YYYY[ko] MMM D[a] LT'
         },
         calendar : {
             sameDay : '[gaur] LT[etan]',
@@ -51836,19 +55426,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s barru",
-            past : "duela %s",
-            s : "segundo batzuk",
-            m : "minutu bat",
-            mm : "%d minutu",
-            h : "ordu bat",
-            hh : "%d ordu",
-            d : "egun bat",
-            dd : "%d egun",
-            M : "hilabete bat",
-            MM : "%d hilabete",
-            y : "urte bat",
-            yy : "%d urte"
+            future : '%s barru',
+            past : 'duela %s',
+            s : 'segundo batzuk',
+            m : 'minutu bat',
+            mm : '%d minutu',
+            h : 'ordu bat',
+            hh : '%d ordu',
+            d : 'egun bat',
+            dd : '%d egun',
+            M : 'hilabete bat',
+            MM : '%d hilabete',
+            y : 'urte bat',
+            yy : '%d urte'
         },
         ordinal : '%d.',
         week : {
@@ -51858,7 +55448,7 @@ IonicModule
     });
 }));
 // moment.js locale configuration
-// locale : Persian
+// locale : Persian (fa)
 // author : Ebrahim Byagowi : https://github.com/ebraminio
 
 (function (factory) {
@@ -51903,9 +55493,9 @@ IonicModule
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 12) {
-                return "قبل از ظهر";
+                return 'قبل از ظهر';
             } else {
-                return "بعد از ظهر";
+                return 'بعد از ظهر';
             }
         },
         calendar : {
@@ -51962,7 +55552,7 @@ IonicModule
         ];
 
     function translate(number, withoutSuffix, key, isFuture) {
-        var result = "";
+        var result = '';
         switch (key) {
         case 's':
             return isFuture ? 'muutaman sekunnin' : 'muutama sekunti';
@@ -51992,7 +55582,7 @@ IonicModule
             result = isFuture ? 'vuoden' : 'vuotta';
             break;
         }
-        result = verbalNumber(number, isFuture) + " " + result;
+        result = verbalNumber(number, isFuture) + ' ' + result;
         return result;
     }
 
@@ -52001,21 +55591,21 @@ IonicModule
     }
 
     return moment.defineLocale('fi', {
-        months : "tammikuu_helmikuu_maaliskuu_huhtikuu_toukokuu_kesäkuu_heinäkuu_elokuu_syyskuu_lokakuu_marraskuu_joulukuu".split("_"),
-        monthsShort : "tammi_helmi_maalis_huhti_touko_kesä_heinä_elo_syys_loka_marras_joulu".split("_"),
-        weekdays : "sunnuntai_maanantai_tiistai_keskiviikko_torstai_perjantai_lauantai".split("_"),
-        weekdaysShort : "su_ma_ti_ke_to_pe_la".split("_"),
-        weekdaysMin : "su_ma_ti_ke_to_pe_la".split("_"),
+        months : 'tammikuu_helmikuu_maaliskuu_huhtikuu_toukokuu_kesäkuu_heinäkuu_elokuu_syyskuu_lokakuu_marraskuu_joulukuu'.split('_'),
+        monthsShort : 'tammi_helmi_maalis_huhti_touko_kesä_heinä_elo_syys_loka_marras_joulu'.split('_'),
+        weekdays : 'sunnuntai_maanantai_tiistai_keskiviikko_torstai_perjantai_lauantai'.split('_'),
+        weekdaysShort : 'su_ma_ti_ke_to_pe_la'.split('_'),
+        weekdaysMin : 'su_ma_ti_ke_to_pe_la'.split('_'),
         longDateFormat : {
-            LT : "HH.mm",
-            L : "DD.MM.YYYY",
-            LL : "Do MMMM[ta] YYYY",
-            LLL : "Do MMMM[ta] YYYY, [klo] LT",
-            LLLL : "dddd, Do MMMM[ta] YYYY, [klo] LT",
-            l : "D.M.YYYY",
-            ll : "Do MMM YYYY",
-            lll : "Do MMM YYYY, [klo] LT",
-            llll : "ddd, Do MMM YYYY, [klo] LT"
+            LT : 'HH.mm',
+            L : 'DD.MM.YYYY',
+            LL : 'Do MMMM[ta] YYYY',
+            LLL : 'Do MMMM[ta] YYYY, [klo] LT',
+            LLLL : 'dddd, Do MMMM[ta] YYYY, [klo] LT',
+            l : 'D.M.YYYY',
+            ll : 'Do MMM YYYY',
+            lll : 'Do MMM YYYY, [klo] LT',
+            llll : 'ddd, Do MMM YYYY, [klo] LT'
         },
         calendar : {
             sameDay : '[tänään] [klo] LT',
@@ -52026,8 +55616,8 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s päästä",
-            past : "%s sitten",
+            future : '%s päästä',
+            past : '%s sitten',
             s : translate,
             m : translate,
             mm : translate,
@@ -52040,7 +55630,7 @@ IonicModule
             y : translate,
             yy : translate
         },
-        ordinal : "%d.",
+        ordinal : '%d.',
         week : {
             dow : 1, // Monday is the first day of the week.
             doy : 4  // The week that contains Jan 4th is the first week of the year.
@@ -52055,17 +55645,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('fo', {
-        months : "januar_februar_mars_apríl_mai_juni_juli_august_september_oktober_november_desember".split("_"),
-        monthsShort : "jan_feb_mar_apr_mai_jun_jul_aug_sep_okt_nov_des".split("_"),
-        weekdays : "sunnudagur_mánadagur_týsdagur_mikudagur_hósdagur_fríggjadagur_leygardagur".split("_"),
-        weekdaysShort : "sun_mán_týs_mik_hós_frí_ley".split("_"),
-        weekdaysMin : "su_má_tý_mi_hó_fr_le".split("_"),
+        months : 'januar_februar_mars_apríl_mai_juni_juli_august_september_oktober_november_desember'.split('_'),
+        monthsShort : 'jan_feb_mar_apr_mai_jun_jul_aug_sep_okt_nov_des'.split('_'),
+        weekdays : 'sunnudagur_mánadagur_týsdagur_mikudagur_hósdagur_fríggjadagur_leygardagur'.split('_'),
+        weekdaysShort : 'sun_mán_týs_mik_hós_frí_ley'.split('_'),
+        weekdaysMin : 'su_má_tý_mi_hó_fr_le'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D. MMMM, YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D. MMMM, YYYY LT'
         },
         calendar : {
             sameDay : '[Í dag kl.] LT',
@@ -52076,19 +55666,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "um %s",
-            past : "%s síðani",
-            s : "fá sekund",
-            m : "ein minutt",
-            mm : "%d minuttir",
-            h : "ein tími",
-            hh : "%d tímar",
-            d : "ein dagur",
-            dd : "%d dagar",
-            M : "ein mánaði",
-            MM : "%d mánaðir",
-            y : "eitt ár",
-            yy : "%d ár"
+            future : 'um %s',
+            past : '%s síðani',
+            s : 'fá sekund',
+            m : 'ein minutt',
+            mm : '%d minuttir',
+            h : 'ein tími',
+            hh : '%d tímar',
+            d : 'ein dagur',
+            dd : '%d dagar',
+            M : 'ein mánaði',
+            MM : '%d mánaðir',
+            y : 'eitt ár',
+            yy : '%d ár'
         },
         ordinal : '%d.',
         week : {
@@ -52105,20 +55695,20 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('fr-ca', {
-        months : "janvier_février_mars_avril_mai_juin_juillet_août_septembre_octobre_novembre_décembre".split("_"),
-        monthsShort : "janv._févr._mars_avr._mai_juin_juil._août_sept._oct._nov._déc.".split("_"),
-        weekdays : "dimanche_lundi_mardi_mercredi_jeudi_vendredi_samedi".split("_"),
-        weekdaysShort : "dim._lun._mar._mer._jeu._ven._sam.".split("_"),
-        weekdaysMin : "Di_Lu_Ma_Me_Je_Ve_Sa".split("_"),
+        months : 'janvier_février_mars_avril_mai_juin_juillet_août_septembre_octobre_novembre_décembre'.split('_'),
+        monthsShort : 'janv._févr._mars_avr._mai_juin_juil._août_sept._oct._nov._déc.'.split('_'),
+        weekdays : 'dimanche_lundi_mardi_mercredi_jeudi_vendredi_samedi'.split('_'),
+        weekdaysShort : 'dim._lun._mar._mer._jeu._ven._sam.'.split('_'),
+        weekdaysMin : 'Di_Lu_Ma_Me_Je_Ve_Sa'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "YYYY-MM-DD",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'YYYY-MM-DD',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[Aujourd'hui à] LT",
+            sameDay: '[Aujourd\'hui à] LT',
             nextDay: '[Demain à] LT',
             nextWeek: 'dddd [à] LT',
             lastDay: '[Hier à] LT',
@@ -52126,19 +55716,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "dans %s",
-            past : "il y a %s",
-            s : "quelques secondes",
-            m : "une minute",
-            mm : "%d minutes",
-            h : "une heure",
-            hh : "%d heures",
-            d : "un jour",
-            dd : "%d jours",
-            M : "un mois",
-            MM : "%d mois",
-            y : "un an",
-            yy : "%d ans"
+            future : 'dans %s',
+            past : 'il y a %s',
+            s : 'quelques secondes',
+            m : 'une minute',
+            mm : '%d minutes',
+            h : 'une heure',
+            hh : '%d heures',
+            d : 'un jour',
+            dd : '%d jours',
+            M : 'un mois',
+            MM : '%d mois',
+            y : 'un an',
+            yy : '%d ans'
         },
         ordinal : function (number) {
             return number + (number === 1 ? 'er' : '');
@@ -52153,20 +55743,20 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('fr', {
-        months : "janvier_février_mars_avril_mai_juin_juillet_août_septembre_octobre_novembre_décembre".split("_"),
-        monthsShort : "janv._févr._mars_avr._mai_juin_juil._août_sept._oct._nov._déc.".split("_"),
-        weekdays : "dimanche_lundi_mardi_mercredi_jeudi_vendredi_samedi".split("_"),
-        weekdaysShort : "dim._lun._mar._mer._jeu._ven._sam.".split("_"),
-        weekdaysMin : "Di_Lu_Ma_Me_Je_Ve_Sa".split("_"),
+        months : 'janvier_février_mars_avril_mai_juin_juillet_août_septembre_octobre_novembre_décembre'.split('_'),
+        monthsShort : 'janv._févr._mars_avr._mai_juin_juil._août_sept._oct._nov._déc.'.split('_'),
+        weekdays : 'dimanche_lundi_mardi_mercredi_jeudi_vendredi_samedi'.split('_'),
+        weekdaysShort : 'dim._lun._mar._mer._jeu._ven._sam.'.split('_'),
+        weekdaysMin : 'Di_Lu_Ma_Me_Je_Ve_Sa'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[Aujourd'hui à] LT",
+            sameDay: '[Aujourd\'hui à] LT',
             nextDay: '[Demain à] LT',
             nextWeek: 'dddd [à] LT',
             lastDay: '[Hier à] LT',
@@ -52174,19 +55764,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "dans %s",
-            past : "il y a %s",
-            s : "quelques secondes",
-            m : "une minute",
-            mm : "%d minutes",
-            h : "une heure",
-            hh : "%d heures",
-            d : "un jour",
-            dd : "%d jours",
-            M : "un mois",
-            MM : "%d mois",
-            y : "un an",
-            yy : "%d ans"
+            future : 'dans %s',
+            past : 'il y a %s',
+            s : 'quelques secondes',
+            m : 'une minute',
+            mm : '%d minutes',
+            h : 'une heure',
+            hh : '%d heures',
+            d : 'un jour',
+            dd : '%d jours',
+            M : 'un mois',
+            MM : '%d mois',
+            y : 'un an',
+            yy : '%d ans'
         },
         ordinal : function (number) {
             return number + (number === 1 ? 'er' : '');
@@ -52205,17 +55795,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('gl', {
-        months : "Xaneiro_Febreiro_Marzo_Abril_Maio_Xuño_Xullo_Agosto_Setembro_Outubro_Novembro_Decembro".split("_"),
-        monthsShort : "Xan._Feb._Mar._Abr._Mai._Xuñ._Xul._Ago._Set._Out._Nov._Dec.".split("_"),
-        weekdays : "Domingo_Luns_Martes_Mércores_Xoves_Venres_Sábado".split("_"),
-        weekdaysShort : "Dom._Lun._Mar._Mér._Xov._Ven._Sáb.".split("_"),
-        weekdaysMin : "Do_Lu_Ma_Mé_Xo_Ve_Sá".split("_"),
+        months : 'Xaneiro_Febreiro_Marzo_Abril_Maio_Xuño_Xullo_Agosto_Setembro_Outubro_Novembro_Decembro'.split('_'),
+        monthsShort : 'Xan._Feb._Mar._Abr._Mai._Xuñ._Xul._Ago._Set._Out._Nov._Dec.'.split('_'),
+        weekdays : 'Domingo_Luns_Martes_Mércores_Xoves_Venres_Sábado'.split('_'),
+        weekdaysShort : 'Dom._Lun._Mar._Mér._Xov._Ven._Sáb.'.split('_'),
+        weekdaysMin : 'Do_Lu_Ma_Mé_Xo_Ve_Sá'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'H:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
             sameDay : function () {
@@ -52237,23 +55827,23 @@ IonicModule
         },
         relativeTime : {
             future : function (str) {
-                if (str === "uns segundos") {
-                    return "nuns segundos";
+                if (str === 'uns segundos') {
+                    return 'nuns segundos';
                 }
-                return "en " + str;
+                return 'en ' + str;
             },
-            past : "hai %s",
-            s : "uns segundos",
-            m : "un minuto",
-            mm : "%d minutos",
-            h : "unha hora",
-            hh : "%d horas",
-            d : "un día",
-            dd : "%d días",
-            M : "un mes",
-            MM : "%d meses",
-            y : "un ano",
-            yy : "%d anos"
+            past : 'hai %s',
+            s : 'uns segundos',
+            m : 'un minuto',
+            mm : '%d minutos',
+            h : 'unha hora',
+            hh : '%d horas',
+            d : 'un día',
+            dd : '%d días',
+            M : 'un mes',
+            MM : '%d meses',
+            y : 'un ano',
+            yy : '%d anos'
         },
         ordinal : '%dº',
         week : {
@@ -52272,21 +55862,21 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('he', {
-        months : "ינואר_פברואר_מרץ_אפריל_מאי_יוני_יולי_אוגוסט_ספטמבר_אוקטובר_נובמבר_דצמבר".split("_"),
-        monthsShort : "ינו׳_פבר׳_מרץ_אפר׳_מאי_יוני_יולי_אוג׳_ספט׳_אוק׳_נוב׳_דצמ׳".split("_"),
-        weekdays : "ראשון_שני_שלישי_רביעי_חמישי_שישי_שבת".split("_"),
-        weekdaysShort : "א׳_ב׳_ג׳_ד׳_ה׳_ו׳_ש׳".split("_"),
-        weekdaysMin : "א_ב_ג_ד_ה_ו_ש".split("_"),
+        months : 'ינואר_פברואר_מרץ_אפריל_מאי_יוני_יולי_אוגוסט_ספטמבר_אוקטובר_נובמבר_דצמבר'.split('_'),
+        monthsShort : 'ינו׳_פבר׳_מרץ_אפר׳_מאי_יוני_יולי_אוג׳_ספט׳_אוק׳_נוב׳_דצמ׳'.split('_'),
+        weekdays : 'ראשון_שני_שלישי_רביעי_חמישי_שישי_שבת'.split('_'),
+        weekdaysShort : 'א׳_ב׳_ג׳_ד׳_ה׳_ו׳_ש׳'.split('_'),
+        weekdaysMin : 'א_ב_ג_ד_ה_ו_ש'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D [ב]MMMM YYYY",
-            LLL : "D [ב]MMMM YYYY LT",
-            LLLL : "dddd, D [ב]MMMM YYYY LT",
-            l : "D/M/YYYY",
-            ll : "D MMM YYYY",
-            lll : "D MMM YYYY LT",
-            llll : "ddd, D MMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D [ב]MMMM YYYY',
+            LLL : 'D [ב]MMMM YYYY LT',
+            LLLL : 'dddd, D [ב]MMMM YYYY LT',
+            l : 'D/M/YYYY',
+            ll : 'D MMM YYYY',
+            lll : 'D MMM YYYY LT',
+            llll : 'ddd, D MMM YYYY LT'
         },
         calendar : {
             sameDay : '[היום ב־]LT',
@@ -52297,38 +55887,38 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "בעוד %s",
-            past : "לפני %s",
-            s : "מספר שניות",
-            m : "דקה",
-            mm : "%d דקות",
-            h : "שעה",
+            future : 'בעוד %s',
+            past : 'לפני %s',
+            s : 'מספר שניות',
+            m : 'דקה',
+            mm : '%d דקות',
+            h : 'שעה',
             hh : function (number) {
                 if (number === 2) {
-                    return "שעתיים";
+                    return 'שעתיים';
                 }
-                return number + " שעות";
+                return number + ' שעות';
             },
-            d : "יום",
+            d : 'יום',
             dd : function (number) {
                 if (number === 2) {
-                    return "יומיים";
+                    return 'יומיים';
                 }
-                return number + " ימים";
+                return number + ' ימים';
             },
-            M : "חודש",
+            M : 'חודש',
             MM : function (number) {
                 if (number === 2) {
-                    return "חודשיים";
+                    return 'חודשיים';
                 }
-                return number + " חודשים";
+                return number + ' חודשים';
             },
-            y : "שנה",
+            y : 'שנה',
             yy : function (number) {
                 if (number === 2) {
-                    return "שנתיים";
+                    return 'שנתיים';
                 }
-                return number + " שנים";
+                return number + ' שנים';
             }
         }
     });
@@ -52366,17 +55956,17 @@ IonicModule
     };
 
     return moment.defineLocale('hi', {
-        months : 'जनवरी_फ़रवरी_मार्च_अप्रैल_मई_जून_जुलाई_अगस्त_सितम्बर_अक्टूबर_नवम्बर_दिसम्बर'.split("_"),
-        monthsShort : 'जन._फ़र._मार्च_अप्रै._मई_जून_जुल._अग._सित._अक्टू._नव._दिस.'.split("_"),
-        weekdays : 'रविवार_सोमवार_मंगलवार_बुधवार_गुरूवार_शुक्रवार_शनिवार'.split("_"),
-        weekdaysShort : 'रवि_सोम_मंगल_बुध_गुरू_शुक्र_शनि'.split("_"),
-        weekdaysMin : 'र_सो_मं_बु_गु_शु_श'.split("_"),
+        months : 'जनवरी_फ़रवरी_मार्च_अप्रैल_मई_जून_जुलाई_अगस्त_सितम्बर_अक्टूबर_नवम्बर_दिसम्बर'.split('_'),
+        monthsShort : 'जन._फ़र._मार्च_अप्रै._मई_जून_जुल._अग._सित._अक्टू._नव._दिस.'.split('_'),
+        weekdays : 'रविवार_सोमवार_मंगलवार_बुधवार_गुरूवार_शुक्रवार_शनिवार'.split('_'),
+        weekdaysShort : 'रवि_सोम_मंगल_बुध_गुरू_शुक्र_शनि'.split('_'),
+        weekdaysMin : 'र_सो_मं_बु_गु_शु_श'.split('_'),
         longDateFormat : {
-            LT : "A h:mm बजे",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY, LT",
-            LLLL : "dddd, D MMMM YYYY, LT"
+            LT : 'A h:mm बजे',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY, LT',
+            LLLL : 'dddd, D MMMM YYYY, LT'
         },
         calendar : {
             sameDay : '[आज] LT',
@@ -52387,19 +55977,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s में",
-            past : "%s पहले",
-            s : "कुछ ही क्षण",
-            m : "एक मिनट",
-            mm : "%d मिनट",
-            h : "एक घंटा",
-            hh : "%d घंटे",
-            d : "एक दिन",
-            dd : "%d दिन",
-            M : "एक महीने",
-            MM : "%d महीने",
-            y : "एक वर्ष",
-            yy : "%d वर्ष"
+            future : '%s में',
+            past : '%s पहले',
+            s : 'कुछ ही क्षण',
+            m : 'एक मिनट',
+            mm : '%d मिनट',
+            h : 'एक घंटा',
+            hh : '%d घंटे',
+            d : 'एक दिन',
+            dd : '%d दिन',
+            M : 'एक महीने',
+            MM : '%d महीने',
+            y : 'एक वर्ष',
+            yy : '%d वर्ष'
         },
         preparse: function (string) {
             return string.replace(/[१२३४५६७८९०]/g, function (match) {
@@ -52415,15 +56005,15 @@ IonicModule
         // a rigid notion of a 'Pahar' it is not used as rigidly in modern Hindi.
         meridiem : function (hour, minute, isLower) {
             if (hour < 4) {
-                return "रात";
+                return 'रात';
             } else if (hour < 10) {
-                return "सुबह";
+                return 'सुबह';
             } else if (hour < 17) {
-                return "दोपहर";
+                return 'दोपहर';
             } else if (hour < 20) {
-                return "शाम";
+                return 'शाम';
             } else {
-                return "रात";
+                return 'रात';
             }
         },
         week : {
@@ -52442,7 +56032,7 @@ IonicModule
     factory(moment);
 }(function (moment) {
     function translate(number, withoutSuffix, key) {
-        var result = number + " ";
+        var result = number + ' ';
         switch (key) {
         case 'm':
             return withoutSuffix ? 'jedna minuta' : 'jedne minute';
@@ -52495,17 +56085,17 @@ IonicModule
     }
 
     return moment.defineLocale('hr', {
-        months : "sječanj_veljača_ožujak_travanj_svibanj_lipanj_srpanj_kolovoz_rujan_listopad_studeni_prosinac".split("_"),
-        monthsShort : "sje._vel._ožu._tra._svi._lip._srp._kol._ruj._lis._stu._pro.".split("_"),
-        weekdays : "nedjelja_ponedjeljak_utorak_srijeda_četvrtak_petak_subota".split("_"),
-        weekdaysShort : "ned._pon._uto._sri._čet._pet._sub.".split("_"),
-        weekdaysMin : "ne_po_ut_sr_če_pe_su".split("_"),
+        months : 'sječanj_veljača_ožujak_travanj_svibanj_lipanj_srpanj_kolovoz_rujan_listopad_studeni_prosinac'.split('_'),
+        monthsShort : 'sje._vel._ožu._tra._svi._lip._srp._kol._ruj._lis._stu._pro.'.split('_'),
+        weekdays : 'nedjelja_ponedjeljak_utorak_srijeda_četvrtak_petak_subota'.split('_'),
+        weekdaysShort : 'ned._pon._uto._sri._čet._pet._sub.'.split('_'),
+        weekdaysMin : 'ne_po_ut_sr_če_pe_su'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "DD. MM. YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY LT",
-            LLLL : "dddd, D. MMMM YYYY LT"
+            LT : 'H:mm',
+            L : 'DD. MM. YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY LT',
+            LLLL : 'dddd, D. MMMM YYYY LT'
         },
         calendar : {
             sameDay  : '[danas u] LT',
@@ -52544,18 +56134,18 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "za %s",
-            past   : "prije %s",
-            s      : "par sekundi",
+            future : 'za %s',
+            past   : 'prije %s',
+            s      : 'par sekundi',
             m      : translate,
             mm     : translate,
             h      : translate,
             hh     : translate,
-            d      : "dan",
+            d      : 'dan',
             dd     : translate,
-            M      : "mjesec",
+            M      : 'mjesec',
             MM     : translate,
-            y      : "godinu",
+            y      : 'godinu',
             yy     : translate
         },
         ordinal : '%d.',
@@ -52611,17 +56201,17 @@ IonicModule
     }
 
     return moment.defineLocale('hu', {
-        months : "január_február_március_április_május_június_július_augusztus_szeptember_október_november_december".split("_"),
-        monthsShort : "jan_feb_márc_ápr_máj_jún_júl_aug_szept_okt_nov_dec".split("_"),
-        weekdays : "vasárnap_hétfő_kedd_szerda_csütörtök_péntek_szombat".split("_"),
-        weekdaysShort : "vas_hét_kedd_sze_csüt_pén_szo".split("_"),
-        weekdaysMin : "v_h_k_sze_cs_p_szo".split("_"),
+        months : 'január_február_március_április_május_június_július_augusztus_szeptember_október_november_december'.split('_'),
+        monthsShort : 'jan_feb_márc_ápr_máj_jún_júl_aug_szept_okt_nov_dec'.split('_'),
+        weekdays : 'vasárnap_hétfő_kedd_szerda_csütörtök_péntek_szombat'.split('_'),
+        weekdaysShort : 'vas_hét_kedd_sze_csüt_pén_szo'.split('_'),
+        weekdaysMin : 'v_h_k_sze_cs_p_szo'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "YYYY.MM.DD.",
-            LL : "YYYY. MMMM D.",
-            LLL : "YYYY. MMMM D., LT",
-            LLLL : "YYYY. MMMM D., dddd LT"
+            LT : 'H:mm',
+            L : 'YYYY.MM.DD.',
+            LL : 'YYYY. MMMM D.',
+            LLL : 'YYYY. MMMM D., LT',
+            LLLL : 'YYYY. MMMM D., dddd LT'
         },
         meridiem : function (hours, minutes, isLower) {
             if (hours < 12) {
@@ -52643,8 +56233,8 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s múlva",
-            past : "%s",
+            future : '%s múlva',
+            past : '%s',
             s : translate,
             m : translate,
             mm : translate,
@@ -52700,14 +56290,14 @@ IonicModule
         months : monthsCaseReplace,
         monthsShort : monthsShortCaseReplace,
         weekdays : weekdaysCaseReplace,
-        weekdaysShort : "կրկ_երկ_երք_չրք_հնգ_ուրբ_շբթ".split("_"),
-        weekdaysMin : "կրկ_երկ_երք_չրք_հնգ_ուրբ_շբթ".split("_"),
+        weekdaysShort : 'կրկ_երկ_երք_չրք_հնգ_ուրբ_շբթ'.split('_'),
+        weekdaysMin : 'կրկ_երկ_երք_չրք_հնգ_ուրբ_շբթ'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY թ.",
-            LLL : "D MMMM YYYY թ., LT",
-            LLLL : "dddd, D MMMM YYYY թ., LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY թ.',
+            LLL : 'D MMMM YYYY թ., LT',
+            LLLL : 'dddd, D MMMM YYYY թ., LT'
         },
         calendar : {
             sameDay: '[այսօր] LT',
@@ -52722,30 +56312,30 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "%s հետո",
-            past : "%s առաջ",
-            s : "մի քանի վայրկյան",
-            m : "րոպե",
-            mm : "%d րոպե",
-            h : "ժամ",
-            hh : "%d ժամ",
-            d : "օր",
-            dd : "%d օր",
-            M : "ամիս",
-            MM : "%d ամիս",
-            y : "տարի",
-            yy : "%d տարի"
+            future : '%s հետո',
+            past : '%s առաջ',
+            s : 'մի քանի վայրկյան',
+            m : 'րոպե',
+            mm : '%d րոպե',
+            h : 'ժամ',
+            hh : '%d ժամ',
+            d : 'օր',
+            dd : '%d օր',
+            M : 'ամիս',
+            MM : '%d ամիս',
+            y : 'տարի',
+            yy : '%d տարի'
         },
 
         meridiem : function (hour) {
             if (hour < 4) {
-                return "գիշերվա";
+                return 'գիշերվա';
             } else if (hour < 12) {
-                return "առավոտվա";
+                return 'առավոտվա';
             } else if (hour < 17) {
-                return "ցերեկվա";
+                return 'ցերեկվա';
             } else {
-                return "երեկոյան";
+                return 'երեկոյան';
             }
         },
 
@@ -52779,17 +56369,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('id', {
-        months : "Januari_Februari_Maret_April_Mei_Juni_Juli_Agustus_September_Oktober_November_Desember".split("_"),
-        monthsShort : "Jan_Feb_Mar_Apr_Mei_Jun_Jul_Ags_Sep_Okt_Nov_Des".split("_"),
-        weekdays : "Minggu_Senin_Selasa_Rabu_Kamis_Jumat_Sabtu".split("_"),
-        weekdaysShort : "Min_Sen_Sel_Rab_Kam_Jum_Sab".split("_"),
-        weekdaysMin : "Mg_Sn_Sl_Rb_Km_Jm_Sb".split("_"),
+        months : 'Januari_Februari_Maret_April_Mei_Juni_Juli_Agustus_September_Oktober_November_Desember'.split('_'),
+        monthsShort : 'Jan_Feb_Mar_Apr_Mei_Jun_Jul_Ags_Sep_Okt_Nov_Des'.split('_'),
+        weekdays : 'Minggu_Senin_Selasa_Rabu_Kamis_Jumat_Sabtu'.split('_'),
+        weekdaysShort : 'Min_Sen_Sel_Rab_Kam_Jum_Sab'.split('_'),
+        weekdaysMin : 'Mg_Sn_Sl_Rb_Km_Jm_Sb'.split('_'),
         longDateFormat : {
-            LT : "HH.mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY [pukul] LT",
-            LLLL : "dddd, D MMMM YYYY [pukul] LT"
+            LT : 'HH.mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY [pukul] LT',
+            LLLL : 'dddd, D MMMM YYYY [pukul] LT'
         },
         meridiem : function (hours, minutes, isLower) {
             if (hours < 11) {
@@ -52811,19 +56401,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "dalam %s",
-            past : "%s yang lalu",
-            s : "beberapa detik",
-            m : "semenit",
-            mm : "%d menit",
-            h : "sejam",
-            hh : "%d jam",
-            d : "sehari",
-            dd : "%d hari",
-            M : "sebulan",
-            MM : "%d bulan",
-            y : "setahun",
-            yy : "%d tahun"
+            future : 'dalam %s',
+            past : '%s yang lalu',
+            s : 'beberapa detik',
+            m : 'semenit',
+            mm : '%d menit',
+            h : 'sejam',
+            hh : '%d jam',
+            d : 'sehari',
+            dd : '%d hari',
+            M : 'sebulan',
+            MM : '%d bulan',
+            y : 'setahun',
+            yy : '%d tahun'
         },
         week : {
             dow : 1, // Monday is the first day of the week.
@@ -52848,7 +56438,7 @@ IonicModule
     }
 
     function translate(number, withoutSuffix, key, isFuture) {
-        var result = number + " ";
+        var result = number + ' ';
         switch (key) {
         case 's':
             return withoutSuffix || isFuture ? 'nokkrar sekúndur' : 'nokkrum sekúndum';
@@ -52907,17 +56497,17 @@ IonicModule
     }
 
     return moment.defineLocale('is', {
-        months : "janúar_febrúar_mars_apríl_maí_júní_júlí_ágúst_september_október_nóvember_desember".split("_"),
-        monthsShort : "jan_feb_mar_apr_maí_jún_júl_ágú_sep_okt_nóv_des".split("_"),
-        weekdays : "sunnudagur_mánudagur_þriðjudagur_miðvikudagur_fimmtudagur_föstudagur_laugardagur".split("_"),
-        weekdaysShort : "sun_mán_þri_mið_fim_fös_lau".split("_"),
-        weekdaysMin : "Su_Má_Þr_Mi_Fi_Fö_La".split("_"),
+        months : 'janúar_febrúar_mars_apríl_maí_júní_júlí_ágúst_september_október_nóvember_desember'.split('_'),
+        monthsShort : 'jan_feb_mar_apr_maí_jún_júl_ágú_sep_okt_nóv_des'.split('_'),
+        weekdays : 'sunnudagur_mánudagur_þriðjudagur_miðvikudagur_fimmtudagur_föstudagur_laugardagur'.split('_'),
+        weekdaysShort : 'sun_mán_þri_mið_fim_fös_lau'.split('_'),
+        weekdaysMin : 'Su_Má_Þr_Mi_Fi_Fö_La'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "DD/MM/YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY [kl.] LT",
-            LLLL : "dddd, D. MMMM YYYY [kl.] LT"
+            LT : 'H:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY [kl.] LT',
+            LLLL : 'dddd, D. MMMM YYYY [kl.] LT'
         },
         calendar : {
             sameDay : '[í dag kl.] LT',
@@ -52928,12 +56518,12 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "eftir %s",
-            past : "fyrir %s síðan",
+            future : 'eftir %s',
+            past : 'fyrir %s síðan',
             s : translate,
             m : translate,
             mm : translate,
-            h : "klukkustund",
+            h : 'klukkustund',
             hh : translate,
             d : translate,
             dd : translate,
@@ -52958,17 +56548,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('it', {
-        months : "gennaio_febbraio_marzo_aprile_maggio_giugno_luglio_agosto_settembre_ottobre_novembre_dicembre".split("_"),
-        monthsShort : "gen_feb_mar_apr_mag_giu_lug_ago_set_ott_nov_dic".split("_"),
-        weekdays : "Domenica_Lunedì_Martedì_Mercoledì_Giovedì_Venerdì_Sabato".split("_"),
-        weekdaysShort : "Dom_Lun_Mar_Mer_Gio_Ven_Sab".split("_"),
-        weekdaysMin : "D_L_Ma_Me_G_V_S".split("_"),
+        months : 'gennaio_febbraio_marzo_aprile_maggio_giugno_luglio_agosto_settembre_ottobre_novembre_dicembre'.split('_'),
+        monthsShort : 'gen_feb_mar_apr_mag_giu_lug_ago_set_ott_nov_dic'.split('_'),
+        weekdays : 'Domenica_Lunedì_Martedì_Mercoledì_Giovedì_Venerdì_Sabato'.split('_'),
+        weekdaysShort : 'Dom_Lun_Mar_Mer_Gio_Ven_Sab'.split('_'),
+        weekdaysMin : 'D_L_Ma_Me_G_V_S'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay: '[Oggi alle] LT',
@@ -52980,20 +56570,20 @@ IonicModule
         },
         relativeTime : {
             future : function (s) {
-                return ((/^[0-9].+$/).test(s) ? "tra" : "in") + " " + s;
+                return ((/^[0-9].+$/).test(s) ? 'tra' : 'in') + ' ' + s;
             },
-            past : "%s fa",
-            s : "alcuni secondi",
-            m : "un minuto",
-            mm : "%d minuti",
-            h : "un'ora",
-            hh : "%d ore",
-            d : "un giorno",
-            dd : "%d giorni",
-            M : "un mese",
-            MM : "%d mesi",
-            y : "un anno",
-            yy : "%d anni"
+            past : '%s fa',
+            s : 'alcuni secondi',
+            m : 'un minuto',
+            mm : '%d minuti',
+            h : 'un\'ora',
+            hh : '%d ore',
+            d : 'un giorno',
+            dd : '%d giorni',
+            M : 'un mese',
+            MM : '%d mesi',
+            y : 'un anno',
+            yy : '%d anni'
         },
         ordinal: '%dº',
         week : {
@@ -53010,23 +56600,23 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('ja', {
-        months : "1月_2月_3月_4月_5月_6月_7月_8月_9月_10月_11月_12月".split("_"),
-        monthsShort : "1月_2月_3月_4月_5月_6月_7月_8月_9月_10月_11月_12月".split("_"),
-        weekdays : "日曜日_月曜日_火曜日_水曜日_木曜日_金曜日_土曜日".split("_"),
-        weekdaysShort : "日_月_火_水_木_金_土".split("_"),
-        weekdaysMin : "日_月_火_水_木_金_土".split("_"),
+        months : '1月_2月_3月_4月_5月_6月_7月_8月_9月_10月_11月_12月'.split('_'),
+        monthsShort : '1月_2月_3月_4月_5月_6月_7月_8月_9月_10月_11月_12月'.split('_'),
+        weekdays : '日曜日_月曜日_火曜日_水曜日_木曜日_金曜日_土曜日'.split('_'),
+        weekdaysShort : '日_月_火_水_木_金_土'.split('_'),
+        weekdaysMin : '日_月_火_水_木_金_土'.split('_'),
         longDateFormat : {
-            LT : "Ah時m分",
-            L : "YYYY/MM/DD",
-            LL : "YYYY年M月D日",
-            LLL : "YYYY年M月D日LT",
-            LLLL : "YYYY年M月D日LT dddd"
+            LT : 'Ah時m分',
+            L : 'YYYY/MM/DD',
+            LL : 'YYYY年M月D日',
+            LLL : 'YYYY年M月D日LT',
+            LLLL : 'YYYY年M月D日LT dddd'
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 12) {
-                return "午前";
+                return '午前';
             } else {
-                return "午後";
+                return '午後';
             }
         },
         calendar : {
@@ -53038,19 +56628,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s後",
-            past : "%s前",
-            s : "数秒",
-            m : "1分",
-            mm : "%d分",
-            h : "1時間",
-            hh : "%d時間",
-            d : "1日",
-            dd : "%d日",
-            M : "1ヶ月",
-            MM : "%dヶ月",
-            y : "1年",
-            yy : "%d年"
+            future : '%s後',
+            past : '%s前',
+            s : '数秒',
+            m : '1分',
+            mm : '%d分',
+            h : '1時間',
+            hh : '%d時間',
+            d : '1日',
+            dd : '%d日',
+            M : '1ヶ月',
+            MM : '%dヶ月',
+            y : '1年',
+            yy : '%d年'
         }
     });
 }));
@@ -53089,16 +56679,16 @@ IonicModule
 
     return moment.defineLocale('ka', {
         months : monthsCaseReplace,
-        monthsShort : "იან_თებ_მარ_აპრ_მაი_ივნ_ივლ_აგვ_სექ_ოქტ_ნოე_დეკ".split("_"),
+        monthsShort : 'იან_თებ_მარ_აპრ_მაი_ივნ_ივლ_აგვ_სექ_ოქტ_ნოე_დეკ'.split('_'),
         weekdays : weekdaysCaseReplace,
-        weekdaysShort : "კვი_ორშ_სამ_ოთხ_ხუთ_პარ_შაბ".split("_"),
-        weekdaysMin : "კვ_ორ_სა_ოთ_ხუ_პა_შა".split("_"),
+        weekdaysShort : 'კვი_ორშ_სამ_ოთხ_ხუთ_პარ_შაბ'.split('_'),
+        weekdaysMin : 'კვ_ორ_სა_ოთ_ხუ_პა_შა'.split('_'),
         longDateFormat : {
-            LT : "h:mm A",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'h:mm A',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[დღეს] LT[-ზე]',
@@ -53111,28 +56701,28 @@ IonicModule
         relativeTime : {
             future : function (s) {
                 return (/(წამი|წუთი|საათი|წელი)/).test(s) ?
-                    s.replace(/ი$/, "ში") :
-                    s + "ში";
+                    s.replace(/ი$/, 'ში') :
+                    s + 'ში';
             },
             past : function (s) {
                 if ((/(წამი|წუთი|საათი|დღე|თვე)/).test(s)) {
-                    return s.replace(/(ი|ე)$/, "ის წინ");
+                    return s.replace(/(ი|ე)$/, 'ის წინ');
                 }
                 if ((/წელი/).test(s)) {
-                    return s.replace(/წელი$/, "წლის წინ");
+                    return s.replace(/წელი$/, 'წლის წინ');
                 }
             },
-            s : "რამდენიმე წამი",
-            m : "წუთი",
-            mm : "%d წუთი",
-            h : "საათი",
-            hh : "%d საათი",
-            d : "დღე",
-            dd : "%d დღე",
-            M : "თვე",
-            MM : "%d თვე",
-            y : "წელი",
-            yy : "%d წელი"
+            s : 'რამდენიმე წამი',
+            m : 'წუთი',
+            mm : '%d წუთი',
+            h : 'საათი',
+            hh : '%d საათი',
+            d : 'დღე',
+            dd : '%d დღე',
+            M : 'თვე',
+            MM : '%d თვე',
+            y : 'წელი',
+            yy : '%d წელი'
         },
         ordinal : function (number) {
             if (number === 0) {
@@ -53140,14 +56730,14 @@ IonicModule
             }
 
             if (number === 1) {
-                return number + "-ლი";
+                return number + '-ლი';
             }
 
             if ((number < 20) || (number <= 100 && (number % 20 === 0)) || (number % 100 === 0)) {
-                return "მე-" + number;
+                return 'მე-' + number;
             }
 
-            return number + "-ე";
+            return number + '-ე';
         },
         week : {
             dow : 1,
@@ -53163,17 +56753,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('km', {
-        months: "មករា_កុម្ភៈ_មិនា_មេសា_ឧសភា_មិថុនា_កក្កដា_សីហា_កញ្ញា_តុលា_វិច្ឆិកា_ធ្នូ".split("_"),
-        monthsShort: "មករា_កុម្ភៈ_មិនា_មេសា_ឧសភា_មិថុនា_កក្កដា_សីហា_កញ្ញា_តុលា_វិច្ឆិកា_ធ្នូ".split("_"),
-        weekdays: "អាទិត្យ_ច័ន្ទ_អង្គារ_ពុធ_ព្រហស្បតិ៍_សុក្រ_សៅរ៍".split("_"),
-        weekdaysShort: "អាទិត្យ_ច័ន្ទ_អង្គារ_ពុធ_ព្រហស្បតិ៍_សុក្រ_សៅរ៍".split("_"),
-        weekdaysMin: "អាទិត្យ_ច័ន្ទ_អង្គារ_ពុធ_ព្រហស្បតិ៍_សុក្រ_សៅរ៍".split("_"),
+        months: 'មករា_កុម្ភៈ_មិនា_មេសា_ឧសភា_មិថុនា_កក្កដា_សីហា_កញ្ញា_តុលា_វិច្ឆិកា_ធ្នូ'.split('_'),
+        monthsShort: 'មករា_កុម្ភៈ_មិនា_មេសា_ឧសភា_មិថុនា_កក្កដា_សីហា_កញ្ញា_តុលា_វិច្ឆិកា_ធ្នូ'.split('_'),
+        weekdays: 'អាទិត្យ_ច័ន្ទ_អង្គារ_ពុធ_ព្រហស្បតិ៍_សុក្រ_សៅរ៍'.split('_'),
+        weekdaysShort: 'អាទិត្យ_ច័ន្ទ_អង្គារ_ពុធ_ព្រហស្បតិ៍_សុក្រ_សៅរ៍'.split('_'),
+        weekdaysMin: 'អាទិត្យ_ច័ន្ទ_អង្គារ_ពុធ_ព្រហស្បតិ៍_សុក្រ_សៅរ៍'.split('_'),
         longDateFormat: {
-            LT: "HH:mm",
-            L: "DD/MM/YYYY",
-            LL: "D MMMM YYYY",
-            LLL: "D MMMM YYYY LT",
-            LLLL: "dddd, D MMMM YYYY LT"
+            LT: 'HH:mm',
+            L: 'DD/MM/YYYY',
+            LL: 'D MMMM YYYY',
+            LLL: 'D MMMM YYYY LT',
+            LLLL: 'dddd, D MMMM YYYY LT'
         },
         calendar: {
             sameDay: '[ថ្ងៃនៈ ម៉ោង] LT',
@@ -53184,19 +56774,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime: {
-            future: "%sទៀត",
-            past: "%sមុន",
-            s: "ប៉ុន្មានវិនាទី",
-            m: "មួយនាទី",
-            mm: "%d នាទី",
-            h: "មួយម៉ោង",
-            hh: "%d ម៉ោង",
-            d: "មួយថ្ងៃ",
-            dd: "%d ថ្ងៃ",
-            M: "មួយខែ",
-            MM: "%d ខែ",
-            y: "មួយឆ្នាំ",
-            yy: "%d ឆ្នាំ"
+            future: '%sទៀត',
+            past: '%sមុន',
+            s: 'ប៉ុន្មានវិនាទី',
+            m: 'មួយនាទី',
+            mm: '%d នាទី',
+            h: 'មួយម៉ោង',
+            hh: '%d ម៉ោង',
+            d: 'មួយថ្ងៃ',
+            dd: '%d ថ្ងៃ',
+            M: 'មួយខែ',
+            MM: '%d ខែ',
+            y: 'មួយឆ្នាំ',
+            yy: '%d ឆ្នាំ'
         },
         week: {
             dow: 1, // Monday is the first day of the week.
@@ -53215,17 +56805,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('ko', {
-        months : "1월_2월_3월_4월_5월_6월_7월_8월_9월_10월_11월_12월".split("_"),
-        monthsShort : "1월_2월_3월_4월_5월_6월_7월_8월_9월_10월_11월_12월".split("_"),
-        weekdays : "일요일_월요일_화요일_수요일_목요일_금요일_토요일".split("_"),
-        weekdaysShort : "일_월_화_수_목_금_토".split("_"),
-        weekdaysMin : "일_월_화_수_목_금_토".split("_"),
+        months : '1월_2월_3월_4월_5월_6월_7월_8월_9월_10월_11월_12월'.split('_'),
+        monthsShort : '1월_2월_3월_4월_5월_6월_7월_8월_9월_10월_11월_12월'.split('_'),
+        weekdays : '일요일_월요일_화요일_수요일_목요일_금요일_토요일'.split('_'),
+        weekdaysShort : '일_월_화_수_목_금_토'.split('_'),
+        weekdaysMin : '일_월_화_수_목_금_토'.split('_'),
         longDateFormat : {
-            LT : "A h시 mm분",
-            L : "YYYY.MM.DD",
-            LL : "YYYY년 MMMM D일",
-            LLL : "YYYY년 MMMM D일 LT",
-            LLLL : "YYYY년 MMMM D일 dddd LT"
+            LT : 'A h시 m분',
+            L : 'YYYY.MM.DD',
+            LL : 'YYYY년 MMMM D일',
+            LLL : 'YYYY년 MMMM D일 LT',
+            LLLL : 'YYYY년 MMMM D일 dddd LT'
         },
         meridiem : function (hour, minute, isUpper) {
             return hour < 12 ? '오전' : '오후';
@@ -53239,25 +56829,25 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s 후",
-            past : "%s 전",
-            s : "몇초",
-            ss : "%d초",
-            m : "일분",
-            mm : "%d분",
-            h : "한시간",
-            hh : "%d시간",
-            d : "하루",
-            dd : "%d일",
-            M : "한달",
-            MM : "%d달",
-            y : "일년",
-            yy : "%d년"
+            future : '%s 후',
+            past : '%s 전',
+            s : '몇초',
+            ss : '%d초',
+            m : '일분',
+            mm : '%d분',
+            h : '한시간',
+            hh : '%d시간',
+            d : '하루',
+            dd : '%d일',
+            M : '한달',
+            MM : '%d달',
+            y : '일년',
+            yy : '%d년'
         },
         ordinal : '%d일',
         meridiemParse : /(오전|오후)/,
         isPM : function (token) {
-            return token === "오후";
+            return token === '오후';
         }
     });
 }));
@@ -53265,9 +56855,9 @@ IonicModule
 // locale : Luxembourgish (lb)
 // author : mweimerskirch : https://github.com/mweimerskirch, David Raison : https://github.com/kwisatz
 
-// Note: Luxembourgish has a very particular phonological rule ("Eifeler Regel") that causes the
-// deletion of the final "n" in certain contexts. That's what the "eifelerRegelAppliesToWeekday"
-// and "eifelerRegelAppliesToNumber" methods are meant for
+// Note: Luxembourgish has a very particular phonological rule ('Eifeler Regel') that causes the
+// deletion of the final 'n' in certain contexts. That's what the 'eifelerRegelAppliesToWeekday'
+// and 'eifelerRegelAppliesToNumber' methods are meant for
 
 (function (factory) {
     factory(moment);
@@ -53286,22 +56876,22 @@ IonicModule
     function processFutureTime(string) {
         var number = string.substr(0, string.indexOf(' '));
         if (eifelerRegelAppliesToNumber(number)) {
-            return "a " + string;
+            return 'a ' + string;
         }
-        return "an " + string;
+        return 'an ' + string;
     }
 
     function processPastTime(string) {
         var number = string.substr(0, string.indexOf(' '));
         if (eifelerRegelAppliesToNumber(number)) {
-            return "viru " + string;
+            return 'viru ' + string;
         }
-        return "virun " + string;
+        return 'virun ' + string;
     }
 
     /**
-     * Returns true if the word before the given number loses the "-n" ending.
-     * e.g. "an 10 Deeg" but "a 5 Deeg"
+     * Returns true if the word before the given number loses the '-n' ending.
+     * e.g. 'an 10 Deeg' but 'a 5 Deeg'
      *
      * @param number {integer}
      * @returns {boolean}
@@ -53341,26 +56931,26 @@ IonicModule
     }
 
     return moment.defineLocale('lb', {
-        months: "Januar_Februar_Mäerz_Abrëll_Mee_Juni_Juli_August_September_Oktober_November_Dezember".split("_"),
-        monthsShort: "Jan._Febr._Mrz._Abr._Mee_Jun._Jul._Aug._Sept._Okt._Nov._Dez.".split("_"),
-        weekdays: "Sonndeg_Méindeg_Dënschdeg_Mëttwoch_Donneschdeg_Freideg_Samschdeg".split("_"),
-        weekdaysShort: "So._Mé._Dë._Më._Do._Fr._Sa.".split("_"),
-        weekdaysMin: "So_Mé_Dë_Më_Do_Fr_Sa".split("_"),
+        months: 'Januar_Februar_Mäerz_Abrëll_Mee_Juni_Juli_August_September_Oktober_November_Dezember'.split('_'),
+        monthsShort: 'Jan._Febr._Mrz._Abr._Mee_Jun._Jul._Aug._Sept._Okt._Nov._Dez.'.split('_'),
+        weekdays: 'Sonndeg_Méindeg_Dënschdeg_Mëttwoch_Donneschdeg_Freideg_Samschdeg'.split('_'),
+        weekdaysShort: 'So._Mé._Dë._Më._Do._Fr._Sa.'.split('_'),
+        weekdaysMin: 'So_Mé_Dë_Më_Do_Fr_Sa'.split('_'),
         longDateFormat: {
-            LT: "H:mm [Auer]",
-            L: "DD.MM.YYYY",
-            LL: "D. MMMM YYYY",
-            LLL: "D. MMMM YYYY LT",
-            LLLL: "dddd, D. MMMM YYYY LT"
+            LT: 'H:mm [Auer]',
+            L: 'DD.MM.YYYY',
+            LL: 'D. MMMM YYYY',
+            LLL: 'D. MMMM YYYY LT',
+            LLLL: 'dddd, D. MMMM YYYY LT'
         },
         calendar: {
-            sameDay: "[Haut um] LT",
-            sameElse: "L",
+            sameDay: '[Haut um] LT',
+            sameElse: 'L',
             nextDay: '[Muer um] LT',
             nextWeek: 'dddd [um] LT',
             lastDay: '[Gëschter um] LT',
             lastWeek: function () {
-                // Different date string for "Dënschdeg" (Tuesday) and "Donneschdeg" (Thursday) due to phonological rule
+                // Different date string for 'Dënschdeg' (Tuesday) and 'Donneschdeg' (Thursday) due to phonological rule
                 switch (this.day()) {
                     case 2:
                     case 4:
@@ -53373,17 +56963,17 @@ IonicModule
         relativeTime : {
             future : processFutureTime,
             past : processPastTime,
-            s : "e puer Sekonnen",
+            s : 'e puer Sekonnen',
             m : processRelativeTime,
-            mm : "%d Minutten",
+            mm : '%d Minutten',
             h : processRelativeTime,
-            hh : "%d Stonnen",
+            hh : '%d Stonnen',
             d : processRelativeTime,
-            dd : "%d Deeg",
+            dd : '%d Deeg',
             M : processRelativeTime,
-            MM : "%d Méint",
+            MM : '%d Méint',
             y : processRelativeTime,
-            yy : "%d Joer"
+            yy : '%d Joer'
         },
         ordinal: '%d.',
         week: {
@@ -53400,24 +56990,24 @@ IonicModule
     factory(moment);
 }(function (moment) {
     var units = {
-        "m" : "minutė_minutės_minutę",
-        "mm": "minutės_minučių_minutes",
-        "h" : "valanda_valandos_valandą",
-        "hh": "valandos_valandų_valandas",
-        "d" : "diena_dienos_dieną",
-        "dd": "dienos_dienų_dienas",
-        "M" : "mėnuo_mėnesio_mėnesį",
-        "MM": "mėnesiai_mėnesių_mėnesius",
-        "y" : "metai_metų_metus",
-        "yy": "metai_metų_metus"
+        'm' : 'minutė_minutės_minutę',
+        'mm': 'minutės_minučių_minutes',
+        'h' : 'valanda_valandos_valandą',
+        'hh': 'valandos_valandų_valandas',
+        'd' : 'diena_dienos_dieną',
+        'dd': 'dienos_dienų_dienas',
+        'M' : 'mėnuo_mėnesio_mėnesį',
+        'MM': 'mėnesiai_mėnesių_mėnesius',
+        'y' : 'metai_metų_metus',
+        'yy': 'metai_metų_metus'
     },
-    weekDays = "sekmadienis_pirmadienis_antradienis_trečiadienis_ketvirtadienis_penktadienis_šeštadienis".split("_");
+    weekDays = 'sekmadienis_pirmadienis_antradienis_trečiadienis_ketvirtadienis_penktadienis_šeštadienis'.split('_');
 
     function translateSeconds(number, withoutSuffix, key, isFuture) {
         if (withoutSuffix) {
-            return "kelios sekundės";
+            return 'kelios sekundės';
         } else {
-            return isFuture ? "kelių sekundžių" : "kelias sekundes";
+            return isFuture ? 'kelių sekundžių' : 'kelias sekundes';
         }
     }
 
@@ -53430,11 +57020,11 @@ IonicModule
     }
 
     function forms(key) {
-        return units[key].split("_");
+        return units[key].split('_');
     }
 
     function translate(number, withoutSuffix, key, isFuture) {
-        var result = number + " ";
+        var result = number + ' ';
         if (number === 1) {
             return result + translateSingular(number, withoutSuffix, key[0], isFuture);
         } else if (withoutSuffix) {
@@ -53452,37 +57042,37 @@ IonicModule
         var nominative = format.indexOf('dddd HH:mm') === -1,
             weekDay = weekDays[moment.day()];
 
-        return nominative ? weekDay : weekDay.substring(0, weekDay.length - 2) + "į";
+        return nominative ? weekDay : weekDay.substring(0, weekDay.length - 2) + 'į';
     }
 
-    return moment.defineLocale("lt", {
-        months : "sausio_vasario_kovo_balandžio_gegužės_birželio_liepos_rugpjūčio_rugsėjo_spalio_lapkričio_gruodžio".split("_"),
-        monthsShort : "sau_vas_kov_bal_geg_bir_lie_rgp_rgs_spa_lap_grd".split("_"),
+    return moment.defineLocale('lt', {
+        months : 'sausio_vasario_kovo_balandžio_gegužės_birželio_liepos_rugpjūčio_rugsėjo_spalio_lapkričio_gruodžio'.split('_'),
+        monthsShort : 'sau_vas_kov_bal_geg_bir_lie_rgp_rgs_spa_lap_grd'.split('_'),
         weekdays : relativeWeekDay,
-        weekdaysShort : "Sek_Pir_Ant_Tre_Ket_Pen_Šeš".split("_"),
-        weekdaysMin : "S_P_A_T_K_Pn_Š".split("_"),
+        weekdaysShort : 'Sek_Pir_Ant_Tre_Ket_Pen_Šeš'.split('_'),
+        weekdaysMin : 'S_P_A_T_K_Pn_Š'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "YYYY-MM-DD",
-            LL : "YYYY [m.] MMMM D [d.]",
-            LLL : "YYYY [m.] MMMM D [d.], LT [val.]",
-            LLLL : "YYYY [m.] MMMM D [d.], dddd, LT [val.]",
-            l : "YYYY-MM-DD",
-            ll : "YYYY [m.] MMMM D [d.]",
-            lll : "YYYY [m.] MMMM D [d.], LT [val.]",
-            llll : "YYYY [m.] MMMM D [d.], ddd, LT [val.]"
+            LT : 'HH:mm',
+            L : 'YYYY-MM-DD',
+            LL : 'YYYY [m.] MMMM D [d.]',
+            LLL : 'YYYY [m.] MMMM D [d.], LT [val.]',
+            LLLL : 'YYYY [m.] MMMM D [d.], dddd, LT [val.]',
+            l : 'YYYY-MM-DD',
+            ll : 'YYYY [m.] MMMM D [d.]',
+            lll : 'YYYY [m.] MMMM D [d.], LT [val.]',
+            llll : 'YYYY [m.] MMMM D [d.], ddd, LT [val.]'
         },
         calendar : {
-            sameDay : "[Šiandien] LT",
-            nextDay : "[Rytoj] LT",
-            nextWeek : "dddd LT",
-            lastDay : "[Vakar] LT",
-            lastWeek : "[Praėjusį] dddd LT",
-            sameElse : "L"
+            sameDay : '[Šiandien] LT',
+            nextDay : '[Rytoj] LT',
+            nextWeek : 'dddd LT',
+            lastDay : '[Vakar] LT',
+            lastWeek : '[Praėjusį] dddd LT',
+            sameElse : 'L'
         },
         relativeTime : {
-            future : "po %s",
-            past : "prieš %s",
+            future : 'po %s',
+            past : 'prieš %s',
             s : translateSeconds,
             m : translateSingular,
             mm : translate,
@@ -53533,17 +57123,17 @@ IonicModule
     }
 
     return moment.defineLocale('lv', {
-        months : "janvāris_februāris_marts_aprīlis_maijs_jūnijs_jūlijs_augusts_septembris_oktobris_novembris_decembris".split("_"),
-        monthsShort : "jan_feb_mar_apr_mai_jūn_jūl_aug_sep_okt_nov_dec".split("_"),
-        weekdays : "svētdiena_pirmdiena_otrdiena_trešdiena_ceturtdiena_piektdiena_sestdiena".split("_"),
-        weekdaysShort : "Sv_P_O_T_C_Pk_S".split("_"),
-        weekdaysMin : "Sv_P_O_T_C_Pk_S".split("_"),
+        months : 'janvāris_februāris_marts_aprīlis_maijs_jūnijs_jūlijs_augusts_septembris_oktobris_novembris_decembris'.split('_'),
+        monthsShort : 'jan_feb_mar_apr_mai_jūn_jūl_aug_sep_okt_nov_dec'.split('_'),
+        weekdays : 'svētdiena_pirmdiena_otrdiena_trešdiena_ceturtdiena_piektdiena_sestdiena'.split('_'),
+        weekdaysShort : 'Sv_P_O_T_C_Pk_S'.split('_'),
+        weekdaysMin : 'Sv_P_O_T_C_Pk_S'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "YYYY. [gada] D. MMMM",
-            LLL : "YYYY. [gada] D. MMMM, LT",
-            LLLL : "YYYY. [gada] D. MMMM, dddd, LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'YYYY. [gada] D. MMMM',
+            LLL : 'YYYY. [gada] D. MMMM, LT',
+            LLLL : 'YYYY. [gada] D. MMMM, dddd, LT'
         },
         calendar : {
             sameDay : '[Šodien pulksten] LT',
@@ -53554,18 +57144,18 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s vēlāk",
-            past : "%s agrāk",
-            s : "dažas sekundes",
-            m : "minūti",
+            future : '%s vēlāk',
+            past : '%s agrāk',
+            s : 'dažas sekundes',
+            m : 'minūti',
             mm : relativeTimeWithPlural,
-            h : "stundu",
+            h : 'stundu',
             hh : relativeTimeWithPlural,
-            d : "dienu",
+            d : 'dienu',
             dd : relativeTimeWithPlural,
-            M : "mēnesi",
+            M : 'mēnesi',
             MM : relativeTimeWithPlural,
-            y : "gadu",
+            y : 'gadu',
             yy : relativeTimeWithPlural
         },
         ordinal : '%d.',
@@ -53583,17 +57173,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('mk', {
-        months : "јануари_февруари_март_април_мај_јуни_јули_август_септември_октомври_ноември_декември".split("_"),
-        monthsShort : "јан_фев_мар_апр_мај_јун_јул_авг_сеп_окт_ное_дек".split("_"),
-        weekdays : "недела_понеделник_вторник_среда_четврток_петок_сабота".split("_"),
-        weekdaysShort : "нед_пон_вто_сре_чет_пет_саб".split("_"),
-        weekdaysMin : "нe_пo_вт_ср_че_пе_сa".split("_"),
+        months : 'јануари_февруари_март_април_мај_јуни_јули_август_септември_октомври_ноември_декември'.split('_'),
+        monthsShort : 'јан_фев_мар_апр_мај_јун_јул_авг_сеп_окт_ное_дек'.split('_'),
+        weekdays : 'недела_понеделник_вторник_среда_четврток_петок_сабота'.split('_'),
+        weekdaysShort : 'нед_пон_вто_сре_чет_пет_саб'.split('_'),
+        weekdaysMin : 'нe_пo_вт_ср_че_пе_сa'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "D.MM.YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'H:mm',
+            L : 'D.MM.YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[Денес во] LT',
@@ -53616,19 +57206,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "после %s",
-            past : "пред %s",
-            s : "неколку секунди",
-            m : "минута",
-            mm : "%d минути",
-            h : "час",
-            hh : "%d часа",
-            d : "ден",
-            dd : "%d дена",
-            M : "месец",
-            MM : "%d месеци",
-            y : "година",
-            yy : "%d години"
+            future : 'после %s',
+            past : 'пред %s',
+            s : 'неколку секунди',
+            m : 'минута',
+            mm : '%d минути',
+            h : 'час',
+            hh : '%d часа',
+            d : 'ден',
+            dd : '%d дена',
+            M : 'месец',
+            MM : '%d месеци',
+            y : 'година',
+            yy : '%d години'
         },
         ordinal : function (number) {
             var lastDigit = number % 10,
@@ -53663,17 +57253,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('ml', {
-        months : 'ജനുവരി_ഫെബ്രുവരി_മാർച്ച്_ഏപ്രിൽ_മേയ്_ജൂൺ_ജൂലൈ_ഓഗസ്റ്റ്_സെപ്റ്റംബർ_ഒക്ടോബർ_നവംബർ_ഡിസംബർ'.split("_"),
-        monthsShort : 'ജനു._ഫെബ്രു._മാർ._ഏപ്രി._മേയ്_ജൂൺ_ജൂലൈ._ഓഗ._സെപ്റ്റ._ഒക്ടോ._നവം._ഡിസം.'.split("_"),
-        weekdays : 'ഞായറാഴ്ച_തിങ്കളാഴ്ച_ചൊവ്വാഴ്ച_ബുധനാഴ്ച_വ്യാഴാഴ്ച_വെള്ളിയാഴ്ച_ശനിയാഴ്ച'.split("_"),
-        weekdaysShort : 'ഞായർ_തിങ്കൾ_ചൊവ്വ_ബുധൻ_വ്യാഴം_വെള്ളി_ശനി'.split("_"),
-        weekdaysMin : 'ഞാ_തി_ചൊ_ബു_വ്യാ_വെ_ശ'.split("_"),
+        months : 'ജനുവരി_ഫെബ്രുവരി_മാർച്ച്_ഏപ്രിൽ_മേയ്_ജൂൺ_ജൂലൈ_ഓഗസ്റ്റ്_സെപ്റ്റംബർ_ഒക്ടോബർ_നവംബർ_ഡിസംബർ'.split('_'),
+        monthsShort : 'ജനു._ഫെബ്രു._മാർ._ഏപ്രി._മേയ്_ജൂൺ_ജൂലൈ._ഓഗ._സെപ്റ്റ._ഒക്ടോ._നവം._ഡിസം.'.split('_'),
+        weekdays : 'ഞായറാഴ്ച_തിങ്കളാഴ്ച_ചൊവ്വാഴ്ച_ബുധനാഴ്ച_വ്യാഴാഴ്ച_വെള്ളിയാഴ്ച_ശനിയാഴ്ച'.split('_'),
+        weekdaysShort : 'ഞായർ_തിങ്കൾ_ചൊവ്വ_ബുധൻ_വ്യാഴം_വെള്ളി_ശനി'.split('_'),
+        weekdaysMin : 'ഞാ_തി_ചൊ_ബു_വ്യാ_വെ_ശ'.split('_'),
         longDateFormat : {
-            LT : "A h:mm -നു",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY, LT",
-            LLLL : "dddd, D MMMM YYYY, LT"
+            LT : 'A h:mm -നു',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY, LT',
+            LLLL : 'dddd, D MMMM YYYY, LT'
         },
         calendar : {
             sameDay : '[ഇന്ന്] LT',
@@ -53684,31 +57274,31 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s കഴിഞ്ഞ്",
-            past : "%s മുൻപ്",
-            s : "അൽപ നിമിഷങ്ങൾ",
-            m : "ഒരു മിനിറ്റ്",
-            mm : "%d മിനിറ്റ്",
-            h : "ഒരു മണിക്കൂർ",
-            hh : "%d മണിക്കൂർ",
-            d : "ഒരു ദിവസം",
-            dd : "%d ദിവസം",
-            M : "ഒരു മാസം",
-            MM : "%d മാസം",
-            y : "ഒരു വർഷം",
-            yy : "%d വർഷം"
+            future : '%s കഴിഞ്ഞ്',
+            past : '%s മുൻപ്',
+            s : 'അൽപ നിമിഷങ്ങൾ',
+            m : 'ഒരു മിനിറ്റ്',
+            mm : '%d മിനിറ്റ്',
+            h : 'ഒരു മണിക്കൂർ',
+            hh : '%d മണിക്കൂർ',
+            d : 'ഒരു ദിവസം',
+            dd : '%d ദിവസം',
+            M : 'ഒരു മാസം',
+            MM : '%d മാസം',
+            y : 'ഒരു വർഷം',
+            yy : '%d വർഷം'
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 4) {
-                return "രാത്രി";
+                return 'രാത്രി';
             } else if (hour < 12) {
-                return "രാവിലെ";
+                return 'രാവിലെ';
             } else if (hour < 17) {
-                return "ഉച്ച കഴിഞ്ഞ്";
+                return 'ഉച്ച കഴിഞ്ഞ്';
             } else if (hour < 20) {
-                return "വൈകുന്നേരം";
+                return 'വൈകുന്നേരം';
             } else {
-                return "രാത്രി";
+                return 'രാത്രി';
             }
         }
     });
@@ -53746,17 +57336,17 @@ IonicModule
     };
 
     return moment.defineLocale('mr', {
-        months : 'जानेवारी_फेब्रुवारी_मार्च_एप्रिल_मे_जून_जुलै_ऑगस्ट_सप्टेंबर_ऑक्टोबर_नोव्हेंबर_डिसेंबर'.split("_"),
-        monthsShort: 'जाने._फेब्रु._मार्च._एप्रि._मे._जून._जुलै._ऑग._सप्टें._ऑक्टो._नोव्हें._डिसें.'.split("_"),
-        weekdays : 'रविवार_सोमवार_मंगळवार_बुधवार_गुरूवार_शुक्रवार_शनिवार'.split("_"),
-        weekdaysShort : 'रवि_सोम_मंगळ_बुध_गुरू_शुक्र_शनि'.split("_"),
-        weekdaysMin : 'र_सो_मं_बु_गु_शु_श'.split("_"),
+        months : 'जानेवारी_फेब्रुवारी_मार्च_एप्रिल_मे_जून_जुलै_ऑगस्ट_सप्टेंबर_ऑक्टोबर_नोव्हेंबर_डिसेंबर'.split('_'),
+        monthsShort: 'जाने._फेब्रु._मार्च._एप्रि._मे._जून._जुलै._ऑग._सप्टें._ऑक्टो._नोव्हें._डिसें.'.split('_'),
+        weekdays : 'रविवार_सोमवार_मंगळवार_बुधवार_गुरूवार_शुक्रवार_शनिवार'.split('_'),
+        weekdaysShort : 'रवि_सोम_मंगळ_बुध_गुरू_शुक्र_शनि'.split('_'),
+        weekdaysMin : 'र_सो_मं_बु_गु_शु_श'.split('_'),
         longDateFormat : {
-            LT : "A h:mm वाजता",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY, LT",
-            LLLL : "dddd, D MMMM YYYY, LT"
+            LT : 'A h:mm वाजता',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY, LT',
+            LLLL : 'dddd, D MMMM YYYY, LT'
         },
         calendar : {
             sameDay : '[आज] LT',
@@ -53767,19 +57357,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s नंतर",
-            past : "%s पूर्वी",
-            s : "सेकंद",
-            m: "एक मिनिट",
-            mm: "%d मिनिटे",
-            h : "एक तास",
-            hh : "%d तास",
-            d : "एक दिवस",
-            dd : "%d दिवस",
-            M : "एक महिना",
-            MM : "%d महिने",
-            y : "एक वर्ष",
-            yy : "%d वर्षे"
+            future : '%s नंतर',
+            past : '%s पूर्वी',
+            s : 'सेकंद',
+            m: 'एक मिनिट',
+            mm: '%d मिनिटे',
+            h : 'एक तास',
+            hh : '%d तास',
+            d : 'एक दिवस',
+            dd : '%d दिवस',
+            M : 'एक महिना',
+            MM : '%d महिने',
+            y : 'एक वर्ष',
+            yy : '%d वर्षे'
         },
         preparse: function (string) {
             return string.replace(/[१२३४५६७८९०]/g, function (match) {
@@ -53794,15 +57384,15 @@ IonicModule
         meridiem: function (hour, minute, isLower)
         {
             if (hour < 4) {
-                return "रात्री";
+                return 'रात्री';
             } else if (hour < 10) {
-                return "सकाळी";
+                return 'सकाळी';
             } else if (hour < 17) {
-                return "दुपारी";
+                return 'दुपारी';
             } else if (hour < 20) {
-                return "सायंकाळी";
+                return 'सायंकाळी';
             } else {
-                return "रात्री";
+                return 'रात्री';
             }
         },
         week : {
@@ -53819,17 +57409,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('ms-my', {
-        months : "Januari_Februari_Mac_April_Mei_Jun_Julai_Ogos_September_Oktober_November_Disember".split("_"),
-        monthsShort : "Jan_Feb_Mac_Apr_Mei_Jun_Jul_Ogs_Sep_Okt_Nov_Dis".split("_"),
-        weekdays : "Ahad_Isnin_Selasa_Rabu_Khamis_Jumaat_Sabtu".split("_"),
-        weekdaysShort : "Ahd_Isn_Sel_Rab_Kha_Jum_Sab".split("_"),
-        weekdaysMin : "Ah_Is_Sl_Rb_Km_Jm_Sb".split("_"),
+        months : 'Januari_Februari_Mac_April_Mei_Jun_Julai_Ogos_September_Oktober_November_Disember'.split('_'),
+        monthsShort : 'Jan_Feb_Mac_Apr_Mei_Jun_Jul_Ogs_Sep_Okt_Nov_Dis'.split('_'),
+        weekdays : 'Ahad_Isnin_Selasa_Rabu_Khamis_Jumaat_Sabtu'.split('_'),
+        weekdaysShort : 'Ahd_Isn_Sel_Rab_Kha_Jum_Sab'.split('_'),
+        weekdaysMin : 'Ah_Is_Sl_Rb_Km_Jm_Sb'.split('_'),
         longDateFormat : {
-            LT : "HH.mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY [pukul] LT",
-            LLLL : "dddd, D MMMM YYYY [pukul] LT"
+            LT : 'HH.mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY [pukul] LT',
+            LLLL : 'dddd, D MMMM YYYY [pukul] LT'
         },
         meridiem : function (hours, minutes, isLower) {
             if (hours < 11) {
@@ -53851,19 +57441,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "dalam %s",
-            past : "%s yang lepas",
-            s : "beberapa saat",
-            m : "seminit",
-            mm : "%d minit",
-            h : "sejam",
-            hh : "%d jam",
-            d : "sehari",
-            dd : "%d hari",
-            M : "sebulan",
-            MM : "%d bulan",
-            y : "setahun",
-            yy : "%d tahun"
+            future : 'dalam %s',
+            past : '%s yang lepas',
+            s : 'beberapa saat',
+            m : 'seminit',
+            mm : '%d minit',
+            h : 'sejam',
+            hh : '%d jam',
+            d : 'sehari',
+            dd : '%d hari',
+            M : 'sebulan',
+            MM : '%d bulan',
+            y : 'setahun',
+            yy : '%d tahun'
         },
         week : {
             dow : 1, // Monday is the first day of the week.
@@ -53902,17 +57492,17 @@ IonicModule
         '၀': '0'
     };
     return moment.defineLocale('my', {
-        months: "ဇန်နဝါရီ_ဖေဖော်ဝါရီ_မတ်_ဧပြီ_မေ_ဇွန်_ဇူလိုင်_သြဂုတ်_စက်တင်ဘာ_အောက်တိုဘာ_နိုဝင်ဘာ_ဒီဇင်ဘာ".split("_"),
-        monthsShort: "ဇန်_ဖေ_မတ်_ပြီ_မေ_ဇွန်_လိုင်_သြ_စက်_အောက်_နို_ဒီ".split("_"),
-        weekdays: "တနင်္ဂနွေ_တနင်္လာ_အင်္ဂါ_ဗုဒ္ဓဟူး_ကြာသပတေး_သောကြာ_စနေ".split("_"),
-        weekdaysShort: "နွေ_လာ_င်္ဂါ_ဟူး_ကြာ_သော_နေ".split("_"),
-        weekdaysMin: "နွေ_လာ_င်္ဂါ_ဟူး_ကြာ_သော_နေ".split("_"),
+        months: 'ဇန်နဝါရီ_ဖေဖော်ဝါရီ_မတ်_ဧပြီ_မေ_ဇွန်_ဇူလိုင်_သြဂုတ်_စက်တင်ဘာ_အောက်တိုဘာ_နိုဝင်ဘာ_ဒီဇင်ဘာ'.split('_'),
+        monthsShort: 'ဇန်_ဖေ_မတ်_ပြီ_မေ_ဇွန်_လိုင်_သြ_စက်_အောက်_နို_ဒီ'.split('_'),
+        weekdays: 'တနင်္ဂနွေ_တနင်္လာ_အင်္ဂါ_ဗုဒ္ဓဟူး_ကြာသပတေး_သောကြာ_စနေ'.split('_'),
+        weekdaysShort: 'နွေ_လာ_င်္ဂါ_ဟူး_ကြာ_သော_နေ'.split('_'),
+        weekdaysMin: 'နွေ_လာ_င်္ဂါ_ဟူး_ကြာ_သော_နေ'.split('_'),
         longDateFormat: {
-            LT: "HH:mm",
-            L: "DD/MM/YYYY",
-            LL: "D MMMM YYYY",
-            LLL: "D MMMM YYYY LT",
-            LLLL: "dddd D MMMM YYYY LT"
+            LT: 'HH:mm',
+            L: 'DD/MM/YYYY',
+            LL: 'D MMMM YYYY',
+            LLL: 'D MMMM YYYY LT',
+            LLLL: 'dddd D MMMM YYYY LT'
         },
         calendar: {
             sameDay: '[ယနေ.] LT [မှာ]',
@@ -53923,19 +57513,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime: {
-            future: "လာမည့် %s မှာ",
-            past: "လွန်ခဲ့သော %s က",
-            s: "စက္ကန်.အနည်းငယ်",
-            m: "တစ်မိနစ်",
-            mm: "%d မိနစ်",
-            h: "တစ်နာရီ",
-            hh: "%d နာရီ",
-            d: "တစ်ရက်",
-            dd: "%d ရက်",
-            M: "တစ်လ",
-            MM: "%d လ",
-            y: "တစ်နှစ်",
-            yy: "%d နှစ်"
+            future: 'လာမည့် %s မှာ',
+            past: 'လွန်ခဲ့သော %s က',
+            s: 'စက္ကန်.အနည်းငယ်',
+            m: 'တစ်မိနစ်',
+            mm: '%d မိနစ်',
+            h: 'တစ်နာရီ',
+            hh: '%d နာရီ',
+            d: 'တစ်ရက်',
+            dd: '%d ရက်',
+            M: 'တစ်လ',
+            MM: '%d လ',
+            y: 'တစ်နှစ်',
+            yy: '%d နှစ်'
         },
         preparse: function (string) {
             return string.replace(/[၁၂၃၄၅၆၇၈၉၀]/g, function (match) {
@@ -53962,17 +57552,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('nb', {
-        months : "januar_februar_mars_april_mai_juni_juli_august_september_oktober_november_desember".split("_"),
-        monthsShort : "jan._feb._mars_april_mai_juni_juli_aug._sep._okt._nov._des.".split("_"),
-        weekdays : "søndag_mandag_tirsdag_onsdag_torsdag_fredag_lørdag".split("_"),
-        weekdaysShort : "sø._ma._ti._on._to._fr._lø.".split("_"),
-        weekdaysMin : "sø_ma_ti_on_to_fr_lø".split("_"),
+        months : 'januar_februar_mars_april_mai_juni_juli_august_september_oktober_november_desember'.split('_'),
+        monthsShort : 'jan_feb_mar_apr_mai_jun_jul_aug_sep_okt_nov_des'.split('_'),
+        weekdays : 'søndag_mandag_tirsdag_onsdag_torsdag_fredag_lørdag'.split('_'),
+        weekdaysShort : 'søn_man_tirs_ons_tors_fre_lør'.split('_'),
+        weekdaysMin : 'sø_ma_ti_on_to_fr_lø'.split('_'),
         longDateFormat : {
-            LT : "H.mm",
-            L : "DD.MM.YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY [kl.] LT",
-            LLLL : "dddd D. MMMM YYYY [kl.] LT"
+            LT : 'H.mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY [kl.] LT',
+            LLLL : 'dddd D. MMMM YYYY [kl.] LT'
         },
         calendar : {
             sameDay: '[i dag kl.] LT',
@@ -53983,19 +57573,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "om %s",
-            past : "for %s siden",
-            s : "noen sekunder",
-            m : "ett minutt",
-            mm : "%d minutter",
-            h : "en time",
-            hh : "%d timer",
-            d : "en dag",
-            dd : "%d dager",
-            M : "en måned",
-            MM : "%d måneder",
-            y : "ett år",
-            yy : "%d år"
+            future : 'om %s',
+            past : 'for %s siden',
+            s : 'noen sekunder',
+            m : 'ett minutt',
+            mm : '%d minutter',
+            h : 'en time',
+            hh : '%d timer',
+            d : 'en dag',
+            dd : '%d dager',
+            M : 'en måned',
+            MM : '%d måneder',
+            y : 'ett år',
+            yy : '%d år'
         },
         ordinal : '%d.',
         week : {
@@ -54037,17 +57627,17 @@ IonicModule
     };
 
     return moment.defineLocale('ne', {
-        months : 'जनवरी_फेब्रुवरी_मार्च_अप्रिल_मई_जुन_जुलाई_अगष्ट_सेप्टेम्बर_अक्टोबर_नोभेम्बर_डिसेम्बर'.split("_"),
-        monthsShort : 'जन._फेब्रु._मार्च_अप्रि._मई_जुन_जुलाई._अग._सेप्ट._अक्टो._नोभे._डिसे.'.split("_"),
-        weekdays : 'आइतबार_सोमबार_मङ्गलबार_बुधबार_बिहिबार_शुक्रबार_शनिबार'.split("_"),
-        weekdaysShort : 'आइत._सोम._मङ्गल._बुध._बिहि._शुक्र._शनि.'.split("_"),
-        weekdaysMin : 'आइ._सो._मङ्_बु._बि._शु._श.'.split("_"),
+        months : 'जनवरी_फेब्रुवरी_मार्च_अप्रिल_मई_जुन_जुलाई_अगष्ट_सेप्टेम्बर_अक्टोबर_नोभेम्बर_डिसेम्बर'.split('_'),
+        monthsShort : 'जन._फेब्रु._मार्च_अप्रि._मई_जुन_जुलाई._अग._सेप्ट._अक्टो._नोभे._डिसे.'.split('_'),
+        weekdays : 'आइतबार_सोमबार_मङ्गलबार_बुधबार_बिहिबार_शुक्रबार_शनिबार'.split('_'),
+        weekdaysShort : 'आइत._सोम._मङ्गल._बुध._बिहि._शुक्र._शनि.'.split('_'),
+        weekdaysMin : 'आइ._सो._मङ्_बु._बि._शु._श.'.split('_'),
         longDateFormat : {
-            LT : "Aको h:mm बजे",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY, LT",
-            LLLL : "dddd, D MMMM YYYY, LT"
+            LT : 'Aको h:mm बजे',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY, LT',
+            LLLL : 'dddd, D MMMM YYYY, LT'
         },
         preparse: function (string) {
             return string.replace(/[१२३४५६७८९०]/g, function (match) {
@@ -54061,17 +57651,17 @@ IonicModule
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 3) {
-                return "राती";
+                return 'राती';
             } else if (hour < 10) {
-                return "बिहान";
+                return 'बिहान';
             } else if (hour < 15) {
-                return "दिउँसो";
+                return 'दिउँसो';
             } else if (hour < 18) {
-                return "बेलुका";
+                return 'बेलुका';
             } else if (hour < 20) {
-                return "साँझ";
+                return 'साँझ';
             } else {
-                return "राती";
+                return 'राती';
             }
         },
         calendar : {
@@ -54083,19 +57673,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%sमा",
-            past : "%s अगाडी",
-            s : "केही समय",
-            m : "एक मिनेट",
-            mm : "%d मिनेट",
-            h : "एक घण्टा",
-            hh : "%d घण्टा",
-            d : "एक दिन",
-            dd : "%d दिन",
-            M : "एक महिना",
-            MM : "%d महिना",
-            y : "एक बर्ष",
-            yy : "%d बर्ष"
+            future : '%sमा',
+            past : '%s अगाडी',
+            s : 'केही समय',
+            m : 'एक मिनेट',
+            mm : '%d मिनेट',
+            h : 'एक घण्टा',
+            hh : '%d घण्टा',
+            d : 'एक दिन',
+            dd : '%d दिन',
+            M : 'एक महिना',
+            MM : '%d महिना',
+            y : 'एक बर्ष',
+            yy : '%d बर्ष'
         },
         week : {
             dow : 1, // Monday is the first day of the week.
@@ -54110,11 +57700,11 @@ IonicModule
 (function (factory) {
     factory(moment);
 }(function (moment) {
-    var monthsShortWithDots = "jan._feb._mrt._apr._mei_jun._jul._aug._sep._okt._nov._dec.".split("_"),
-        monthsShortWithoutDots = "jan_feb_mrt_apr_mei_jun_jul_aug_sep_okt_nov_dec".split("_");
+    var monthsShortWithDots = 'jan._feb._mrt._apr._mei_jun._jul._aug._sep._okt._nov._dec.'.split('_'),
+        monthsShortWithoutDots = 'jan_feb_mrt_apr_mei_jun_jul_aug_sep_okt_nov_dec'.split('_');
 
     return moment.defineLocale('nl', {
-        months : "januari_februari_maart_april_mei_juni_juli_augustus_september_oktober_november_december".split("_"),
+        months : 'januari_februari_maart_april_mei_juni_juli_augustus_september_oktober_november_december'.split('_'),
         monthsShort : function (m, format) {
             if (/-MMM-/.test(format)) {
                 return monthsShortWithoutDots[m.month()];
@@ -54122,15 +57712,15 @@ IonicModule
                 return monthsShortWithDots[m.month()];
             }
         },
-        weekdays : "zondag_maandag_dinsdag_woensdag_donderdag_vrijdag_zaterdag".split("_"),
-        weekdaysShort : "zo._ma._di._wo._do._vr._za.".split("_"),
-        weekdaysMin : "Zo_Ma_Di_Wo_Do_Vr_Za".split("_"),
+        weekdays : 'zondag_maandag_dinsdag_woensdag_donderdag_vrijdag_zaterdag'.split('_'),
+        weekdaysShort : 'zo._ma._di._wo._do._vr._za.'.split('_'),
+        weekdaysMin : 'Zo_Ma_Di_Wo_Do_Vr_Za'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD-MM-YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD-MM-YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
             sameDay: '[vandaag om] LT',
@@ -54141,19 +57731,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "over %s",
-            past : "%s geleden",
-            s : "een paar seconden",
-            m : "één minuut",
-            mm : "%d minuten",
-            h : "één uur",
-            hh : "%d uur",
-            d : "één dag",
-            dd : "%d dagen",
-            M : "één maand",
-            MM : "%d maanden",
-            y : "één jaar",
-            yy : "%d jaar"
+            future : 'over %s',
+            past : '%s geleden',
+            s : 'een paar seconden',
+            m : 'één minuut',
+            mm : '%d minuten',
+            h : 'één uur',
+            hh : '%d uur',
+            d : 'één dag',
+            dd : '%d dagen',
+            M : 'één maand',
+            MM : '%d maanden',
+            y : 'één jaar',
+            yy : '%d jaar'
         },
         ordinal : function (number) {
             return number + ((number === 1 || number === 8 || number >= 20) ? 'ste' : 'de');
@@ -54172,17 +57762,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('nn', {
-        months : "januar_februar_mars_april_mai_juni_juli_august_september_oktober_november_desember".split("_"),
-        monthsShort : "jan_feb_mar_apr_mai_jun_jul_aug_sep_okt_nov_des".split("_"),
-        weekdays : "sundag_måndag_tysdag_onsdag_torsdag_fredag_laurdag".split("_"),
-        weekdaysShort : "sun_mån_tys_ons_tor_fre_lau".split("_"),
-        weekdaysMin : "su_må_ty_on_to_fr_lø".split("_"),
+        months : 'januar_februar_mars_april_mai_juni_juli_august_september_oktober_november_desember'.split('_'),
+        monthsShort : 'jan_feb_mar_apr_mai_jun_jul_aug_sep_okt_nov_des'.split('_'),
+        weekdays : 'sundag_måndag_tysdag_onsdag_torsdag_fredag_laurdag'.split('_'),
+        weekdaysShort : 'sun_mån_tys_ons_tor_fre_lau'.split('_'),
+        weekdaysMin : 'su_må_ty_on_to_fr_lø'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
             sameDay: '[I dag klokka] LT',
@@ -54193,19 +57783,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "om %s",
-            past : "for %s sidan",
-            s : "nokre sekund",
-            m : "eit minutt",
-            mm : "%d minutt",
-            h : "ein time",
-            hh : "%d timar",
-            d : "ein dag",
-            dd : "%d dagar",
-            M : "ein månad",
-            MM : "%d månader",
-            y : "eit år",
-            yy : "%d år"
+            future : 'om %s',
+            past : 'for %s sidan',
+            s : 'nokre sekund',
+            m : 'eit minutt',
+            mm : '%d minutt',
+            h : 'ein time',
+            hh : '%d timar',
+            d : 'ein dag',
+            dd : '%d dagar',
+            M : 'ein månad',
+            MM : '%d månader',
+            y : 'eit år',
+            yy : '%d år'
         },
         ordinal : '%d.',
         week : {
@@ -54221,15 +57811,15 @@ IonicModule
 (function (factory) {
     factory(moment);
 }(function (moment) {
-    var monthsNominative = "styczeń_luty_marzec_kwiecień_maj_czerwiec_lipiec_sierpień_wrzesień_październik_listopad_grudzień".split("_"),
-        monthsSubjective = "stycznia_lutego_marca_kwietnia_maja_czerwca_lipca_sierpnia_września_października_listopada_grudnia".split("_");
+    var monthsNominative = 'styczeń_luty_marzec_kwiecień_maj_czerwiec_lipiec_sierpień_wrzesień_październik_listopad_grudzień'.split('_'),
+        monthsSubjective = 'stycznia_lutego_marca_kwietnia_maja_czerwca_lipca_sierpnia_września_października_listopada_grudnia'.split('_');
 
     function plural(n) {
         return (n % 10 < 5) && (n % 10 > 1) && ((~~(n / 10) % 10) !== 1);
     }
 
     function translate(number, withoutSuffix, key) {
-        var result = number + " ";
+        var result = number + ' ';
         switch (key) {
         case 'm':
             return withoutSuffix ? 'minuta' : 'minutę';
@@ -54254,16 +57844,16 @@ IonicModule
                 return monthsNominative[momentToFormat.month()];
             }
         },
-        monthsShort : "sty_lut_mar_kwi_maj_cze_lip_sie_wrz_paź_lis_gru".split("_"),
-        weekdays : "niedziela_poniedziałek_wtorek_środa_czwartek_piątek_sobota".split("_"),
-        weekdaysShort : "nie_pon_wt_śr_czw_pt_sb".split("_"),
-        weekdaysMin : "N_Pn_Wt_Śr_Cz_Pt_So".split("_"),
+        monthsShort : 'sty_lut_mar_kwi_maj_cze_lip_sie_wrz_paź_lis_gru'.split('_'),
+        weekdays : 'niedziela_poniedziałek_wtorek_środa_czwartek_piątek_sobota'.split('_'),
+        weekdaysShort : 'nie_pon_wt_śr_czw_pt_sb'.split('_'),
+        weekdaysMin : 'N_Pn_Wt_Śr_Cz_Pt_So'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay: '[Dziś o] LT',
@@ -54285,18 +57875,18 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "za %s",
-            past : "%s temu",
-            s : "kilka sekund",
+            future : 'za %s',
+            past : '%s temu',
+            s : 'kilka sekund',
             m : translate,
             mm : translate,
             h : translate,
             hh : translate,
-            d : "1 dzień",
+            d : '1 dzień',
             dd : '%d dni',
-            M : "miesiąc",
+            M : 'miesiąc',
             MM : translate,
-            y : "rok",
+            y : 'rok',
             yy : translate
         },
         ordinal : '%d.',
@@ -54314,17 +57904,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('pt-br', {
-        months : "janeiro_fevereiro_março_abril_maio_junho_julho_agosto_setembro_outubro_novembro_dezembro".split("_"),
-        monthsShort : "jan_fev_mar_abr_mai_jun_jul_ago_set_out_nov_dez".split("_"),
-        weekdays : "domingo_segunda-feira_terça-feira_quarta-feira_quinta-feira_sexta-feira_sábado".split("_"),
-        weekdaysShort : "dom_seg_ter_qua_qui_sex_sáb".split("_"),
-        weekdaysMin : "dom_2ª_3ª_4ª_5ª_6ª_sáb".split("_"),
+        months : 'janeiro_fevereiro_março_abril_maio_junho_julho_agosto_setembro_outubro_novembro_dezembro'.split('_'),
+        monthsShort : 'jan_fev_mar_abr_mai_jun_jul_ago_set_out_nov_dez'.split('_'),
+        weekdays : 'domingo_segunda-feira_terça-feira_quarta-feira_quinta-feira_sexta-feira_sábado'.split('_'),
+        weekdaysShort : 'dom_seg_ter_qua_qui_sex_sáb'.split('_'),
+        weekdaysMin : 'dom_2ª_3ª_4ª_5ª_6ª_sáb'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D [de] MMMM [de] YYYY",
-            LLL : "D [de] MMMM [de] YYYY [às] LT",
-            LLLL : "dddd, D [de] MMMM [de] YYYY [às] LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D [de] MMMM [de] YYYY',
+            LLL : 'D [de] MMMM [de] YYYY [às] LT',
+            LLLL : 'dddd, D [de] MMMM [de] YYYY [às] LT'
         },
         calendar : {
             sameDay: '[Hoje às] LT',
@@ -54339,19 +57929,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "em %s",
-            past : "%s atrás",
-            s : "segundos",
-            m : "um minuto",
-            mm : "%d minutos",
-            h : "uma hora",
-            hh : "%d horas",
-            d : "um dia",
-            dd : "%d dias",
-            M : "um mês",
-            MM : "%d meses",
-            y : "um ano",
-            yy : "%d anos"
+            future : 'em %s',
+            past : '%s atrás',
+            s : 'segundos',
+            m : 'um minuto',
+            mm : '%d minutos',
+            h : 'uma hora',
+            hh : '%d horas',
+            d : 'um dia',
+            dd : '%d dias',
+            M : 'um mês',
+            MM : '%d meses',
+            y : 'um ano',
+            yy : '%d anos'
         },
         ordinal : '%dº'
     });
@@ -54364,17 +57954,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('pt', {
-        months : "janeiro_fevereiro_março_abril_maio_junho_julho_agosto_setembro_outubro_novembro_dezembro".split("_"),
-        monthsShort : "jan_fev_mar_abr_mai_jun_jul_ago_set_out_nov_dez".split("_"),
-        weekdays : "domingo_segunda-feira_terça-feira_quarta-feira_quinta-feira_sexta-feira_sábado".split("_"),
-        weekdaysShort : "dom_seg_ter_qua_qui_sex_sáb".split("_"),
-        weekdaysMin : "dom_2ª_3ª_4ª_5ª_6ª_sáb".split("_"),
+        months : 'janeiro_fevereiro_março_abril_maio_junho_julho_agosto_setembro_outubro_novembro_dezembro'.split('_'),
+        monthsShort : 'jan_fev_mar_abr_mai_jun_jul_ago_set_out_nov_dez'.split('_'),
+        weekdays : 'domingo_segunda-feira_terça-feira_quarta-feira_quinta-feira_sexta-feira_sábado'.split('_'),
+        weekdaysShort : 'dom_seg_ter_qua_qui_sex_sáb'.split('_'),
+        weekdaysMin : 'dom_2ª_3ª_4ª_5ª_6ª_sáb'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D [de] MMMM [de] YYYY",
-            LLL : "D [de] MMMM [de] YYYY LT",
-            LLLL : "dddd, D [de] MMMM [de] YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D [de] MMMM [de] YYYY',
+            LLL : 'D [de] MMMM [de] YYYY LT',
+            LLLL : 'dddd, D [de] MMMM [de] YYYY LT'
         },
         calendar : {
             sameDay: '[Hoje às] LT',
@@ -54389,19 +57979,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "em %s",
-            past : "há %s",
-            s : "segundos",
-            m : "um minuto",
-            mm : "%d minutos",
-            h : "uma hora",
-            hh : "%d horas",
-            d : "um dia",
-            dd : "%d dias",
-            M : "um mês",
-            MM : "%d meses",
-            y : "um ano",
-            yy : "%d anos"
+            future : 'em %s',
+            past : 'há %s',
+            s : 'segundos',
+            m : 'um minuto',
+            mm : '%d minutos',
+            h : 'uma hora',
+            hh : '%d horas',
+            d : 'um dia',
+            dd : '%d dias',
+            M : 'um mês',
+            MM : '%d meses',
+            y : 'um ano',
+            yy : '%d anos'
         },
         ordinal : '%dº',
         week : {
@@ -54435,20 +58025,20 @@ IonicModule
     }
 
     return moment.defineLocale('ro', {
-        months : "ianuarie_februarie_martie_aprilie_mai_iunie_iulie_august_septembrie_octombrie_noiembrie_decembrie".split("_"),
-        monthsShort : "ian._febr._mart._apr._mai_iun._iul._aug._sept._oct._nov._dec.".split("_"),
-        weekdays : "duminică_luni_marți_miercuri_joi_vineri_sâmbătă".split("_"),
-        weekdaysShort : "Dum_Lun_Mar_Mie_Joi_Vin_Sâm".split("_"),
-        weekdaysMin : "Du_Lu_Ma_Mi_Jo_Vi_Sâ".split("_"),
+        months : 'ianuarie_februarie_martie_aprilie_mai_iunie_iulie_august_septembrie_octombrie_noiembrie_decembrie'.split('_'),
+        monthsShort : 'ian._febr._mart._apr._mai_iun._iul._aug._sept._oct._nov._dec.'.split('_'),
+        weekdays : 'duminică_luni_marți_miercuri_joi_vineri_sâmbătă'.split('_'),
+        weekdaysShort : 'Dum_Lun_Mar_Mie_Joi_Vin_Sâm'.split('_'),
+        weekdaysMin : 'Du_Lu_Ma_Mi_Jo_Vi_Sâ'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY H:mm",
-            LLLL : "dddd, D MMMM YYYY H:mm"
+            LT : 'H:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY H:mm',
+            LLLL : 'dddd, D MMMM YYYY H:mm'
         },
         calendar : {
-            sameDay: "[azi la] LT",
+            sameDay: '[azi la] LT',
             nextDay: '[mâine la] LT',
             nextWeek: 'dddd [la] LT',
             lastDay: '[ieri la] LT',
@@ -54456,18 +58046,18 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "peste %s",
-            past : "%s în urmă",
-            s : "câteva secunde",
-            m : "un minut",
+            future : 'peste %s',
+            past : '%s în urmă',
+            s : 'câteva secunde',
+            m : 'un minut',
             mm : relativeTimeWithPlural,
-            h : "o oră",
+            h : 'o oră',
             hh : relativeTimeWithPlural,
-            d : "o zi",
+            d : 'o zi',
             dd : relativeTimeWithPlural,
-            M : "o lună",
+            M : 'o lună',
             MM : relativeTimeWithPlural,
-            y : "un an",
+            y : 'un an',
             yy : relativeTimeWithPlural
         },
         week : {
@@ -54548,15 +58138,15 @@ IonicModule
         months : monthsCaseReplace,
         monthsShort : monthsShortCaseReplace,
         weekdays : weekdaysCaseReplace,
-        weekdaysShort : "вс_пн_вт_ср_чт_пт_сб".split("_"),
-        weekdaysMin : "вс_пн_вт_ср_чт_пт_сб".split("_"),
+        weekdaysShort : 'вс_пн_вт_ср_чт_пт_сб'.split('_'),
+        weekdaysMin : 'вс_пн_вт_ср_чт_пт_сб'.split('_'),
         monthsParse : [/^янв/i, /^фев/i, /^мар/i, /^апр/i, /^ма[й|я]/i, /^июн/i, /^июл/i, /^авг/i, /^сен/i, /^окт/i, /^ноя/i, /^дек/i],
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY г.",
-            LLL : "D MMMM YYYY г., LT",
-            LLLL : "dddd, D MMMM YYYY г., LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY г.',
+            LLL : 'D MMMM YYYY г., LT',
+            LLLL : 'dddd, D MMMM YYYY г., LT'
         },
         calendar : {
             sameDay: '[Сегодня в] LT',
@@ -54582,18 +58172,18 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "через %s",
-            past : "%s назад",
-            s : "несколько секунд",
+            future : 'через %s',
+            past : '%s назад',
+            s : 'несколько секунд',
             m : relativeTimeWithPlural,
             mm : relativeTimeWithPlural,
-            h : "час",
+            h : 'час',
             hh : relativeTimeWithPlural,
-            d : "день",
+            d : 'день',
             dd : relativeTimeWithPlural,
-            M : "месяц",
+            M : 'месяц',
             MM : relativeTimeWithPlural,
-            y : "год",
+            y : 'год',
             yy : relativeTimeWithPlural
         },
 
@@ -54604,13 +58194,13 @@ IonicModule
 
         meridiem : function (hour, minute, isLower) {
             if (hour < 4) {
-                return "ночи";
+                return 'ночи';
             } else if (hour < 12) {
-                return "утра";
+                return 'утра';
             } else if (hour < 17) {
-                return "дня";
+                return 'дня';
             } else {
-                return "вечера";
+                return 'вечера';
             }
         },
 
@@ -54644,15 +58234,15 @@ IonicModule
 (function (factory) {
     factory(moment);
 }(function (moment) {
-    var months = "január_február_marec_apríl_máj_jún_júl_august_september_október_november_december".split("_"),
-        monthsShort = "jan_feb_mar_apr_máj_jún_júl_aug_sep_okt_nov_dec".split("_");
+    var months = 'január_február_marec_apríl_máj_jún_júl_august_september_október_november_december'.split('_'),
+        monthsShort = 'jan_feb_mar_apr_máj_jún_júl_aug_sep_okt_nov_dec'.split('_');
 
     function plural(n) {
         return (n > 1) && (n < 5);
     }
 
     function translate(number, withoutSuffix, key, isFuture) {
-        var result = number + " ";
+        var result = number + ' ';
         switch (key) {
         case 's':  // a few seconds / in a few seconds / a few seconds ago
             return (withoutSuffix || isFuture) ? 'pár sekúnd' : 'pár sekundami';
@@ -54715,18 +58305,18 @@ IonicModule
             }
             return _monthsParse;
         }(months, monthsShort)),
-        weekdays : "nedeľa_pondelok_utorok_streda_štvrtok_piatok_sobota".split("_"),
-        weekdaysShort : "ne_po_ut_st_št_pi_so".split("_"),
-        weekdaysMin : "ne_po_ut_st_št_pi_so".split("_"),
+        weekdays : 'nedeľa_pondelok_utorok_streda_štvrtok_piatok_sobota'.split('_'),
+        weekdaysShort : 'ne_po_ut_st_št_pi_so'.split('_'),
+        weekdaysMin : 'ne_po_ut_st_št_pi_so'.split('_'),
         longDateFormat : {
-            LT: "H:mm",
-            L : "DD.MM.YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY LT",
-            LLLL : "dddd D. MMMM YYYY LT"
+            LT: 'H:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY LT',
+            LLLL : 'dddd D. MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[dnes o] LT",
+            sameDay: '[dnes o] LT',
             nextDay: '[zajtra o] LT',
             nextWeek: function () {
                 switch (this.day()) {
@@ -54762,11 +58352,11 @@ IonicModule
                     return '[minulú sobotu o] LT';
                 }
             },
-            sameElse: "L"
+            sameElse: 'L'
         },
         relativeTime : {
-            future : "za %s",
-            past : "pred %s",
+            future : 'za %s',
+            past : 'pred %s',
             s : translate,
             m : translate,
             mm : translate,
@@ -54794,7 +58384,7 @@ IonicModule
     factory(moment);
 }(function (moment) {
     function translate(number, withoutSuffix, key) {
-        var result = number + " ";
+        var result = number + ' ';
         switch (key) {
         case 'm':
             return withoutSuffix ? 'ena minuta' : 'eno minuto';
@@ -54855,17 +58445,17 @@ IonicModule
     }
 
     return moment.defineLocale('sl', {
-        months : "januar_februar_marec_april_maj_junij_julij_avgust_september_oktober_november_december".split("_"),
-        monthsShort : "jan._feb._mar._apr._maj._jun._jul._avg._sep._okt._nov._dec.".split("_"),
-        weekdays : "nedelja_ponedeljek_torek_sreda_četrtek_petek_sobota".split("_"),
-        weekdaysShort : "ned._pon._tor._sre._čet._pet._sob.".split("_"),
-        weekdaysMin : "ne_po_to_sr_če_pe_so".split("_"),
+        months : 'januar_februar_marec_april_maj_junij_julij_avgust_september_oktober_november_december'.split('_'),
+        monthsShort : 'jan._feb._mar._apr._maj._jun._jul._avg._sep._okt._nov._dec.'.split('_'),
+        weekdays : 'nedelja_ponedeljek_torek_sreda_četrtek_petek_sobota'.split('_'),
+        weekdaysShort : 'ned._pon._tor._sre._čet._pet._sob.'.split('_'),
+        weekdaysMin : 'ne_po_to_sr_če_pe_so'.split('_'),
         longDateFormat : {
-            LT : "H:mm",
-            L : "DD. MM. YYYY",
-            LL : "D. MMMM YYYY",
-            LLL : "D. MMMM YYYY LT",
-            LLLL : "dddd, D. MMMM YYYY LT"
+            LT : 'H:mm',
+            L : 'DD. MM. YYYY',
+            LL : 'D. MMMM YYYY',
+            LLL : 'D. MMMM YYYY LT',
+            LLLL : 'dddd, D. MMMM YYYY LT'
         },
         calendar : {
             sameDay  : '[danes ob] LT',
@@ -54903,18 +58493,18 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "čez %s",
-            past   : "%s nazaj",
-            s      : "nekaj sekund",
+            future : 'čez %s',
+            past   : '%s nazaj',
+            s      : 'nekaj sekund',
             m      : translate,
             mm     : translate,
             h      : translate,
             hh     : translate,
-            d      : "en dan",
+            d      : 'en dan',
             dd     : translate,
-            M      : "en mesec",
+            M      : 'en mesec',
             MM     : translate,
-            y      : "eno leto",
+            y      : 'eno leto',
             yy     : translate
         },
         ordinal : '%d.',
@@ -54934,20 +58524,20 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('sq', {
-        months : "Janar_Shkurt_Mars_Prill_Maj_Qershor_Korrik_Gusht_Shtator_Tetor_Nëntor_Dhjetor".split("_"),
-        monthsShort : "Jan_Shk_Mar_Pri_Maj_Qer_Kor_Gus_Sht_Tet_Nën_Dhj".split("_"),
-        weekdays : "E Diel_E Hënë_E Martë_E Mërkurë_E Enjte_E Premte_E Shtunë".split("_"),
-        weekdaysShort : "Die_Hën_Mar_Mër_Enj_Pre_Sht".split("_"),
-        weekdaysMin : "D_H_Ma_Më_E_P_Sh".split("_"),
+        months : 'Janar_Shkurt_Mars_Prill_Maj_Qershor_Korrik_Gusht_Shtator_Tetor_Nëntor_Dhjetor'.split('_'),
+        monthsShort : 'Jan_Shk_Mar_Pri_Maj_Qer_Kor_Gus_Sht_Tet_Nën_Dhj'.split('_'),
+        weekdays : 'E Diel_E Hënë_E Martë_E Mërkurë_E Enjte_E Premte_E Shtunë'.split('_'),
+        weekdaysShort : 'Die_Hën_Mar_Mër_Enj_Pre_Sht'.split('_'),
+        weekdaysMin : 'D_H_Ma_Më_E_P_Sh'.split('_'),
         meridiem : function (hours, minutes, isLower) {
             return hours < 12 ? 'PD' : 'MD';
         },
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[Sot në] LT',
@@ -54958,19 +58548,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "në %s",
-            past : "%s më parë",
-            s : "disa sekonda",
-            m : "një minutë",
-            mm : "%d minuta",
-            h : "një orë",
-            hh : "%d orë",
-            d : "një ditë",
-            dd : "%d ditë",
-            M : "një muaj",
-            MM : "%d muaj",
-            y : "një vit",
-            yy : "%d vite"
+            future : 'në %s',
+            past : '%s më parë',
+            s : 'disa sekonda',
+            m : 'një minutë',
+            mm : '%d minuta',
+            h : 'një orë',
+            hh : '%d orë',
+            d : 'një ditë',
+            dd : '%d ditë',
+            M : 'një muaj',
+            MM : '%d muaj',
+            y : 'një vit',
+            yy : '%d vite'
         },
         ordinal : '%d.',
         week : {
@@ -55016,11 +58606,11 @@ IonicModule
         weekdaysShort: ['нед.', 'пон.', 'уто.', 'сре.', 'чет.', 'пет.', 'суб.'],
         weekdaysMin: ['не', 'по', 'ут', 'ср', 'че', 'пе', 'су'],
         longDateFormat: {
-            LT: "H:mm",
-            L: "DD. MM. YYYY",
-            LL: "D. MMMM YYYY",
-            LLL: "D. MMMM YYYY LT",
-            LLLL: "dddd, D. MMMM YYYY LT"
+            LT: 'H:mm',
+            L: 'DD. MM. YYYY',
+            LL: 'D. MMMM YYYY',
+            LLL: 'D. MMMM YYYY LT',
+            LLLL: 'dddd, D. MMMM YYYY LT'
         },
         calendar: {
             sameDay: '[данас у] LT',
@@ -55057,18 +58647,18 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "за %s",
-            past   : "пре %s",
-            s      : "неколико секунди",
+            future : 'за %s',
+            past   : 'пре %s',
+            s      : 'неколико секунди',
             m      : translator.translate,
             mm     : translator.translate,
             h      : translator.translate,
             hh     : translator.translate,
-            d      : "дан",
+            d      : 'дан',
             dd     : translator.translate,
-            M      : "месец",
+            M      : 'месец',
             MM     : translator.translate,
-            y      : "годину",
+            y      : 'годину',
             yy     : translator.translate
         },
         ordinal : '%d.',
@@ -55115,11 +58705,11 @@ IonicModule
         weekdaysShort: ['ned.', 'pon.', 'uto.', 'sre.', 'čet.', 'pet.', 'sub.'],
         weekdaysMin: ['ne', 'po', 'ut', 'sr', 'če', 'pe', 'su'],
         longDateFormat: {
-            LT: "H:mm",
-            L: "DD. MM. YYYY",
-            LL: "D. MMMM YYYY",
-            LLL: "D. MMMM YYYY LT",
-            LLLL: "dddd, D. MMMM YYYY LT"
+            LT: 'H:mm',
+            L: 'DD. MM. YYYY',
+            LL: 'D. MMMM YYYY',
+            LLL: 'D. MMMM YYYY LT',
+            LLLL: 'dddd, D. MMMM YYYY LT'
         },
         calendar: {
             sameDay: '[danas u] LT',
@@ -55156,18 +58746,18 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "za %s",
-            past   : "pre %s",
-            s      : "nekoliko sekundi",
+            future : 'za %s',
+            past   : 'pre %s',
+            s      : 'nekoliko sekundi',
             m      : translator.translate,
             mm     : translator.translate,
             h      : translator.translate,
             hh     : translator.translate,
-            d      : "dan",
+            d      : 'dan',
             dd     : translator.translate,
-            M      : "mesec",
+            M      : 'mesec',
             MM     : translator.translate,
-            y      : "godinu",
+            y      : 'godinu',
             yy     : translator.translate
         },
         ordinal : '%d.',
@@ -55185,17 +58775,17 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('sv', {
-        months : "januari_februari_mars_april_maj_juni_juli_augusti_september_oktober_november_december".split("_"),
-        monthsShort : "jan_feb_mar_apr_maj_jun_jul_aug_sep_okt_nov_dec".split("_"),
-        weekdays : "söndag_måndag_tisdag_onsdag_torsdag_fredag_lördag".split("_"),
-        weekdaysShort : "sön_mån_tis_ons_tor_fre_lör".split("_"),
-        weekdaysMin : "sö_må_ti_on_to_fr_lö".split("_"),
+        months : 'januari_februari_mars_april_maj_juni_juli_augusti_september_oktober_november_december'.split('_'),
+        monthsShort : 'jan_feb_mar_apr_maj_jun_jul_aug_sep_okt_nov_dec'.split('_'),
+        weekdays : 'söndag_måndag_tisdag_onsdag_torsdag_fredag_lördag'.split('_'),
+        weekdaysShort : 'sön_mån_tis_ons_tor_fre_lör'.split('_'),
+        weekdaysMin : 'sö_må_ti_on_to_fr_lö'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "YYYY-MM-DD",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'YYYY-MM-DD',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
             sameDay: '[Idag] LT',
@@ -55206,19 +58796,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "om %s",
-            past : "för %s sedan",
-            s : "några sekunder",
-            m : "en minut",
-            mm : "%d minuter",
-            h : "en timme",
-            hh : "%d timmar",
-            d : "en dag",
-            dd : "%d dagar",
-            M : "en månad",
-            MM : "%d månader",
-            y : "ett år",
-            yy : "%d år"
+            future : 'om %s',
+            past : 'för %s sedan',
+            s : 'några sekunder',
+            m : 'en minut',
+            mm : '%d minuter',
+            h : 'en timme',
+            hh : '%d timmar',
+            d : 'en dag',
+            dd : '%d dagar',
+            M : 'en månad',
+            MM : '%d månader',
+            y : 'ett år',
+            yy : '%d år'
         },
         ordinal : function (number) {
             var b = number % 10,
@@ -55267,17 +58857,17 @@ IonicModule
         }; */
 
     return moment.defineLocale('ta', {
-        months : 'ஜனவரி_பிப்ரவரி_மார்ச்_ஏப்ரல்_மே_ஜூன்_ஜூலை_ஆகஸ்ட்_செப்டெம்பர்_அக்டோபர்_நவம்பர்_டிசம்பர்'.split("_"),
-        monthsShort : 'ஜனவரி_பிப்ரவரி_மார்ச்_ஏப்ரல்_மே_ஜூன்_ஜூலை_ஆகஸ்ட்_செப்டெம்பர்_அக்டோபர்_நவம்பர்_டிசம்பர்'.split("_"),
-        weekdays : 'ஞாயிற்றுக்கிழமை_திங்கட்கிழமை_செவ்வாய்கிழமை_புதன்கிழமை_வியாழக்கிழமை_வெள்ளிக்கிழமை_சனிக்கிழமை'.split("_"),
-        weekdaysShort : 'ஞாயிறு_திங்கள்_செவ்வாய்_புதன்_வியாழன்_வெள்ளி_சனி'.split("_"),
-        weekdaysMin : 'ஞா_தி_செ_பு_வி_வெ_ச'.split("_"),
+        months : 'ஜனவரி_பிப்ரவரி_மார்ச்_ஏப்ரல்_மே_ஜூன்_ஜூலை_ஆகஸ்ட்_செப்டெம்பர்_அக்டோபர்_நவம்பர்_டிசம்பர்'.split('_'),
+        monthsShort : 'ஜனவரி_பிப்ரவரி_மார்ச்_ஏப்ரல்_மே_ஜூன்_ஜூலை_ஆகஸ்ட்_செப்டெம்பர்_அக்டோபர்_நவம்பர்_டிசம்பர்'.split('_'),
+        weekdays : 'ஞாயிற்றுக்கிழமை_திங்கட்கிழமை_செவ்வாய்கிழமை_புதன்கிழமை_வியாழக்கிழமை_வெள்ளிக்கிழமை_சனிக்கிழமை'.split('_'),
+        weekdaysShort : 'ஞாயிறு_திங்கள்_செவ்வாய்_புதன்_வியாழன்_வெள்ளி_சனி'.split('_'),
+        weekdaysMin : 'ஞா_தி_செ_பு_வி_வெ_ச'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY, LT",
-            LLLL : "dddd, D MMMM YYYY, LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY, LT',
+            LLLL : 'dddd, D MMMM YYYY, LT'
         },
         calendar : {
             sameDay : '[இன்று] LT',
@@ -55288,19 +58878,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s இல்",
-            past : "%s முன்",
-            s : "ஒரு சில விநாடிகள்",
-            m : "ஒரு நிமிடம்",
-            mm : "%d நிமிடங்கள்",
-            h : "ஒரு மணி நேரம்",
-            hh : "%d மணி நேரம்",
-            d : "ஒரு நாள்",
-            dd : "%d நாட்கள்",
-            M : "ஒரு மாதம்",
-            MM : "%d மாதங்கள்",
-            y : "ஒரு வருடம்",
-            yy : "%d ஆண்டுகள்"
+            future : '%s இல்',
+            past : '%s முன்',
+            s : 'ஒரு சில விநாடிகள்',
+            m : 'ஒரு நிமிடம்',
+            mm : '%d நிமிடங்கள்',
+            h : 'ஒரு மணி நேரம்',
+            hh : '%d மணி நேரம்',
+            d : 'ஒரு நாள்',
+            dd : '%d நாட்கள்',
+            M : 'ஒரு மாதம்',
+            MM : '%d மாதங்கள்',
+            y : 'ஒரு வருடம்',
+            yy : '%d ஆண்டுகள்'
         },
 /*        preparse: function (string) {
             return string.replace(/[௧௨௩௪௫௬௭௮௯௦]/g, function (match) {
@@ -55321,17 +58911,17 @@ IonicModule
 
         meridiem : function (hour, minute, isLower) {
             if (hour >= 6 && hour <= 10) {
-                return " காலை";
+                return ' காலை';
             } else if (hour >= 10 && hour <= 14) {
-                return " நண்பகல்";
+                return ' நண்பகல்';
             } else if (hour >= 14 && hour <= 18) {
-                return " எற்பாடு";
+                return ' எற்பாடு';
             } else if (hour >= 18 && hour <= 20) {
-                return " மாலை";
+                return ' மாலை';
             } else if (hour >= 20 && hour <= 24) {
-                return " இரவு";
+                return ' இரவு';
             } else if (hour >= 0 && hour <= 6) {
-                return " வைகறை";
+                return ' வைகறை';
             }
         },
         week : {
@@ -55348,23 +58938,23 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('th', {
-        months : "มกราคม_กุมภาพันธ์_มีนาคม_เมษายน_พฤษภาคม_มิถุนายน_กรกฎาคม_สิงหาคม_กันยายน_ตุลาคม_พฤศจิกายน_ธันวาคม".split("_"),
-        monthsShort : "มกรา_กุมภา_มีนา_เมษา_พฤษภา_มิถุนา_กรกฎา_สิงหา_กันยา_ตุลา_พฤศจิกา_ธันวา".split("_"),
-        weekdays : "อาทิตย์_จันทร์_อังคาร_พุธ_พฤหัสบดี_ศุกร์_เสาร์".split("_"),
-        weekdaysShort : "อาทิตย์_จันทร์_อังคาร_พุธ_พฤหัส_ศุกร์_เสาร์".split("_"), // yes, three characters difference
-        weekdaysMin : "อา._จ._อ._พ._พฤ._ศ._ส.".split("_"),
+        months : 'มกราคม_กุมภาพันธ์_มีนาคม_เมษายน_พฤษภาคม_มิถุนายน_กรกฎาคม_สิงหาคม_กันยายน_ตุลาคม_พฤศจิกายน_ธันวาคม'.split('_'),
+        monthsShort : 'มกรา_กุมภา_มีนา_เมษา_พฤษภา_มิถุนา_กรกฎา_สิงหา_กันยา_ตุลา_พฤศจิกา_ธันวา'.split('_'),
+        weekdays : 'อาทิตย์_จันทร์_อังคาร_พุธ_พฤหัสบดี_ศุกร์_เสาร์'.split('_'),
+        weekdaysShort : 'อาทิตย์_จันทร์_อังคาร_พุธ_พฤหัส_ศุกร์_เสาร์'.split('_'), // yes, three characters difference
+        weekdaysMin : 'อา._จ._อ._พ._พฤ._ศ._ส.'.split('_'),
         longDateFormat : {
-            LT : "H นาฬิกา m นาที",
-            L : "YYYY/MM/DD",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY เวลา LT",
-            LLLL : "วันddddที่ D MMMM YYYY เวลา LT"
+            LT : 'H นาฬิกา m นาที',
+            L : 'YYYY/MM/DD',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY เวลา LT',
+            LLLL : 'วันddddที่ D MMMM YYYY เวลา LT'
         },
         meridiem : function (hour, minute, isLower) {
             if (hour < 12) {
-                return "ก่อนเที่ยง";
+                return 'ก่อนเที่ยง';
             } else {
-                return "หลังเที่ยง";
+                return 'หลังเที่ยง';
             }
         },
         calendar : {
@@ -55376,19 +58966,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "อีก %s",
-            past : "%sที่แล้ว",
-            s : "ไม่กี่วินาที",
-            m : "1 นาที",
-            mm : "%d นาที",
-            h : "1 ชั่วโมง",
-            hh : "%d ชั่วโมง",
-            d : "1 วัน",
-            dd : "%d วัน",
-            M : "1 เดือน",
-            MM : "%d เดือน",
-            y : "1 ปี",
-            yy : "%d ปี"
+            future : 'อีก %s',
+            past : '%sที่แล้ว',
+            s : 'ไม่กี่วินาที',
+            m : '1 นาที',
+            mm : '%d นาที',
+            h : '1 ชั่วโมง',
+            hh : '%d ชั่วโมง',
+            d : '1 วัน',
+            dd : '%d วัน',
+            M : '1 เดือน',
+            MM : '%d เดือน',
+            y : '1 ปี',
+            yy : '%d ปี'
         }
     });
 }));
@@ -55400,20 +58990,20 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('tl-ph', {
-        months : "Enero_Pebrero_Marso_Abril_Mayo_Hunyo_Hulyo_Agosto_Setyembre_Oktubre_Nobyembre_Disyembre".split("_"),
-        monthsShort : "Ene_Peb_Mar_Abr_May_Hun_Hul_Ago_Set_Okt_Nob_Dis".split("_"),
-        weekdays : "Linggo_Lunes_Martes_Miyerkules_Huwebes_Biyernes_Sabado".split("_"),
-        weekdaysShort : "Lin_Lun_Mar_Miy_Huw_Biy_Sab".split("_"),
-        weekdaysMin : "Li_Lu_Ma_Mi_Hu_Bi_Sab".split("_"),
+        months : 'Enero_Pebrero_Marso_Abril_Mayo_Hunyo_Hulyo_Agosto_Setyembre_Oktubre_Nobyembre_Disyembre'.split('_'),
+        monthsShort : 'Ene_Peb_Mar_Abr_May_Hun_Hul_Ago_Set_Okt_Nob_Dis'.split('_'),
+        weekdays : 'Linggo_Lunes_Martes_Miyerkules_Huwebes_Biyernes_Sabado'.split('_'),
+        weekdaysShort : 'Lin_Lun_Mar_Miy_Huw_Biy_Sab'.split('_'),
+        weekdaysMin : 'Li_Lu_Ma_Mi_Hu_Bi_Sab'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "MM/D/YYYY",
-            LL : "MMMM D, YYYY",
-            LLL : "MMMM D, YYYY LT",
-            LLLL : "dddd, MMMM DD, YYYY LT"
+            LT : 'HH:mm',
+            L : 'MM/D/YYYY',
+            LL : 'MMMM D, YYYY',
+            LLL : 'MMMM D, YYYY LT',
+            LLLL : 'dddd, MMMM DD, YYYY LT'
         },
         calendar : {
-            sameDay: "[Ngayon sa] LT",
+            sameDay: '[Ngayon sa] LT',
             nextDay: '[Bukas sa] LT',
             nextWeek: 'dddd [sa] LT',
             lastDay: '[Kahapon sa] LT',
@@ -55421,19 +59011,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "sa loob ng %s",
-            past : "%s ang nakalipas",
-            s : "ilang segundo",
-            m : "isang minuto",
-            mm : "%d minuto",
-            h : "isang oras",
-            hh : "%d oras",
-            d : "isang araw",
-            dd : "%d araw",
-            M : "isang buwan",
-            MM : "%d buwan",
-            y : "isang taon",
-            yy : "%d taon"
+            future : 'sa loob ng %s',
+            past : '%s ang nakalipas',
+            s : 'ilang segundo',
+            m : 'isang minuto',
+            mm : '%d minuto',
+            h : 'isang oras',
+            hh : '%d oras',
+            d : 'isang araw',
+            dd : '%d araw',
+            M : 'isang buwan',
+            MM : '%d buwan',
+            y : 'isang taon',
+            yy : '%d taon'
         },
         ordinal : function (number) {
             return number;
@@ -55453,43 +59043,43 @@ IonicModule
     factory(moment);
 }(function (moment) {
     var suffixes = {
-        1: "'inci",
-        5: "'inci",
-        8: "'inci",
-        70: "'inci",
-        80: "'inci",
+        1: '\'inci',
+        5: '\'inci',
+        8: '\'inci',
+        70: '\'inci',
+        80: '\'inci',
 
-        2: "'nci",
-        7: "'nci",
-        20: "'nci",
-        50: "'nci",
+        2: '\'nci',
+        7: '\'nci',
+        20: '\'nci',
+        50: '\'nci',
 
-        3: "'üncü",
-        4: "'üncü",
-        100: "'üncü",
+        3: '\'üncü',
+        4: '\'üncü',
+        100: '\'üncü',
 
-        6: "'ncı",
+        6: '\'ncı',
 
-        9: "'uncu",
-        10: "'uncu",
-        30: "'uncu",
+        9: '\'uncu',
+        10: '\'uncu',
+        30: '\'uncu',
 
-        60: "'ıncı",
-        90: "'ıncı"
+        60: '\'ıncı',
+        90: '\'ıncı'
     };
 
     return moment.defineLocale('tr', {
-        months : "Ocak_Şubat_Mart_Nisan_Mayıs_Haziran_Temmuz_Ağustos_Eylül_Ekim_Kasım_Aralık".split("_"),
-        monthsShort : "Oca_Şub_Mar_Nis_May_Haz_Tem_Ağu_Eyl_Eki_Kas_Ara".split("_"),
-        weekdays : "Pazar_Pazartesi_Salı_Çarşamba_Perşembe_Cuma_Cumartesi".split("_"),
-        weekdaysShort : "Paz_Pts_Sal_Çar_Per_Cum_Cts".split("_"),
-        weekdaysMin : "Pz_Pt_Sa_Ça_Pe_Cu_Ct".split("_"),
+        months : 'Ocak_Şubat_Mart_Nisan_Mayıs_Haziran_Temmuz_Ağustos_Eylül_Ekim_Kasım_Aralık'.split('_'),
+        monthsShort : 'Oca_Şub_Mar_Nis_May_Haz_Tem_Ağu_Eyl_Eki_Kas_Ara'.split('_'),
+        weekdays : 'Pazar_Pazartesi_Salı_Çarşamba_Perşembe_Cuma_Cumartesi'.split('_'),
+        weekdaysShort : 'Paz_Pts_Sal_Çar_Per_Cum_Cts'.split('_'),
+        weekdaysMin : 'Pz_Pt_Sa_Ça_Pe_Cu_Ct'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd, D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd, D MMMM YYYY LT'
         },
         calendar : {
             sameDay : '[bugün saat] LT',
@@ -55500,23 +59090,23 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "%s sonra",
-            past : "%s önce",
-            s : "birkaç saniye",
-            m : "bir dakika",
-            mm : "%d dakika",
-            h : "bir saat",
-            hh : "%d saat",
-            d : "bir gün",
-            dd : "%d gün",
-            M : "bir ay",
-            MM : "%d ay",
-            y : "bir yıl",
-            yy : "%d yıl"
+            future : '%s sonra',
+            past : '%s önce',
+            s : 'birkaç saniye',
+            m : 'bir dakika',
+            mm : '%d dakika',
+            h : 'bir saat',
+            hh : '%d saat',
+            d : 'bir gün',
+            dd : '%d gün',
+            M : 'bir ay',
+            MM : '%d ay',
+            y : 'bir yıl',
+            yy : '%d yıl'
         },
         ordinal : function (number) {
             if (number === 0) {  // special case for zero
-                return number + "'ıncı";
+                return number + '\'ıncı';
             }
             var a = number % 10,
                 b = number % 100 - a,
@@ -55538,20 +59128,20 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('tzm-latn', {
-        months : "innayr_brˤayrˤ_marˤsˤ_ibrir_mayyw_ywnyw_ywlywz_ɣwšt_šwtanbir_ktˤwbrˤ_nwwanbir_dwjnbir".split("_"),
-        monthsShort : "innayr_brˤayrˤ_marˤsˤ_ibrir_mayyw_ywnyw_ywlywz_ɣwšt_šwtanbir_ktˤwbrˤ_nwwanbir_dwjnbir".split("_"),
-        weekdays : "asamas_aynas_asinas_akras_akwas_asimwas_asiḍyas".split("_"),
-        weekdaysShort : "asamas_aynas_asinas_akras_akwas_asimwas_asiḍyas".split("_"),
-        weekdaysMin : "asamas_aynas_asinas_akras_akwas_asimwas_asiḍyas".split("_"),
+        months : 'innayr_brˤayrˤ_marˤsˤ_ibrir_mayyw_ywnyw_ywlywz_ɣwšt_šwtanbir_ktˤwbrˤ_nwwanbir_dwjnbir'.split('_'),
+        monthsShort : 'innayr_brˤayrˤ_marˤsˤ_ibrir_mayyw_ywnyw_ywlywz_ɣwšt_šwtanbir_ktˤwbrˤ_nwwanbir_dwjnbir'.split('_'),
+        weekdays : 'asamas_aynas_asinas_akras_akwas_asimwas_asiḍyas'.split('_'),
+        weekdaysShort : 'asamas_aynas_asinas_akras_akwas_asimwas_asiḍyas'.split('_'),
+        weekdaysMin : 'asamas_aynas_asinas_akras_akwas_asimwas_asiḍyas'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[asdkh g] LT",
+            sameDay: '[asdkh g] LT',
             nextDay: '[aska g] LT',
             nextWeek: 'dddd [g] LT',
             lastDay: '[assant g] LT',
@@ -55559,19 +59149,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "dadkh s yan %s",
-            past : "yan %s",
-            s : "imik",
-            m : "minuḍ",
-            mm : "%d minuḍ",
-            h : "saɛa",
-            hh : "%d tassaɛin",
-            d : "ass",
-            dd : "%d ossan",
-            M : "ayowr",
-            MM : "%d iyyirn",
-            y : "asgas",
-            yy : "%d isgasn"
+            future : 'dadkh s yan %s',
+            past : 'yan %s',
+            s : 'imik',
+            m : 'minuḍ',
+            mm : '%d minuḍ',
+            h : 'saɛa',
+            hh : '%d tassaɛin',
+            d : 'ass',
+            dd : '%d ossan',
+            M : 'ayowr',
+            MM : '%d iyyirn',
+            y : 'asgas',
+            yy : '%d isgasn'
         },
         week : {
             dow : 6, // Saturday is the first day of the week.
@@ -55587,20 +59177,20 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('tzm', {
-        months : "ⵉⵏⵏⴰⵢⵔ_ⴱⵕⴰⵢⵕ_ⵎⴰⵕⵚ_ⵉⴱⵔⵉⵔ_ⵎⴰⵢⵢⵓ_ⵢⵓⵏⵢⵓ_ⵢⵓⵍⵢⵓⵣ_ⵖⵓⵛⵜ_ⵛⵓⵜⴰⵏⴱⵉⵔ_ⴽⵟⵓⴱⵕ_ⵏⵓⵡⴰⵏⴱⵉⵔ_ⴷⵓⵊⵏⴱⵉⵔ".split("_"),
-        monthsShort : "ⵉⵏⵏⴰⵢⵔ_ⴱⵕⴰⵢⵕ_ⵎⴰⵕⵚ_ⵉⴱⵔⵉⵔ_ⵎⴰⵢⵢⵓ_ⵢⵓⵏⵢⵓ_ⵢⵓⵍⵢⵓⵣ_ⵖⵓⵛⵜ_ⵛⵓⵜⴰⵏⴱⵉⵔ_ⴽⵟⵓⴱⵕ_ⵏⵓⵡⴰⵏⴱⵉⵔ_ⴷⵓⵊⵏⴱⵉⵔ".split("_"),
-        weekdays : "ⴰⵙⴰⵎⴰⵙ_ⴰⵢⵏⴰⵙ_ⴰⵙⵉⵏⴰⵙ_ⴰⴽⵔⴰⵙ_ⴰⴽⵡⴰⵙ_ⴰⵙⵉⵎⵡⴰⵙ_ⴰⵙⵉⴹⵢⴰⵙ".split("_"),
-        weekdaysShort : "ⴰⵙⴰⵎⴰⵙ_ⴰⵢⵏⴰⵙ_ⴰⵙⵉⵏⴰⵙ_ⴰⴽⵔⴰⵙ_ⴰⴽⵡⴰⵙ_ⴰⵙⵉⵎⵡⴰⵙ_ⴰⵙⵉⴹⵢⴰⵙ".split("_"),
-        weekdaysMin : "ⴰⵙⴰⵎⴰⵙ_ⴰⵢⵏⴰⵙ_ⴰⵙⵉⵏⴰⵙ_ⴰⴽⵔⴰⵙ_ⴰⴽⵡⴰⵙ_ⴰⵙⵉⵎⵡⴰⵙ_ⴰⵙⵉⴹⵢⴰⵙ".split("_"),
+        months : 'ⵉⵏⵏⴰⵢⵔ_ⴱⵕⴰⵢⵕ_ⵎⴰⵕⵚ_ⵉⴱⵔⵉⵔ_ⵎⴰⵢⵢⵓ_ⵢⵓⵏⵢⵓ_ⵢⵓⵍⵢⵓⵣ_ⵖⵓⵛⵜ_ⵛⵓⵜⴰⵏⴱⵉⵔ_ⴽⵟⵓⴱⵕ_ⵏⵓⵡⴰⵏⴱⵉⵔ_ⴷⵓⵊⵏⴱⵉⵔ'.split('_'),
+        monthsShort : 'ⵉⵏⵏⴰⵢⵔ_ⴱⵕⴰⵢⵕ_ⵎⴰⵕⵚ_ⵉⴱⵔⵉⵔ_ⵎⴰⵢⵢⵓ_ⵢⵓⵏⵢⵓ_ⵢⵓⵍⵢⵓⵣ_ⵖⵓⵛⵜ_ⵛⵓⵜⴰⵏⴱⵉⵔ_ⴽⵟⵓⴱⵕ_ⵏⵓⵡⴰⵏⴱⵉⵔ_ⴷⵓⵊⵏⴱⵉⵔ'.split('_'),
+        weekdays : 'ⴰⵙⴰⵎⴰⵙ_ⴰⵢⵏⴰⵙ_ⴰⵙⵉⵏⴰⵙ_ⴰⴽⵔⴰⵙ_ⴰⴽⵡⴰⵙ_ⴰⵙⵉⵎⵡⴰⵙ_ⴰⵙⵉⴹⵢⴰⵙ'.split('_'),
+        weekdaysShort : 'ⴰⵙⴰⵎⴰⵙ_ⴰⵢⵏⴰⵙ_ⴰⵙⵉⵏⴰⵙ_ⴰⴽⵔⴰⵙ_ⴰⴽⵡⴰⵙ_ⴰⵙⵉⵎⵡⴰⵙ_ⴰⵙⵉⴹⵢⴰⵙ'.split('_'),
+        weekdaysMin : 'ⴰⵙⴰⵎⴰⵙ_ⴰⵢⵏⴰⵙ_ⴰⵙⵉⵏⴰⵙ_ⴰⴽⵔⴰⵙ_ⴰⴽⵡⴰⵙ_ⴰⵙⵉⵎⵡⴰⵙ_ⴰⵙⵉⴹⵢⴰⵙ'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "dddd D MMMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'dddd D MMMM YYYY LT'
         },
         calendar : {
-            sameDay: "[ⴰⵙⴷⵅ ⴴ] LT",
+            sameDay: '[ⴰⵙⴷⵅ ⴴ] LT',
             nextDay: '[ⴰⵙⴽⴰ ⴴ] LT',
             nextWeek: 'dddd [ⴴ] LT',
             lastDay: '[ⴰⵚⴰⵏⵜ ⴴ] LT',
@@ -55608,19 +59198,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "ⴷⴰⴷⵅ ⵙ ⵢⴰⵏ %s",
-            past : "ⵢⴰⵏ %s",
-            s : "ⵉⵎⵉⴽ",
-            m : "ⵎⵉⵏⵓⴺ",
-            mm : "%d ⵎⵉⵏⵓⴺ",
-            h : "ⵙⴰⵄⴰ",
-            hh : "%d ⵜⴰⵙⵙⴰⵄⵉⵏ",
-            d : "ⴰⵙⵙ",
-            dd : "%d oⵙⵙⴰⵏ",
-            M : "ⴰⵢoⵓⵔ",
-            MM : "%d ⵉⵢⵢⵉⵔⵏ",
-            y : "ⴰⵙⴳⴰⵙ",
-            yy : "%d ⵉⵙⴳⴰⵙⵏ"
+            future : 'ⴷⴰⴷⵅ ⵙ ⵢⴰⵏ %s',
+            past : 'ⵢⴰⵏ %s',
+            s : 'ⵉⵎⵉⴽ',
+            m : 'ⵎⵉⵏⵓⴺ',
+            mm : '%d ⵎⵉⵏⵓⴺ',
+            h : 'ⵙⴰⵄⴰ',
+            hh : '%d ⵜⴰⵙⵙⴰⵄⵉⵏ',
+            d : 'ⴰⵙⵙ',
+            dd : '%d oⵙⵙⴰⵏ',
+            M : 'ⴰⵢoⵓⵔ',
+            MM : '%d ⵉⵢⵢⵉⵔⵏ',
+            y : 'ⴰⵙⴳⴰⵙ',
+            yy : '%d ⵉⵙⴳⴰⵙⵏ'
         },
         week : {
             dow : 6, // Saturday is the first day of the week.
@@ -55697,16 +59287,16 @@ IonicModule
 
     return moment.defineLocale('uk', {
         months : monthsCaseReplace,
-        monthsShort : "січ_лют_бер_квіт_трав_черв_лип_серп_вер_жовт_лист_груд".split("_"),
+        monthsShort : 'січ_лют_бер_квіт_трав_черв_лип_серп_вер_жовт_лист_груд'.split('_'),
         weekdays : weekdaysCaseReplace,
-        weekdaysShort : "нд_пн_вт_ср_чт_пт_сб".split("_"),
-        weekdaysMin : "нд_пн_вт_ср_чт_пт_сб".split("_"),
+        weekdaysShort : 'нд_пн_вт_ср_чт_пт_сб'.split('_'),
+        weekdaysMin : 'нд_пн_вт_ср_чт_пт_сб'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD.MM.YYYY",
-            LL : "D MMMM YYYY р.",
-            LLL : "D MMMM YYYY р., LT",
-            LLLL : "dddd, D MMMM YYYY р., LT"
+            LT : 'HH:mm',
+            L : 'DD.MM.YYYY',
+            LL : 'D MMMM YYYY р.',
+            LLL : 'D MMMM YYYY р., LT',
+            LLLL : 'dddd, D MMMM YYYY р., LT'
         },
         calendar : {
             sameDay: processHoursFunction('[Сьогодні '),
@@ -55729,18 +59319,18 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "за %s",
-            past : "%s тому",
-            s : "декілька секунд",
+            future : 'за %s',
+            past : '%s тому',
+            s : 'декілька секунд',
             m : relativeTimeWithPlural,
             mm : relativeTimeWithPlural,
-            h : "годину",
+            h : 'годину',
             hh : relativeTimeWithPlural,
-            d : "день",
+            d : 'день',
             dd : relativeTimeWithPlural,
-            M : "місяць",
+            M : 'місяць',
             MM : relativeTimeWithPlural,
-            y : "рік",
+            y : 'рік',
             yy : relativeTimeWithPlural
         },
 
@@ -55748,13 +59338,13 @@ IonicModule
 
         meridiem : function (hour, minute, isLower) {
             if (hour < 4) {
-                return "ночі";
+                return 'ночі';
             } else if (hour < 12) {
-                return "ранку";
+                return 'ранку';
             } else if (hour < 17) {
-                return "дня";
+                return 'дня';
             } else {
-                return "вечора";
+                return 'вечора';
             }
         },
 
@@ -55780,24 +59370,24 @@ IonicModule
     });
 }));
 // moment.js locale configuration
-// locale : uzbek
+// locale : uzbek (uz)
 // author : Sardor Muminov : https://github.com/muminoff
 
 (function (factory) {
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('uz', {
-        months : "январь_февраль_март_апрель_май_июнь_июль_август_сентябрь_октябрь_ноябрь_декабрь".split("_"),
-        monthsShort : "янв_фев_мар_апр_май_июн_июл_авг_сен_окт_ноя_дек".split("_"),
-        weekdays : "Якшанба_Душанба_Сешанба_Чоршанба_Пайшанба_Жума_Шанба".split("_"),
-        weekdaysShort : "Якш_Душ_Сеш_Чор_Пай_Жум_Шан".split("_"),
-        weekdaysMin : "Як_Ду_Се_Чо_Па_Жу_Ша".split("_"),
+        months : 'январь_февраль_март_апрель_май_июнь_июль_август_сентябрь_октябрь_ноябрь_декабрь'.split('_'),
+        monthsShort : 'янв_фев_мар_апр_май_июн_июл_авг_сен_окт_ноя_дек'.split('_'),
+        weekdays : 'Якшанба_Душанба_Сешанба_Чоршанба_Пайшанба_Жума_Шанба'.split('_'),
+        weekdaysShort : 'Якш_Душ_Сеш_Чор_Пай_Жум_Шан'.split('_'),
+        weekdaysMin : 'Як_Ду_Се_Чо_Па_Жу_Ша'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM YYYY",
-            LLL : "D MMMM YYYY LT",
-            LLLL : "D MMMM YYYY, dddd LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM YYYY',
+            LLL : 'D MMMM YYYY LT',
+            LLLL : 'D MMMM YYYY, dddd LT'
         },
         calendar : {
             sameDay : '[Бугун соат] LT [да]',
@@ -55808,19 +59398,19 @@ IonicModule
             sameElse : 'L'
         },
         relativeTime : {
-            future : "Якин %s ичида",
-            past : "Бир неча %s олдин",
-            s : "фурсат",
-            m : "бир дакика",
-            mm : "%d дакика",
-            h : "бир соат",
-            hh : "%d соат",
-            d : "бир кун",
-            dd : "%d кун",
-            M : "бир ой",
-            MM : "%d ой",
-            y : "бир йил",
-            yy : "%d йил"
+            future : 'Якин %s ичида',
+            past : 'Бир неча %s олдин',
+            s : 'фурсат',
+            m : 'бир дакика',
+            mm : '%d дакика',
+            h : 'бир соат',
+            hh : '%d соат',
+            d : 'бир кун',
+            dd : '%d кун',
+            M : 'бир ой',
+            MM : '%d ой',
+            y : 'бир йил',
+            yy : '%d йил'
         },
         week : {
             dow : 1, // Monday is the first day of the week.
@@ -55836,24 +59426,24 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('vi', {
-        months : "tháng 1_tháng 2_tháng 3_tháng 4_tháng 5_tháng 6_tháng 7_tháng 8_tháng 9_tháng 10_tháng 11_tháng 12".split("_"),
-        monthsShort : "Th01_Th02_Th03_Th04_Th05_Th06_Th07_Th08_Th09_Th10_Th11_Th12".split("_"),
-        weekdays : "chủ nhật_thứ hai_thứ ba_thứ tư_thứ năm_thứ sáu_thứ bảy".split("_"),
-        weekdaysShort : "CN_T2_T3_T4_T5_T6_T7".split("_"),
-        weekdaysMin : "CN_T2_T3_T4_T5_T6_T7".split("_"),
+        months : 'tháng 1_tháng 2_tháng 3_tháng 4_tháng 5_tháng 6_tháng 7_tháng 8_tháng 9_tháng 10_tháng 11_tháng 12'.split('_'),
+        monthsShort : 'Th01_Th02_Th03_Th04_Th05_Th06_Th07_Th08_Th09_Th10_Th11_Th12'.split('_'),
+        weekdays : 'chủ nhật_thứ hai_thứ ba_thứ tư_thứ năm_thứ sáu_thứ bảy'.split('_'),
+        weekdaysShort : 'CN_T2_T3_T4_T5_T6_T7'.split('_'),
+        weekdaysMin : 'CN_T2_T3_T4_T5_T6_T7'.split('_'),
         longDateFormat : {
-            LT : "HH:mm",
-            L : "DD/MM/YYYY",
-            LL : "D MMMM [năm] YYYY",
-            LLL : "D MMMM [năm] YYYY LT",
-            LLLL : "dddd, D MMMM [năm] YYYY LT",
-            l : "DD/M/YYYY",
-            ll : "D MMM YYYY",
-            lll : "D MMM YYYY LT",
-            llll : "ddd, D MMM YYYY LT"
+            LT : 'HH:mm',
+            L : 'DD/MM/YYYY',
+            LL : 'D MMMM [năm] YYYY',
+            LLL : 'D MMMM [năm] YYYY LT',
+            LLLL : 'dddd, D MMMM [năm] YYYY LT',
+            l : 'DD/M/YYYY',
+            ll : 'D MMM YYYY',
+            lll : 'D MMM YYYY LT',
+            llll : 'ddd, D MMM YYYY LT'
         },
         calendar : {
-            sameDay: "[Hôm nay lúc] LT",
+            sameDay: '[Hôm nay lúc] LT',
             nextDay: '[Ngày mai lúc] LT',
             nextWeek: 'dddd [tuần tới lúc] LT',
             lastDay: '[Hôm qua lúc] LT',
@@ -55861,19 +59451,19 @@ IonicModule
             sameElse: 'L'
         },
         relativeTime : {
-            future : "%s tới",
-            past : "%s trước",
-            s : "vài giây",
-            m : "một phút",
-            mm : "%d phút",
-            h : "một giờ",
-            hh : "%d giờ",
-            d : "một ngày",
-            dd : "%d ngày",
-            M : "một tháng",
-            MM : "%d tháng",
-            y : "một năm",
-            yy : "%d năm"
+            future : '%s tới',
+            past : '%s trước',
+            s : 'vài giây',
+            m : 'một phút',
+            mm : '%d phút',
+            h : 'một giờ',
+            hh : '%d giờ',
+            d : 'một ngày',
+            dd : '%d ngày',
+            M : 'một tháng',
+            MM : '%d tháng',
+            y : 'một năm',
+            yy : '%d năm'
         },
         ordinal : function (number) {
             return number;
@@ -55885,7 +59475,7 @@ IonicModule
     });
 }));
 // moment.js locale configuration
-// locale : chinese
+// locale : chinese (zh-cn)
 // author : suupic : https://github.com/suupic
 // author : Zeno Zeng : https://github.com/zenozeng
 
@@ -55893,91 +59483,91 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('zh-cn', {
-        months : "一月_二月_三月_四月_五月_六月_七月_八月_九月_十月_十一月_十二月".split("_"),
-        monthsShort : "1月_2月_3月_4月_5月_6月_7月_8月_9月_10月_11月_12月".split("_"),
-        weekdays : "星期日_星期一_星期二_星期三_星期四_星期五_星期六".split("_"),
-        weekdaysShort : "周日_周一_周二_周三_周四_周五_周六".split("_"),
-        weekdaysMin : "日_一_二_三_四_五_六".split("_"),
+        months : '一月_二月_三月_四月_五月_六月_七月_八月_九月_十月_十一月_十二月'.split('_'),
+        monthsShort : '1月_2月_3月_4月_5月_6月_7月_8月_9月_10月_11月_12月'.split('_'),
+        weekdays : '星期日_星期一_星期二_星期三_星期四_星期五_星期六'.split('_'),
+        weekdaysShort : '周日_周一_周二_周三_周四_周五_周六'.split('_'),
+        weekdaysMin : '日_一_二_三_四_五_六'.split('_'),
         longDateFormat : {
-            LT : "Ah点mm",
-            L : "YYYY-MM-DD",
-            LL : "YYYY年MMMD日",
-            LLL : "YYYY年MMMD日LT",
-            LLLL : "YYYY年MMMD日ddddLT",
-            l : "YYYY-MM-DD",
-            ll : "YYYY年MMMD日",
-            lll : "YYYY年MMMD日LT",
-            llll : "YYYY年MMMD日ddddLT"
+            LT : 'Ah点mm',
+            L : 'YYYY-MM-DD',
+            LL : 'YYYY年MMMD日',
+            LLL : 'YYYY年MMMD日LT',
+            LLLL : 'YYYY年MMMD日ddddLT',
+            l : 'YYYY-MM-DD',
+            ll : 'YYYY年MMMD日',
+            lll : 'YYYY年MMMD日LT',
+            llll : 'YYYY年MMMD日ddddLT'
         },
         meridiem : function (hour, minute, isLower) {
             var hm = hour * 100 + minute;
             if (hm < 600) {
-                return "凌晨";
+                return '凌晨';
             } else if (hm < 900) {
-                return "早上";
+                return '早上';
             } else if (hm < 1130) {
-                return "上午";
+                return '上午';
             } else if (hm < 1230) {
-                return "中午";
+                return '中午';
             } else if (hm < 1800) {
-                return "下午";
+                return '下午';
             } else {
-                return "晚上";
+                return '晚上';
             }
         },
         calendar : {
             sameDay : function () {
-                return this.minutes() === 0 ? "[今天]Ah[点整]" : "[今天]LT";
+                return this.minutes() === 0 ? '[今天]Ah[点整]' : '[今天]LT';
             },
             nextDay : function () {
-                return this.minutes() === 0 ? "[明天]Ah[点整]" : "[明天]LT";
+                return this.minutes() === 0 ? '[明天]Ah[点整]' : '[明天]LT';
             },
             lastDay : function () {
-                return this.minutes() === 0 ? "[昨天]Ah[点整]" : "[昨天]LT";
+                return this.minutes() === 0 ? '[昨天]Ah[点整]' : '[昨天]LT';
             },
             nextWeek : function () {
                 var startOfWeek, prefix;
                 startOfWeek = moment().startOf('week');
                 prefix = this.unix() - startOfWeek.unix() >= 7 * 24 * 3600 ? '[下]' : '[本]';
-                return this.minutes() === 0 ? prefix + "dddAh点整" : prefix + "dddAh点mm";
+                return this.minutes() === 0 ? prefix + 'dddAh点整' : prefix + 'dddAh点mm';
             },
             lastWeek : function () {
                 var startOfWeek, prefix;
                 startOfWeek = moment().startOf('week');
                 prefix = this.unix() < startOfWeek.unix()  ? '[上]' : '[本]';
-                return this.minutes() === 0 ? prefix + "dddAh点整" : prefix + "dddAh点mm";
+                return this.minutes() === 0 ? prefix + 'dddAh点整' : prefix + 'dddAh点mm';
             },
             sameElse : 'LL'
         },
         ordinal : function (number, period) {
             switch (period) {
-            case "d":
-            case "D":
-            case "DDD":
-                return number + "日";
-            case "M":
-                return number + "月";
-            case "w":
-            case "W":
-                return number + "周";
+            case 'd':
+            case 'D':
+            case 'DDD':
+                return number + '日';
+            case 'M':
+                return number + '月';
+            case 'w':
+            case 'W':
+                return number + '周';
             default:
                 return number;
             }
         },
         relativeTime : {
-            future : "%s内",
-            past : "%s前",
-            s : "几秒",
-            m : "1分钟",
-            mm : "%d分钟",
-            h : "1小时",
-            hh : "%d小时",
-            d : "1天",
-            dd : "%d天",
-            M : "1个月",
-            MM : "%d个月",
-            y : "1年",
-            yy : "%d年"
+            future : '%s内',
+            past : '%s前',
+            s : '几秒',
+            m : '1分钟',
+            mm : '%d分钟',
+            h : '1小时',
+            hh : '%d小时',
+            d : '1天',
+            dd : '%d天',
+            M : '1个月',
+            MM : '%d个月',
+            y : '1年',
+            yy : '%d年'
         },
         week : {
             // GB/T 7408-1994《数据元和交换格式·信息交换·日期和时间表示法》与ISO 8601:1988等效
@@ -55994,34 +59584,34 @@ IonicModule
     factory(moment);
 }(function (moment) {
     return moment.defineLocale('zh-tw', {
-        months : "一月_二月_三月_四月_五月_六月_七月_八月_九月_十月_十一月_十二月".split("_"),
-        monthsShort : "1月_2月_3月_4月_5月_6月_7月_8月_9月_10月_11月_12月".split("_"),
-        weekdays : "星期日_星期一_星期二_星期三_星期四_星期五_星期六".split("_"),
-        weekdaysShort : "週日_週一_週二_週三_週四_週五_週六".split("_"),
-        weekdaysMin : "日_一_二_三_四_五_六".split("_"),
+        months : '一月_二月_三月_四月_五月_六月_七月_八月_九月_十月_十一月_十二月'.split('_'),
+        monthsShort : '1月_2月_3月_4月_5月_6月_7月_8月_9月_10月_11月_12月'.split('_'),
+        weekdays : '星期日_星期一_星期二_星期三_星期四_星期五_星期六'.split('_'),
+        weekdaysShort : '週日_週一_週二_週三_週四_週五_週六'.split('_'),
+        weekdaysMin : '日_一_二_三_四_五_六'.split('_'),
         longDateFormat : {
-            LT : "Ah點mm",
-            L : "YYYY年MMMD日",
-            LL : "YYYY年MMMD日",
-            LLL : "YYYY年MMMD日LT",
-            LLLL : "YYYY年MMMD日ddddLT",
-            l : "YYYY年MMMD日",
-            ll : "YYYY年MMMD日",
-            lll : "YYYY年MMMD日LT",
-            llll : "YYYY年MMMD日ddddLT"
+            LT : 'Ah點mm',
+            L : 'YYYY年MMMD日',
+            LL : 'YYYY年MMMD日',
+            LLL : 'YYYY年MMMD日LT',
+            LLLL : 'YYYY年MMMD日ddddLT',
+            l : 'YYYY年MMMD日',
+            ll : 'YYYY年MMMD日',
+            lll : 'YYYY年MMMD日LT',
+            llll : 'YYYY年MMMD日ddddLT'
         },
         meridiem : function (hour, minute, isLower) {
             var hm = hour * 100 + minute;
             if (hm < 900) {
-                return "早上";
+                return '早上';
             } else if (hm < 1130) {
-                return "上午";
+                return '上午';
             } else if (hm < 1230) {
-                return "中午";
+                return '中午';
             } else if (hm < 1800) {
-                return "下午";
+                return '下午';
             } else {
-                return "晚上";
+                return '晚上';
             }
         },
         calendar : {
@@ -56034,33 +59624,33 @@ IonicModule
         },
         ordinal : function (number, period) {
             switch (period) {
-            case "d" :
-            case "D" :
-            case "DDD" :
-                return number + "日";
-            case "M" :
-                return number + "月";
-            case "w" :
-            case "W" :
-                return number + "週";
+            case 'd' :
+            case 'D' :
+            case 'DDD' :
+                return number + '日';
+            case 'M' :
+                return number + '月';
+            case 'w' :
+            case 'W' :
+                return number + '週';
             default :
                 return number;
             }
         },
         relativeTime : {
-            future : "%s內",
-            past : "%s前",
-            s : "幾秒",
-            m : "一分鐘",
-            mm : "%d分鐘",
-            h : "一小時",
-            hh : "%d小時",
-            d : "一天",
-            dd : "%d天",
-            M : "一個月",
-            MM : "%d個月",
-            y : "一年",
-            yy : "%d年"
+            future : '%s內',
+            past : '%s前',
+            s : '幾秒',
+            m : '一分鐘',
+            mm : '%d分鐘',
+            h : '一小時',
+            hh : '%d小時',
+            d : '一天',
+            dd : '%d天',
+            M : '一個月',
+            MM : '%d個月',
+            y : '一年',
+            yy : '%d年'
         }
     });
 }));
@@ -56107,6 +59697,18 @@ IonicModule
     }
 }).call(this);
 
+/*!
+ * ng-i18next - Version 0.3.5 - 2014-09-04
+ * Copyright (c) 2014 Andre Meyering
+ *
+ * AngularJS filter and directive for i18next (i18next by Jan Mühlemann)
+ *
+ * - Source: https://github.com/archer96/ng-i18next
+ * - Issues: https://github.com/archer96/ng-i18next/issues
+ *
+ * License: MIT - https://github.com/archer96/ng-i18next/LICENSE
+ *
+*/
 angular.module('jm.i18next', ['ng']);
 angular.module('jm.i18next').provider('$i18next', function () {
 
@@ -56139,20 +59741,22 @@ angular.module('jm.i18next').provider('$i18next', function () {
 						$rootScope.$digest();
 					}
 
-					$rootScope.$broadcast('i18nextLanguageChange');
+					$rootScope.$broadcast('i18nextLanguageChange', window.i18n.lng());
 
 				});
 
 			} else {
 
 				triesToLoadI18next++;
-
+				// only check 4 times for i18next
 				if (triesToLoadI18next < 5) {
 
 					$timeout(function () {
 						init(options);
 					}, 400);
 
+				} else {
+					throw new Error('[ng-i18next] Can\'t find i18next!');
 				}
 
 			}
@@ -56182,24 +59786,26 @@ angular.module('jm.i18next').provider('$i18next', function () {
 			}
 
 			if (!t) {
+
 				translations[lng][key] = 'defaultLoadingValue' in options ? options.defaultLoadingValue :
 					'defaultValue' in options ? options.defaultValue :
 					'defaultLoadingValue' in globalOptions ? globalOptions.defaultLoadingValue : key;
+
 			} else if (!translations[lng][key] || hasOwnOptions) {
+
 				translations[lng][key] = t(key, options);
+
 			}
 
 		}
 
 		function $i18nextTanslate(key, options) {
 
-			var optionsObj = options || {},
-				mergedOptions = options ? angular.extend({}, optionsObj, options) : optionsObj;
+			var mergedOptions = !!options ? angular.extend({}, globalOptions, options) : globalOptions;
 
 			translate(key, mergedOptions, !!options);
 
-			return (options && options.lng) ? translations[options.lng][key] :
-				!!optionsObj.lng ? translations[optionsObj.lng][key] : translations['auto'][key];
+			return !!mergedOptions.lng ? translations[mergedOptions.lng][key] : translations['auto'][key];
 
 		}
 
@@ -56228,143 +59834,125 @@ angular.module('jm.i18next').provider('$i18next', function () {
 
 });
 
-angular.module('jm.i18next').directive('ngI18next', ['$rootScope', '$i18next', '$compile', '$parse', '$interpolate', function ($rootScope, $i18next, $compile, $parse, $interpolate) {
+angular.module('jm.i18next').directive('ngI18next', ['$i18next', '$compile', '$parse', '$interpolate', function ($i18next, $compile, $parse, $interpolate) {
 
 	'use strict';
 
-	var watchUnregister;
+	function parseOptions(options) {
 
-	function parse(scope, element, key) {
+		var res = {
+			attr: 'text'
+		};
 
-		var attr = 'text',
-			attrs = [attr],
-			string,
-			i;
+		options = options.split(':');
 
-		// If there was a watched value, unregister it
-		if (watchUnregister) {
-			watchUnregister();
+		for (var i = 0; i < options.length; ++i) {
+			if (options[i] === 'i18next') {
+				res[options[i]] = true;
+			} else {
+				res.attr = options[i];
+			}
 		}
+
+		return res;
+	}
+
+	function parseKey(key) {
+
+		var options = {
+				attr: 'text'
+			},
+			i18nOptions = '{}',
+			tmp;
 
 		key = key.trim();
 
-		/*
-		 * Check if we want to translate an attribute
-		 */
 		if (key.indexOf('[') === 0) {
-
-			var parts = key.split(']');
-
-			// If there are more than two parts because of multiple "]", concatenate them again.
-			if (parts.length > 2) {
-				for (i = 2; i < parts.length; i++) {
-					parts[1] += ']' + parts[i];
-					parts[i] = null;
-				}
-			}
-
-			key = parts[1];
-			attr = parts[0].substr(1, parts[0].length - 1);
-
-		}
-		/*
-		 * Cut of the ";" that might be at the end of the string
-		 */
-		if (key.indexOf(';') === key.length - 1) {
-			key = key.substr(0, key.length - 2).trim();
-		}
-		/*
-		 * If passing options, split attr
-		 */
-		if (attr.indexOf(':') >= 0) {
-			attrs = attr.split(':');
-			attr = attrs[0];
-		} else if (attr === 'i18next') {
-			attrs[1] = 'i18next';
-			attr = 'text';
+			tmp = key.split(']');
+			options = parseOptions(tmp.shift().substr(1).trim());
+			key = tmp.join(']');
 		}
 
-		if (attr !== 'i18next' && attrs[1] !== 'i18next') {
-
-			string = $i18next(key);
-
-		} else {
-
-			var options = {},
-				strippedKey = key;
-
-			if (key.indexOf('(') >= 0 && key.indexOf(')') >= 0) {
-
-				var keys = key.split(')');
-
-				keys[0] = keys[0].substr(1, keys[0].length);
-
-				if (keys.length > 2) {
-
-					strippedKey = keys.pop();
-
-					options = $parse(keys.join(')'))(scope);
-
-				} else {
-
-					options = $parse(keys[0])(scope);
-					strippedKey = keys[1].trim();
-
-				}
-
-				if (options.sprintf) {
-					options.postProcess = 'sprintf';
-				}
-
-			}
-
-			string = $i18next(strippedKey, options);
-
+		if (options.i18next && key.indexOf('(') === 0 && key.indexOf(')') >= 0) {
+			tmp = key.split(')');
+			key = tmp.pop().trim();
+			i18nOptions = tmp.join(')').substr(1).trim();
 		}
 
-		if (attr === 'html') {
-
-			element.empty().append(string);
-
-			/*
-			 * Now compile the content of the element and bind the variables to
-			 * the scope
-			 */
-			$compile(element.contents())(scope);
-
-		} else {
-			var insertText = element.text.bind(element);
-
-			if (attr !== 'text') {
-				insertText = element.attr.bind(element, attr);
-			}
-
-			watchUnregister = scope.$watch($interpolate(string), insertText);
-			insertText(string);
-		}
-
-		if (!$rootScope.$$phase) {
-			$rootScope.$digest();
-		}
+		return {
+			key: key,
+			options: options,
+			i18nOptions: $parse(i18nOptions)
+		};
 	}
 
+	function I18nextCtrl($scope, $element) {
+		var argsUnregister;
+		var stringUnregister;
 
-	function localize(scope, element, key) {
+		function parse(key) {
+			var parsedKey = parseKey(key);
 
-		if (key.indexOf(';') >= 0) {
-
-			var keys = key.split(';');
-
-			for (var i = 0; i < keys.length; i++) {
-				if (keys[i] !== '') {
-					parse(scope, element, keys[i]);
-				}
+			// If there are watched values, unregister them
+			if (argsUnregister) {
+				argsUnregister();
+			}
+			if (stringUnregister) {
+				stringUnregister();
 			}
 
-		} else {
-			parse(scope, element, key);
+			function render(i18nOptions) {
+				if (i18nOptions.sprintf) {
+					i18nOptions.postProcess = 'sprintf';
+				}
+
+				var string = $i18next(parsedKey.key, i18nOptions);
+
+				if (parsedKey.options.attr === 'html') {
+					$element.empty().append(string);
+
+					/*
+					 * Now compile the content of the element and bind the variables to
+					 * the scope
+					 */
+					$compile($element.contents())($scope);
+
+					return;
+				}
+
+				if (stringUnregister) {
+					stringUnregister();
+				}
+
+				var insertText = $element.text.bind($element);
+
+				if (parsedKey.options.attr !== 'text') {
+					insertText = $element.attr.bind($element, parsedKey.options.attr);
+				}
+
+				string = $interpolate(string);
+				stringUnregister = $scope.$watch(string, insertText);
+				insertText(string($scope));
+			}
+
+			argsUnregister = $scope.$watch(parsedKey.i18nOptions, render, true);
+			render(parsedKey.i18nOptions($scope));
 		}
 
+		this.localize = function localize(key) {
+			var keys = key.split(';');
+
+			for (var i = 0; i < keys.length; ++i) {
+				key = keys[i].trim();
+
+				if (key === '') {
+					continue;
+				}
+
+				parse(key);
+			}
+
+		};
 	}
 
 	return {
@@ -56374,9 +59962,12 @@ angular.module('jm.i18next').directive('ngI18next', ['$rootScope', '$i18next', '
 
 		scope: false,
 
-		link: function postLink(scope, element, attrs) {
+		controller: ['$scope', '$element', I18nextCtrl],
 
-			var translationValue;
+		require: 'ngI18next',
+
+		link: function postLink(scope, element, attrs, ctrl) {
+			var translationValue = '';
 
 			function observe(value) {
 				translationValue = value.replace(/^\s+|\s+$/g, ''); // RegEx removes whitespace
@@ -56385,7 +59976,7 @@ angular.module('jm.i18next').directive('ngI18next', ['$rootScope', '$i18next', '
 					return setupWatcher();
 				}
 
-				localize(scope, element, translationValue);
+				ctrl.localize(translationValue);
 			}
 
 			function setupWatcher() {
@@ -56405,7 +59996,7 @@ angular.module('jm.i18next').directive('ngI18next', ['$rootScope', '$i18next', '
 			attrs.$observe('ngI18next', observe);
 
 			scope.$on('i18nextLanguageChange', function () {
-				localize(scope, element, translationValue);
+				ctrl.localize(translationValue);
 			});
 		}
 
@@ -56424,2234 +60015,6 @@ angular.module('jm.i18next').filter('i18next', ['$i18next', function ($i18next) 
 	};
 
 }]);
-
-/*!
-    localForage -- Offline Storage, Improved
-    Version 0.9.2
-    http://mozilla.github.io/localForage
-    (c) 2013-2014 Mozilla, Apache License 2.0
-*/
-(function() {
-var define, requireModule, require, requirejs;
-
-(function() {
-  var registry = {}, seen = {};
-
-  define = function(name, deps, callback) {
-    registry[name] = { deps: deps, callback: callback };
-  };
-
-  requirejs = require = requireModule = function(name) {
-  requirejs._eak_seen = registry;
-
-    if (seen[name]) { return seen[name]; }
-    seen[name] = {};
-
-    if (!registry[name]) {
-      throw new Error("Could not find module " + name);
-    }
-
-    var mod = registry[name],
-        deps = mod.deps,
-        callback = mod.callback,
-        reified = [],
-        exports;
-
-    for (var i=0, l=deps.length; i<l; i++) {
-      if (deps[i] === 'exports') {
-        reified.push(exports = {});
-      } else {
-        reified.push(requireModule(resolve(deps[i])));
-      }
-    }
-
-    var value = callback.apply(this, reified);
-    return seen[name] = exports || value;
-
-    function resolve(child) {
-      if (child.charAt(0) !== '.') { return child; }
-      var parts = child.split("/");
-      var parentBase = name.split("/").slice(0, -1);
-
-      for (var i=0, l=parts.length; i<l; i++) {
-        var part = parts[i];
-
-        if (part === '..') { parentBase.pop(); }
-        else if (part === '.') { continue; }
-        else { parentBase.push(part); }
-      }
-
-      return parentBase.join("/");
-    }
-  };
-})();
-
-define("promise/all", 
-  ["./utils","exports"],
-  function(__dependency1__, __exports__) {
-    "use strict";
-    /* global toString */
-
-    var isArray = __dependency1__.isArray;
-    var isFunction = __dependency1__.isFunction;
-
-    /**
-      Returns a promise that is fulfilled when all the given promises have been
-      fulfilled, or rejected if any of them become rejected. The return promise
-      is fulfilled with an array that gives all the values in the order they were
-      passed in the `promises` array argument.
-
-      Example:
-
-      ```javascript
-      var promise1 = RSVP.resolve(1);
-      var promise2 = RSVP.resolve(2);
-      var promise3 = RSVP.resolve(3);
-      var promises = [ promise1, promise2, promise3 ];
-
-      RSVP.all(promises).then(function(array){
-        // The array here would be [ 1, 2, 3 ];
-      });
-      ```
-
-      If any of the `promises` given to `RSVP.all` are rejected, the first promise
-      that is rejected will be given as an argument to the returned promises's
-      rejection handler. For example:
-
-      Example:
-
-      ```javascript
-      var promise1 = RSVP.resolve(1);
-      var promise2 = RSVP.reject(new Error("2"));
-      var promise3 = RSVP.reject(new Error("3"));
-      var promises = [ promise1, promise2, promise3 ];
-
-      RSVP.all(promises).then(function(array){
-        // Code here never runs because there are rejected promises!
-      }, function(error) {
-        // error.message === "2"
-      });
-      ```
-
-      @method all
-      @for RSVP
-      @param {Array} promises
-      @param {String} label
-      @return {Promise} promise that is fulfilled when all `promises` have been
-      fulfilled, or rejected if any of them become rejected.
-    */
-    function all(promises) {
-      /*jshint validthis:true */
-      var Promise = this;
-
-      if (!isArray(promises)) {
-        throw new TypeError('You must pass an array to all.');
-      }
-
-      return new Promise(function(resolve, reject) {
-        var results = [], remaining = promises.length,
-        promise;
-
-        if (remaining === 0) {
-          resolve([]);
-        }
-
-        function resolver(index) {
-          return function(value) {
-            resolveAll(index, value);
-          };
-        }
-
-        function resolveAll(index, value) {
-          results[index] = value;
-          if (--remaining === 0) {
-            resolve(results);
-          }
-        }
-
-        for (var i = 0; i < promises.length; i++) {
-          promise = promises[i];
-
-          if (promise && isFunction(promise.then)) {
-            promise.then(resolver(i), reject);
-          } else {
-            resolveAll(i, promise);
-          }
-        }
-      });
-    }
-
-    __exports__.all = all;
-  });
-define("promise/asap", 
-  ["exports"],
-  function(__exports__) {
-    "use strict";
-    var browserGlobal = (typeof window !== 'undefined') ? window : {};
-    var BrowserMutationObserver = browserGlobal.MutationObserver || browserGlobal.WebKitMutationObserver;
-    var local = (typeof global !== 'undefined') ? global : (this === undefined? window:this);
-
-    // node
-    function useNextTick() {
-      return function() {
-        process.nextTick(flush);
-      };
-    }
-
-    function useMutationObserver() {
-      var iterations = 0;
-      var observer = new BrowserMutationObserver(flush);
-      var node = document.createTextNode('');
-      observer.observe(node, { characterData: true });
-
-      return function() {
-        node.data = (iterations = ++iterations % 2);
-      };
-    }
-
-    function useSetTimeout() {
-      return function() {
-        local.setTimeout(flush, 1);
-      };
-    }
-
-    var queue = [];
-    function flush() {
-      for (var i = 0; i < queue.length; i++) {
-        var tuple = queue[i];
-        var callback = tuple[0], arg = tuple[1];
-        callback(arg);
-      }
-      queue = [];
-    }
-
-    var scheduleFlush;
-
-    // Decide what async method to use to triggering processing of queued callbacks:
-    if (typeof process !== 'undefined' && {}.toString.call(process) === '[object process]') {
-      scheduleFlush = useNextTick();
-    } else if (BrowserMutationObserver) {
-      scheduleFlush = useMutationObserver();
-    } else {
-      scheduleFlush = useSetTimeout();
-    }
-
-    function asap(callback, arg) {
-      var length = queue.push([callback, arg]);
-      if (length === 1) {
-        // If length is 1, that means that we need to schedule an async flush.
-        // If additional callbacks are queued before the queue is flushed, they
-        // will be processed by this flush that we are scheduling.
-        scheduleFlush();
-      }
-    }
-
-    __exports__.asap = asap;
-  });
-define("promise/config", 
-  ["exports"],
-  function(__exports__) {
-    "use strict";
-    var config = {
-      instrument: false
-    };
-
-    function configure(name, value) {
-      if (arguments.length === 2) {
-        config[name] = value;
-      } else {
-        return config[name];
-      }
-    }
-
-    __exports__.config = config;
-    __exports__.configure = configure;
-  });
-define("promise/polyfill", 
-  ["./promise","./utils","exports"],
-  function(__dependency1__, __dependency2__, __exports__) {
-    "use strict";
-    /*global self*/
-    var RSVPPromise = __dependency1__.Promise;
-    var isFunction = __dependency2__.isFunction;
-
-    function polyfill() {
-      var local;
-
-      if (typeof global !== 'undefined') {
-        local = global;
-      } else if (typeof window !== 'undefined' && window.document) {
-        local = window;
-      } else {
-        local = self;
-      }
-
-      var es6PromiseSupport = 
-        "Promise" in local &&
-        // Some of these methods are missing from
-        // Firefox/Chrome experimental implementations
-        "resolve" in local.Promise &&
-        "reject" in local.Promise &&
-        "all" in local.Promise &&
-        "race" in local.Promise &&
-        // Older version of the spec had a resolver object
-        // as the arg rather than a function
-        (function() {
-          var resolve;
-          new local.Promise(function(r) { resolve = r; });
-          return isFunction(resolve);
-        }());
-
-      if (!es6PromiseSupport) {
-        local.Promise = RSVPPromise;
-      }
-    }
-
-    __exports__.polyfill = polyfill;
-  });
-define("promise/promise", 
-  ["./config","./utils","./all","./race","./resolve","./reject","./asap","exports"],
-  function(__dependency1__, __dependency2__, __dependency3__, __dependency4__, __dependency5__, __dependency6__, __dependency7__, __exports__) {
-    "use strict";
-    var config = __dependency1__.config;
-    var configure = __dependency1__.configure;
-    var objectOrFunction = __dependency2__.objectOrFunction;
-    var isFunction = __dependency2__.isFunction;
-    var now = __dependency2__.now;
-    var all = __dependency3__.all;
-    var race = __dependency4__.race;
-    var staticResolve = __dependency5__.resolve;
-    var staticReject = __dependency6__.reject;
-    var asap = __dependency7__.asap;
-
-    var counter = 0;
-
-    config.async = asap; // default async is asap;
-
-    function Promise(resolver) {
-      if (!isFunction(resolver)) {
-        throw new TypeError('You must pass a resolver function as the first argument to the promise constructor');
-      }
-
-      if (!(this instanceof Promise)) {
-        throw new TypeError("Failed to construct 'Promise': Please use the 'new' operator, this object constructor cannot be called as a function.");
-      }
-
-      this._subscribers = [];
-
-      invokeResolver(resolver, this);
-    }
-
-    function invokeResolver(resolver, promise) {
-      function resolvePromise(value) {
-        resolve(promise, value);
-      }
-
-      function rejectPromise(reason) {
-        reject(promise, reason);
-      }
-
-      try {
-        resolver(resolvePromise, rejectPromise);
-      } catch(e) {
-        rejectPromise(e);
-      }
-    }
-
-    function invokeCallback(settled, promise, callback, detail) {
-      var hasCallback = isFunction(callback),
-          value, error, succeeded, failed;
-
-      if (hasCallback) {
-        try {
-          value = callback(detail);
-          succeeded = true;
-        } catch(e) {
-          failed = true;
-          error = e;
-        }
-      } else {
-        value = detail;
-        succeeded = true;
-      }
-
-      if (handleThenable(promise, value)) {
-        return;
-      } else if (hasCallback && succeeded) {
-        resolve(promise, value);
-      } else if (failed) {
-        reject(promise, error);
-      } else if (settled === FULFILLED) {
-        resolve(promise, value);
-      } else if (settled === REJECTED) {
-        reject(promise, value);
-      }
-    }
-
-    var PENDING   = void 0;
-    var SEALED    = 0;
-    var FULFILLED = 1;
-    var REJECTED  = 2;
-
-    function subscribe(parent, child, onFulfillment, onRejection) {
-      var subscribers = parent._subscribers;
-      var length = subscribers.length;
-
-      subscribers[length] = child;
-      subscribers[length + FULFILLED] = onFulfillment;
-      subscribers[length + REJECTED]  = onRejection;
-    }
-
-    function publish(promise, settled) {
-      var child, callback, subscribers = promise._subscribers, detail = promise._detail;
-
-      for (var i = 0; i < subscribers.length; i += 3) {
-        child = subscribers[i];
-        callback = subscribers[i + settled];
-
-        invokeCallback(settled, child, callback, detail);
-      }
-
-      promise._subscribers = null;
-    }
-
-    Promise.prototype = {
-      constructor: Promise,
-
-      _state: undefined,
-      _detail: undefined,
-      _subscribers: undefined,
-
-      then: function(onFulfillment, onRejection) {
-        var promise = this;
-
-        var thenPromise = new this.constructor(function() {});
-
-        if (this._state) {
-          var callbacks = arguments;
-          config.async(function invokePromiseCallback() {
-            invokeCallback(promise._state, thenPromise, callbacks[promise._state - 1], promise._detail);
-          });
-        } else {
-          subscribe(this, thenPromise, onFulfillment, onRejection);
-        }
-
-        return thenPromise;
-      },
-
-      'catch': function(onRejection) {
-        return this.then(null, onRejection);
-      }
-    };
-
-    Promise.all = all;
-    Promise.race = race;
-    Promise.resolve = staticResolve;
-    Promise.reject = staticReject;
-
-    function handleThenable(promise, value) {
-      var then = null,
-      resolved;
-
-      try {
-        if (promise === value) {
-          throw new TypeError("A promises callback cannot return that same promise.");
-        }
-
-        if (objectOrFunction(value)) {
-          then = value.then;
-
-          if (isFunction(then)) {
-            then.call(value, function(val) {
-              if (resolved) { return true; }
-              resolved = true;
-
-              if (value !== val) {
-                resolve(promise, val);
-              } else {
-                fulfill(promise, val);
-              }
-            }, function(val) {
-              if (resolved) { return true; }
-              resolved = true;
-
-              reject(promise, val);
-            });
-
-            return true;
-          }
-        }
-      } catch (error) {
-        if (resolved) { return true; }
-        reject(promise, error);
-        return true;
-      }
-
-      return false;
-    }
-
-    function resolve(promise, value) {
-      if (promise === value) {
-        fulfill(promise, value);
-      } else if (!handleThenable(promise, value)) {
-        fulfill(promise, value);
-      }
-    }
-
-    function fulfill(promise, value) {
-      if (promise._state !== PENDING) { return; }
-      promise._state = SEALED;
-      promise._detail = value;
-
-      config.async(publishFulfillment, promise);
-    }
-
-    function reject(promise, reason) {
-      if (promise._state !== PENDING) { return; }
-      promise._state = SEALED;
-      promise._detail = reason;
-
-      config.async(publishRejection, promise);
-    }
-
-    function publishFulfillment(promise) {
-      publish(promise, promise._state = FULFILLED);
-    }
-
-    function publishRejection(promise) {
-      publish(promise, promise._state = REJECTED);
-    }
-
-    __exports__.Promise = Promise;
-  });
-define("promise/race", 
-  ["./utils","exports"],
-  function(__dependency1__, __exports__) {
-    "use strict";
-    /* global toString */
-    var isArray = __dependency1__.isArray;
-
-    /**
-      `RSVP.race` allows you to watch a series of promises and act as soon as the
-      first promise given to the `promises` argument fulfills or rejects.
-
-      Example:
-
-      ```javascript
-      var promise1 = new RSVP.Promise(function(resolve, reject){
-        setTimeout(function(){
-          resolve("promise 1");
-        }, 200);
-      });
-
-      var promise2 = new RSVP.Promise(function(resolve, reject){
-        setTimeout(function(){
-          resolve("promise 2");
-        }, 100);
-      });
-
-      RSVP.race([promise1, promise2]).then(function(result){
-        // result === "promise 2" because it was resolved before promise1
-        // was resolved.
-      });
-      ```
-
-      `RSVP.race` is deterministic in that only the state of the first completed
-      promise matters. For example, even if other promises given to the `promises`
-      array argument are resolved, but the first completed promise has become
-      rejected before the other promises became fulfilled, the returned promise
-      will become rejected:
-
-      ```javascript
-      var promise1 = new RSVP.Promise(function(resolve, reject){
-        setTimeout(function(){
-          resolve("promise 1");
-        }, 200);
-      });
-
-      var promise2 = new RSVP.Promise(function(resolve, reject){
-        setTimeout(function(){
-          reject(new Error("promise 2"));
-        }, 100);
-      });
-
-      RSVP.race([promise1, promise2]).then(function(result){
-        // Code here never runs because there are rejected promises!
-      }, function(reason){
-        // reason.message === "promise2" because promise 2 became rejected before
-        // promise 1 became fulfilled
-      });
-      ```
-
-      @method race
-      @for RSVP
-      @param {Array} promises array of promises to observe
-      @param {String} label optional string for describing the promise returned.
-      Useful for tooling.
-      @return {Promise} a promise that becomes fulfilled with the value the first
-      completed promises is resolved with if the first completed promise was
-      fulfilled, or rejected with the reason that the first completed promise
-      was rejected with.
-    */
-    function race(promises) {
-      /*jshint validthis:true */
-      var Promise = this;
-
-      if (!isArray(promises)) {
-        throw new TypeError('You must pass an array to race.');
-      }
-      return new Promise(function(resolve, reject) {
-        var results = [], promise;
-
-        for (var i = 0; i < promises.length; i++) {
-          promise = promises[i];
-
-          if (promise && typeof promise.then === 'function') {
-            promise.then(resolve, reject);
-          } else {
-            resolve(promise);
-          }
-        }
-      });
-    }
-
-    __exports__.race = race;
-  });
-define("promise/reject", 
-  ["exports"],
-  function(__exports__) {
-    "use strict";
-    /**
-      `RSVP.reject` returns a promise that will become rejected with the passed
-      `reason`. `RSVP.reject` is essentially shorthand for the following:
-
-      ```javascript
-      var promise = new RSVP.Promise(function(resolve, reject){
-        reject(new Error('WHOOPS'));
-      });
-
-      promise.then(function(value){
-        // Code here doesn't run because the promise is rejected!
-      }, function(reason){
-        // reason.message === 'WHOOPS'
-      });
-      ```
-
-      Instead of writing the above, your code now simply becomes the following:
-
-      ```javascript
-      var promise = RSVP.reject(new Error('WHOOPS'));
-
-      promise.then(function(value){
-        // Code here doesn't run because the promise is rejected!
-      }, function(reason){
-        // reason.message === 'WHOOPS'
-      });
-      ```
-
-      @method reject
-      @for RSVP
-      @param {Any} reason value that the returned promise will be rejected with.
-      @param {String} label optional string for identifying the returned promise.
-      Useful for tooling.
-      @return {Promise} a promise that will become rejected with the given
-      `reason`.
-    */
-    function reject(reason) {
-      /*jshint validthis:true */
-      var Promise = this;
-
-      return new Promise(function (resolve, reject) {
-        reject(reason);
-      });
-    }
-
-    __exports__.reject = reject;
-  });
-define("promise/resolve", 
-  ["exports"],
-  function(__exports__) {
-    "use strict";
-    function resolve(value) {
-      /*jshint validthis:true */
-      if (value && typeof value === 'object' && value.constructor === this) {
-        return value;
-      }
-
-      var Promise = this;
-
-      return new Promise(function(resolve) {
-        resolve(value);
-      });
-    }
-
-    __exports__.resolve = resolve;
-  });
-define("promise/utils", 
-  ["exports"],
-  function(__exports__) {
-    "use strict";
-    function objectOrFunction(x) {
-      return isFunction(x) || (typeof x === "object" && x !== null);
-    }
-
-    function isFunction(x) {
-      return typeof x === "function";
-    }
-
-    function isArray(x) {
-      return Object.prototype.toString.call(x) === "[object Array]";
-    }
-
-    // Date.now is not available in browsers < IE9
-    // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Date/now#Compatibility
-    var now = Date.now || function() { return new Date().getTime(); };
-
-
-    __exports__.objectOrFunction = objectOrFunction;
-    __exports__.isFunction = isFunction;
-    __exports__.isArray = isArray;
-    __exports__.now = now;
-  });
-requireModule('promise/polyfill').polyfill();
-}());// Some code originally from async_storage.js in
-// [Gaia](https://github.com/mozilla-b2g/gaia).
-(function() {
-    'use strict';
-
-    // Originally found in https://github.com/mozilla-b2g/gaia/blob/e8f624e4cc9ea945727278039b3bc9bcb9f8667a/shared/js/async_storage.js
-
-    // Promises!
-    var Promise = (typeof module !== 'undefined' && module.exports) ?
-                  require('promise') : this.Promise;
-
-    var db = null;
-    var dbInfo = {};
-
-    // Initialize IndexedDB; fall back to vendor-prefixed versions if needed.
-    var indexedDB = indexedDB || this.indexedDB || this.webkitIndexedDB ||
-                    this.mozIndexedDB || this.OIndexedDB ||
-                    this.msIndexedDB;
-
-    // If IndexedDB isn't available, we get outta here!
-    if (!indexedDB) {
-        return;
-    }
-
-    // Open the IndexedDB database (automatically creates one if one didn't
-    // previously exist), using any options set in the config.
-    function _initStorage(options) {
-        if (options) {
-            for (var i in options) {
-                dbInfo[i] = options[i];
-            }
-        }
-
-        return new Promise(function(resolve, reject) {
-            var openreq = indexedDB.open(dbInfo.name, dbInfo.version);
-            openreq.onerror = function() {
-                reject(openreq.error);
-            };
-            openreq.onupgradeneeded = function() {
-                // First time setup: create an empty object store
-                openreq.result.createObjectStore(dbInfo.storeName);
-            };
-            openreq.onsuccess = function() {
-                db = openreq.result;
-                resolve();
-            };
-        });
-    }
-
-    function getItem(key, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var store = db.transaction(dbInfo.storeName, 'readonly')
-                              .objectStore(dbInfo.storeName);
-                var req = store.get(key);
-
-                req.onsuccess = function() {
-                    var value = req.result;
-                    if (value === undefined) {
-                        value = null;
-                    }
-
-                    deferCallback(callback,value);
-
-                    resolve(value);
-                };
-
-                req.onerror = function() {
-                    if (callback) {
-                        callback(null, req.error);
-                    }
-
-                    reject(req.error);
-                };
-            }, reject);
-        });
-    }
-
-    function setItem(key, value, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var store = db.transaction(dbInfo.storeName, 'readwrite')
-                              .objectStore(dbInfo.storeName);
-
-                // The reason we don't _save_ null is because IE 10 does
-                // not support saving the `null` type in IndexedDB. How
-                // ironic, given the bug below!
-                // See: https://github.com/mozilla/localForage/issues/161
-                if (value === null) {
-                    value = undefined;
-                }
-
-                var req = store.put(value, key);
-                req.onsuccess = function() {
-                    // Cast to undefined so the value passed to
-                    // callback/promise is the same as what one would get out
-                    // of `getItem()` later. This leads to some weirdness
-                    // (setItem('foo', undefined) will return `null`), but
-                    // it's not my fault localStorage is our baseline and that
-                    // it's weird.
-                    if (value === undefined) {
-                        value = null;
-                    }
-
-                    deferCallback(callback, value);
-
-                    resolve(value);
-                };
-                req.onerror = function() {
-                    if (callback) {
-                        callback(null, req.error);
-                    }
-
-                    reject(req.error);
-                };
-            }, reject);
-        });
-    }
-
-    function removeItem(key, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var store = db.transaction(dbInfo.storeName, 'readwrite')
-                              .objectStore(dbInfo.storeName);
-
-                // We use a Grunt task to make this safe for IE and some
-                // versions of Android (including those used by Cordova).
-                // Normally IE won't like `.delete()` and will insist on
-                // using `['delete']()`, but we have a build step that
-                // fixes this for us now.
-                var req = store["delete"](key);
-                req.onsuccess = function() {
-
-                    deferCallback(callback);
-
-                    resolve();
-                };
-
-                req.onerror = function() {
-                    if (callback) {
-                        callback(req.error);
-                    }
-
-                    reject(req.error);
-                };
-
-                // The request will be aborted if we've exceeded our storage
-                // space. In this case, we will reject with a specific
-                // "QuotaExceededError".
-                req.onabort = function(event) {
-                    var error = event.target.error;
-                    if (error === 'QuotaExceededError') {
-                        if (callback) {
-                            callback(error);
-                        }
-
-                        reject(error);
-                    }
-                };
-            }, reject);
-        });
-    }
-
-    function clear(callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var store = db.transaction(dbInfo.storeName, 'readwrite')
-                              .objectStore(dbInfo.storeName);
-                var req = store.clear();
-
-                req.onsuccess = function() {
-                    deferCallback(callback);
-
-                    resolve();
-                };
-
-                req.onerror = function() {
-                    if (callback) {
-                        callback(null, req.error);
-                    }
-
-                    reject(req.error);
-                };
-            }, reject);
-        });
-    }
-
-    function length(callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var store = db.transaction(dbInfo.storeName, 'readonly')
-                              .objectStore(dbInfo.storeName);
-                var req = store.count();
-
-                req.onsuccess = function() {
-                    if (callback) {
-                        callback(req.result);
-                    }
-
-                    resolve(req.result);
-                };
-
-                req.onerror = function() {
-                    if (callback) {
-                        callback(null, req.error);
-                    }
-
-                    reject(req.error);
-                };
-            }, reject);
-        });
-    }
-
-    function key(n, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            if (n < 0) {
-                if (callback) {
-                    callback(null);
-                }
-
-                resolve(null);
-
-                return;
-            }
-
-            _this.ready().then(function() {
-                var store = db.transaction(dbInfo.storeName, 'readonly')
-                              .objectStore(dbInfo.storeName);
-
-                var advanced = false;
-                var req = store.openCursor();
-                req.onsuccess = function() {
-                    var cursor = req.result;
-                    if (!cursor) {
-                        // this means there weren't enough keys
-                        if (callback) {
-                            callback(null);
-                        }
-
-                        resolve(null);
-
-                        return;
-                    }
-
-                    if (n === 0) {
-                        // We have the first key, return it if that's what they
-                        // wanted.
-                        if (callback) {
-                            callback(cursor.key);
-                        }
-
-                        resolve(cursor.key);
-                    } else {
-                        if (!advanced) {
-                            // Otherwise, ask the cursor to skip ahead n
-                            // records.
-                            advanced = true;
-                            cursor.advance(n);
-                        } else {
-                            // When we get here, we've got the nth key.
-                            if (callback) {
-                                callback(cursor.key);
-                            }
-
-                            resolve(cursor.key);
-                        }
-                    }
-                };
-
-                req.onerror = function() {
-                    if (callback) {
-                        callback(null, req.error);
-                    }
-
-                    reject(req.error);
-                };
-            }, reject);
-        });
-    }
-
-    function keys(callback) {
-        var _this = this;
-
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var store = db.transaction(dbInfo.storeName, 'readonly')
-                              .objectStore(dbInfo.storeName);
-
-                var req = store.openCursor();
-                var keys = [];
-
-                req.onsuccess = function() {
-                    var cursor = req.result;
-
-                    if (!cursor) {
-                        if (callback) {
-                            callback(keys);
-                        }
-
-                        resolve(keys);
-                        return;
-                    }
-
-                    keys.push(cursor.key);
-                    cursor["continue"]();
-                };
-
-                req.onerror = function() {
-                    if (callback) {
-                        callback(null, req.error);
-                    }
-
-                    reject(req.error);
-                };
-            }, reject);
-        });
-    }
-
-    // Under Chrome the callback is called before the changes (save, clear)
-    // are actually made. So we use a defer function which wait that the
-    // call stack to be empty.
-    // For more info : https://github.com/mozilla/localForage/issues/175
-    // Pull request : https://github.com/mozilla/localForage/pull/178
-    function deferCallback(callback, value) {
-        if (callback) {
-            return setTimeout(function() {
-                return callback(value);
-            }, 0);
-        }
-    }
-
-    var asyncStorage = {
-        _driver: 'asyncStorage',
-        _initStorage: _initStorage,
-        getItem: getItem,
-        setItem: setItem,
-        removeItem: removeItem,
-        clear: clear,
-        length: length,
-        key: key,
-        keys: keys
-    };
-
-    if (typeof define === 'function' && define.amd) {
-        define('asyncStorage', function() {
-            return asyncStorage;
-        });
-    } else if (typeof module !== 'undefined' && module.exports) {
-        module.exports = asyncStorage;
-    } else {
-        this.asyncStorage = asyncStorage;
-    }
-}).call(this);
-// If IndexedDB isn't available, we'll fall back to localStorage.
-// Note that this will have considerable performance and storage
-// side-effects (all data will be serialized on save and only data that
-// can be converted to a string via `JSON.stringify()` will be saved).
-(function() {
-    'use strict';
-
-    var keyPrefix = '';
-    var dbInfo = {};
-    // Promises!
-    var Promise = (typeof module !== 'undefined' && module.exports) ?
-                  require('promise') : this.Promise;
-    var localStorage = null;
-
-    // If the app is running inside a Google Chrome packaged webapp, or some
-    // other context where localStorage isn't available, we don't use
-    // localStorage. This feature detection is preferred over the old
-    // `if (window.chrome && window.chrome.runtime)` code.
-    // See: https://github.com/mozilla/localForage/issues/68
-    try {
-        // If localStorage isn't available, we get outta here!
-        // This should be inside a try catch
-        if (!this.localStorage || !('setItem' in this.localStorage)) {
-            return;
-        }
-        // Initialize localStorage and create a variable to use throughout
-        // the code.
-        localStorage = this.localStorage;
-    } catch (e) {
-        return;
-    }
-
-    // Config the localStorage backend, using options set in the config.
-    function _initStorage(options) {
-        if (options) {
-            for (var i in options) {
-                dbInfo[i] = options[i];
-            }
-        }
-
-        keyPrefix = dbInfo.name + '/';
-
-        return Promise.resolve();
-    }
-
-    var SERIALIZED_MARKER = '__lfsc__:';
-    var SERIALIZED_MARKER_LENGTH = SERIALIZED_MARKER.length;
-
-    // OMG the serializations!
-    var TYPE_ARRAYBUFFER = 'arbf';
-    var TYPE_BLOB = 'blob';
-    var TYPE_INT8ARRAY = 'si08';
-    var TYPE_UINT8ARRAY = 'ui08';
-    var TYPE_UINT8CLAMPEDARRAY = 'uic8';
-    var TYPE_INT16ARRAY = 'si16';
-    var TYPE_INT32ARRAY = 'si32';
-    var TYPE_UINT16ARRAY = 'ur16';
-    var TYPE_UINT32ARRAY = 'ui32';
-    var TYPE_FLOAT32ARRAY = 'fl32';
-    var TYPE_FLOAT64ARRAY = 'fl64';
-    var TYPE_SERIALIZED_MARKER_LENGTH = SERIALIZED_MARKER_LENGTH +
-                                        TYPE_ARRAYBUFFER.length;
-
-    // Remove all keys from the datastore, effectively destroying all data in
-    // the app's key/value store!
-    function clear(callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                localStorage.clear();
-
-                if (callback) {
-                    callback();
-                }
-
-                resolve();
-            }, reject);
-        });
-    }
-
-    // Retrieve an item from the store. Unlike the original async_storage
-    // library in Gaia, we don't modify return values at all. If a key's value
-    // is `undefined`, we pass that value to the callback function.
-    function getItem(key, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                try {
-                    var result = localStorage.getItem(keyPrefix + key);
-
-                    // If a result was found, parse it from the serialized
-                    // string into a JS object. If result isn't truthy, the key
-                    // is likely undefined and we'll pass it straight to the
-                    // callback.
-                    if (result) {
-                        result = _deserialize(result);
-                    }
-
-                    if (callback) {
-                        callback(result);
-                    }
-
-                    resolve(result);
-                } catch (e) {
-                    if (callback) {
-                        callback(null, e);
-                    }
-
-                    reject(e);
-                }
-            }, reject);
-        });
-    }
-
-    // Same as localStorage's key() method, except takes a callback.
-    function key(n, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var result;
-                try {
-                    result = localStorage.key(n);
-                } catch (error) {
-                    result = null;
-                }
-
-                // Remove the prefix from the key, if a key is found.
-                if (result) {
-                    result = result.substring(keyPrefix.length);
-                }
-
-                if (callback) {
-                    callback(result);
-                }
-                resolve(result);
-            }, reject);
-        });
-    }
-
-    function keys(callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var length = localStorage.length;
-                var keys = [];
-
-                for (var i = 0; i < length; i++) {
-                    keys.push(localStorage.key(i).substring(keyPrefix.length));
-                }
-
-                if (callback) {
-                    callback(keys);
-                }
-
-                resolve(keys);
-            }, reject);
-        });
-    }
-
-    // Supply the number of keys in the datastore to the callback function.
-    function length(callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                var result = localStorage.length;
-
-                if (callback) {
-                    callback(result);
-                }
-
-                resolve(result);
-            }, reject);
-        });
-    }
-
-    // Remove an item from the store, nice and simple.
-    function removeItem(key, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                localStorage.removeItem(keyPrefix + key);
-
-                if (callback) {
-                    callback();
-                }
-
-                resolve();
-            }, reject);
-        });
-    }
-
-    // Deserialize data we've inserted into a value column/field. We place
-    // special markers into our strings to mark them as encoded; this isn't
-    // as nice as a meta field, but it's the only sane thing we can do whilst
-    // keeping localStorage support intact.
-    //
-    // Oftentimes this will just deserialize JSON content, but if we have a
-    // special marker (SERIALIZED_MARKER, defined above), we will extract
-    // some kind of arraybuffer/binary data/typed array out of the string.
-    function _deserialize(value) {
-        // If we haven't marked this string as being specially serialized (i.e.
-        // something other than serialized JSON), we can just return it and be
-        // done with it.
-        if (value.substring(0,
-            SERIALIZED_MARKER_LENGTH) !== SERIALIZED_MARKER) {
-            return JSON.parse(value);
-        }
-
-        // The following code deals with deserializing some kind of Blob or
-        // TypedArray. First we separate out the type of data we're dealing
-        // with from the data itself.
-        var serializedString = value.substring(TYPE_SERIALIZED_MARKER_LENGTH);
-        var type = value.substring(SERIALIZED_MARKER_LENGTH,
-                                   TYPE_SERIALIZED_MARKER_LENGTH);
-
-        // Fill the string into a ArrayBuffer.
-        // 2 bytes for each char.
-        var buffer = new ArrayBuffer(serializedString.length * 2);
-        var bufferView = new Uint16Array(buffer);
-        for (var i = serializedString.length - 1; i >= 0; i--) {
-            bufferView[i] = serializedString.charCodeAt(i);
-        }
-
-        // Return the right type based on the code/type set during
-        // serialization.
-        switch (type) {
-            case TYPE_ARRAYBUFFER:
-                return buffer;
-            case TYPE_BLOB:
-                return new Blob([buffer]);
-            case TYPE_INT8ARRAY:
-                return new Int8Array(buffer);
-            case TYPE_UINT8ARRAY:
-                return new Uint8Array(buffer);
-            case TYPE_UINT8CLAMPEDARRAY:
-                return new Uint8ClampedArray(buffer);
-            case TYPE_INT16ARRAY:
-                return new Int16Array(buffer);
-            case TYPE_UINT16ARRAY:
-                return new Uint16Array(buffer);
-            case TYPE_INT32ARRAY:
-                return new Int32Array(buffer);
-            case TYPE_UINT32ARRAY:
-                return new Uint32Array(buffer);
-            case TYPE_FLOAT32ARRAY:
-                return new Float32Array(buffer);
-            case TYPE_FLOAT64ARRAY:
-                return new Float64Array(buffer);
-            default:
-                throw new Error('Unkown type: ' + type);
-        }
-    }
-
-    // Converts a buffer to a string to store, serialized, in the backend
-    // storage library.
-    function _bufferToString(buffer) {
-        var str = '';
-        var uint16Array = new Uint16Array(buffer);
-
-        try {
-            str = String.fromCharCode.apply(null, uint16Array);
-        } catch (e) {
-            // This is a fallback implementation in case the first one does
-            // not work. This is required to get the phantomjs passing...
-            for (var i = 0; i < uint16Array.length; i++) {
-                str += String.fromCharCode(uint16Array[i]);
-            }
-        }
-
-        return str;
-    }
-
-    // Serialize a value, afterwards executing a callback (which usually
-    // instructs the `setItem()` callback/promise to be executed). This is how
-    // we store binary data with localStorage.
-    function _serialize(value, callback) {
-        var valueString = '';
-        if (value) {
-            valueString = value.toString();
-        }
-
-        // Cannot use `value instanceof ArrayBuffer` or such here, as these
-        // checks fail when running the tests using casper.js...
-        //
-        // TODO: See why those tests fail and use a better solution.
-        if (value && (value.toString() === '[object ArrayBuffer]' ||
-                      value.buffer && value.buffer.toString() === '[object ArrayBuffer]')) {
-            // Convert binary arrays to a string and prefix the string with
-            // a special marker.
-            var buffer;
-            var marker = SERIALIZED_MARKER;
-
-            if (value instanceof ArrayBuffer) {
-                buffer = value;
-                marker += TYPE_ARRAYBUFFER;
-            } else {
-                buffer = value.buffer;
-
-                if (valueString === '[object Int8Array]') {
-                    marker += TYPE_INT8ARRAY;
-                } else if (valueString === '[object Uint8Array]') {
-                    marker += TYPE_UINT8ARRAY;
-                } else if (valueString === '[object Uint8ClampedArray]') {
-                    marker += TYPE_UINT8CLAMPEDARRAY;
-                } else if (valueString === '[object Int16Array]') {
-                    marker += TYPE_INT16ARRAY;
-                } else if (valueString === '[object Uint16Array]') {
-                    marker += TYPE_UINT16ARRAY;
-                } else if (valueString === '[object Int32Array]') {
-                    marker += TYPE_INT32ARRAY;
-                } else if (valueString === '[object Uint32Array]') {
-                    marker += TYPE_UINT32ARRAY;
-                } else if (valueString === '[object Float32Array]') {
-                    marker += TYPE_FLOAT32ARRAY;
-                } else if (valueString === '[object Float64Array]') {
-                    marker += TYPE_FLOAT64ARRAY;
-                } else {
-                    callback(new Error("Failed to get type for BinaryArray"));
-                }
-            }
-
-            callback(marker + _bufferToString(buffer));
-        } else if (valueString === "[object Blob]") {
-            // Conver the blob to a binaryArray and then to a string.
-            var fileReader = new FileReader();
-
-            fileReader.onload = function() {
-                var str = _bufferToString(this.result);
-
-                callback(SERIALIZED_MARKER + TYPE_BLOB + str);
-            };
-
-            fileReader.readAsArrayBuffer(value);
-        } else {
-            try {
-                callback(JSON.stringify(value));
-            } catch (e) {
-                if (this.console && this.console.error) {
-                    this.console.error("Couldn't convert value into a JSON string: ", value);
-                }
-
-                callback(null, e);
-            }
-        }
-    }
-
-    // Set a key's value and run an optional callback once the value is set.
-    // Unlike Gaia's implementation, the callback function is passed the value,
-    // in case you want to operate on that value only after you're sure it
-    // saved, or something like that.
-    function setItem(key, value, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                // Convert undefined values to null.
-                // https://github.com/mozilla/localForage/pull/42
-                if (value === undefined) {
-                    value = null;
-                }
-
-                // Save the original value to pass to the callback.
-                var originalValue = value;
-
-                _serialize(value, function(value, error) {
-                    if (error) {
-                        if (callback) {
-                            callback(null, error);
-                        }
-
-                        reject(error);
-                    } else {
-                        try {
-                            localStorage.setItem(keyPrefix + key, value);
-                        } catch (e) {
-                            // localStorage capacity exceeded.
-                            // TODO: Make this a specific error/event.
-                            if (e.name === 'QuotaExceededError' ||
-                                e.name === 'NS_ERROR_DOM_QUOTA_REACHED') {
-                                if (callback) {
-                                    callback(null, e);
-                                }
-
-                                reject(e);
-                            }
-                        }
-
-                        if (callback) {
-                            callback(originalValue);
-                        }
-
-                        resolve(originalValue);
-                    }
-                });
-            }, reject);
-        });
-    }
-
-    var localStorageWrapper = {
-        _driver: 'localStorageWrapper',
-        _initStorage: _initStorage,
-        // Default API, from Gaia/localStorage.
-        getItem: getItem,
-        setItem: setItem,
-        removeItem: removeItem,
-        clear: clear,
-        length: length,
-        key: key,
-        keys: keys
-    };
-
-    if (typeof define === 'function' && define.amd) {
-        define('localStorageWrapper', function() {
-            return localStorageWrapper;
-        });
-    } else if (typeof module !== 'undefined' && module.exports) {
-        module.exports = localStorageWrapper;
-    } else {
-        this.localStorageWrapper = localStorageWrapper;
-    }
-}).call(this);
-/*
- * Includes code from:
- *
- * base64-arraybuffer
- * https://github.com/niklasvh/base64-arraybuffer
- *
- * Copyright (c) 2012 Niklas von Hertzen
- * Licensed under the MIT license.
- */
-(function() {
-    'use strict';
-
-    // Sadly, the best way to save binary data in WebSQL is Base64 serializing
-    // it, so this is how we store it to prevent very strange errors with less
-    // verbose ways of binary <-> string data storage.
-    var BASE_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-
-    // Promises!
-    var Promise = (typeof module !== 'undefined' && module.exports) ?
-                  require('promise') : this.Promise;
-
-    var openDatabase = this.openDatabase;
-    var db = null;
-    var dbInfo = {};
-
-    var SERIALIZED_MARKER = '__lfsc__:';
-    var SERIALIZED_MARKER_LENGTH = SERIALIZED_MARKER.length;
-
-    // OMG the serializations!
-    var TYPE_ARRAYBUFFER = 'arbf';
-    var TYPE_BLOB = 'blob';
-    var TYPE_INT8ARRAY = 'si08';
-    var TYPE_UINT8ARRAY = 'ui08';
-    var TYPE_UINT8CLAMPEDARRAY = 'uic8';
-    var TYPE_INT16ARRAY = 'si16';
-    var TYPE_INT32ARRAY = 'si32';
-    var TYPE_UINT16ARRAY = 'ur16';
-    var TYPE_UINT32ARRAY = 'ui32';
-    var TYPE_FLOAT32ARRAY = 'fl32';
-    var TYPE_FLOAT64ARRAY = 'fl64';
-    var TYPE_SERIALIZED_MARKER_LENGTH = SERIALIZED_MARKER_LENGTH + TYPE_ARRAYBUFFER.length;
-
-    // If WebSQL methods aren't available, we can stop now.
-    if (!openDatabase) {
-        return;
-    }
-
-    // Open the WebSQL database (automatically creates one if one didn't
-    // previously exist), using any options set in the config.
-    function _initStorage(options) {
-        var _this = this;
-
-        if (options) {
-            for (var i in options) {
-                dbInfo[i] = typeof(options[i]) !== 'string' ? options[i].toString() : options[i];
-            }
-        }
-
-        return new Promise(function(resolve, reject) {
-            // Open the database; the openDatabase API will automatically
-            // create it for us if it doesn't exist.
-            try {
-                db = openDatabase(dbInfo.name, dbInfo.version,
-                                  dbInfo.description, dbInfo.size);
-            } catch (e) {
-                return _this.setDriver('localStorageWrapper').then(resolve, reject);
-            }
-
-            // Create our key/value table if it doesn't exist.
-            db.transaction(function(t) {
-                t.executeSql('CREATE TABLE IF NOT EXISTS ' + dbInfo.storeName +
-                             ' (id INTEGER PRIMARY KEY, key unique, value)', [], function() {
-                    resolve();
-                }, function(t, error) {
-                    reject(error);
-                });
-            });
-        });
-    }
-
-    function getItem(key, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                db.transaction(function(t) {
-                    t.executeSql('SELECT * FROM ' + dbInfo.storeName +
-                                 ' WHERE key = ? LIMIT 1', [key], function(t, results) {
-                        var result = results.rows.length ? results.rows.item(0).value : null;
-
-                        // Check to see if this is serialized content we need to
-                        // unpack.
-                        if (result) {
-                            result = _deserialize(result);
-                        }
-
-                        if (callback) {
-                            callback(result);
-                        }
-
-                        resolve(result);
-                    }, function(t, error) {
-                        if (callback) {
-                            callback(null, error);
-                        }
-
-                        reject(error);
-                    });
-                });
-            }, reject);
-        });
-    }
-
-    function setItem(key, value, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                // The localStorage API doesn't return undefined values in an
-                // "expected" way, so undefined is always cast to null in all
-                // drivers. See: https://github.com/mozilla/localForage/pull/42
-                if (value === undefined) {
-                    value = null;
-                }
-
-                // Save the original value to pass to the callback.
-                var originalValue = value;
-
-                _serialize(value, function(value, error) {
-                    if (error) {
-                        reject(error);
-                    } else {
-                        db.transaction(function(t) {
-                            t.executeSql('INSERT OR REPLACE INTO ' + dbInfo.storeName +
-                                         ' (key, value) VALUES (?, ?)', [key, value], function() {
-                                if (callback) {
-                                    callback(originalValue);
-                                }
-
-                                resolve(originalValue);
-                            }, function(t, error) {
-                                if (callback) {
-                                    callback(null, error);
-                                }
-
-                                reject(error);
-                            });
-                        }, function(sqlError) { // The transaction failed; check
-                                                // to see if it's a quota error.
-                            if (sqlError.code === sqlError.QUOTA_ERR) {
-                                // We reject the callback outright for now, but
-                                // it's worth trying to re-run the transaction.
-                                // Even if the user accepts the prompt to use
-                                // more storage on Safari, this error will
-                                // be called.
-                                //
-                                // TODO: Try to re-run the transaction.
-                                if (callback) {
-                                    callback(null, sqlError);
-                                }
-
-                                reject(sqlError);
-                            }
-                        });
-                    }
-                });
-            }, reject);
-        });
-    }
-
-    function removeItem(key, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                db.transaction(function(t) {
-                    t.executeSql('DELETE FROM ' + dbInfo.storeName +
-                                 ' WHERE key = ?', [key], function() {
-                        if (callback) {
-                            callback();
-                        }
-
-                        resolve();
-                    }, function(t, error) {
-                        if (callback) {
-                            callback(error);
-                        }
-
-                        reject(error);
-                    });
-                });
-            }, reject);
-        });
-    }
-
-    // Deletes every item in the table.
-    // TODO: Find out if this resets the AUTO_INCREMENT number.
-    function clear(callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                db.transaction(function(t) {
-                    t.executeSql('DELETE FROM ' + dbInfo.storeName, [], function() {
-                        if (callback) {
-                            callback();
-                        }
-
-                        resolve();
-                    }, function(t, error) {
-                        if (callback) {
-                            callback(error);
-                        }
-
-                        reject(error);
-                    });
-                });
-            }, reject);
-        });
-    }
-
-    // Does a simple `COUNT(key)` to get the number of items stored in
-    // localForage.
-    function length(callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                db.transaction(function(t) {
-                    // Ahhh, SQL makes this one soooooo easy.
-                    t.executeSql('SELECT COUNT(key) as c FROM ' +
-                                 dbInfo.storeName, [], function(t, results) {
-                        var result = results.rows.item(0).c;
-
-                        if (callback) {
-                            callback(result);
-                        }
-
-                        resolve(result);
-                    }, function(t, error) {
-                        if (callback) {
-                            callback(null, error);
-                        }
-
-                        reject(error);
-                    });
-                });
-            }, reject);
-        });
-    }
-
-    // Return the key located at key index X; essentially gets the key from a
-    // `WHERE id = ?`. This is the most efficient way I can think to implement
-    // this rarely-used (in my experience) part of the API, but it can seem
-    // inconsistent, because we do `INSERT OR REPLACE INTO` on `setItem()`, so
-    // the ID of each key will change every time it's updated. Perhaps a stored
-    // procedure for the `setItem()` SQL would solve this problem?
-    // TODO: Don't change ID on `setItem()`.
-    function key(n, callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                db.transaction(function(t) {
-                    t.executeSql('SELECT key FROM ' + dbInfo.storeName +
-                                 ' WHERE id = ? LIMIT 1', [n + 1], function(t, results) {
-                        var result = results.rows.length ? results.rows.item(0).key : null;
-
-                        if (callback) {
-                            callback(result);
-                        }
-
-                        resolve(result);
-                    }, function(t, error) {
-                        if (callback) {
-                            callback(null, error);
-                        }
-
-                        reject(error);
-                    });
-                });
-            }, reject);
-        });
-    }
-
-    function keys(callback) {
-        var _this = this;
-        return new Promise(function(resolve, reject) {
-            _this.ready().then(function() {
-                db.transaction(function(t) {
-                    t.executeSql('SELECT key FROM ' + dbInfo.storeName, [],
-                                 function(t, results) {
-                        var length = results.rows.length;
-                        var keys = [];
-
-                        for (var i = 0; i < length; i++) {
-                            keys.push(results.rows.item(i).key);
-                        }
-
-                        if (callback) {
-                            callback(keys);
-                        }
-
-                        resolve(keys);
-                    }, function(t, error) {
-                        if (callback) {
-                            callback(null, error);
-                        }
-
-                        reject(error);
-                    });
-                });
-            }, reject);
-        });
-    }
-
-    // Converts a buffer to a string to store, serialized, in the backend
-    // storage library.
-    function _bufferToString(buffer) {
-        // base64-arraybuffer
-        var bytes = new Uint8Array(buffer);
-        var i;
-        var base64String = '';
-
-        for (i = 0; i < bytes.length; i += 3) {
-            /*jslint bitwise: true */
-            base64String += BASE_CHARS[bytes[i] >> 2];
-            base64String += BASE_CHARS[((bytes[i] & 3) << 4) | (bytes[i + 1] >> 4)];
-            base64String += BASE_CHARS[((bytes[i + 1] & 15) << 2) | (bytes[i + 2] >> 6)];
-            base64String += BASE_CHARS[bytes[i + 2] & 63];
-        }
-
-        if ((bytes.length % 3) === 2) {
-            base64String = base64String.substring(0, base64String.length - 1) + "=";
-        } else if (bytes.length % 3 === 1) {
-            base64String = base64String.substring(0, base64String.length - 2) + "==";
-        }
-
-        return base64String;
-    }
-
-    // Deserialize data we've inserted into a value column/field. We place
-    // special markers into our strings to mark them as encoded; this isn't
-    // as nice as a meta field, but it's the only sane thing we can do whilst
-    // keeping localStorage support intact.
-    //
-    // Oftentimes this will just deserialize JSON content, but if we have a
-    // special marker (SERIALIZED_MARKER, defined above), we will extract
-    // some kind of arraybuffer/binary data/typed array out of the string.
-    function _deserialize(value) {
-        // If we haven't marked this string as being specially serialized (i.e.
-        // something other than serialized JSON), we can just return it and be
-        // done with it.
-        if (value.substring(0, SERIALIZED_MARKER_LENGTH) !== SERIALIZED_MARKER) {
-            return JSON.parse(value);
-        }
-
-        // The following code deals with deserializing some kind of Blob or
-        // TypedArray. First we separate out the type of data we're dealing
-        // with from the data itself.
-        var serializedString = value.substring(TYPE_SERIALIZED_MARKER_LENGTH);
-        var type = value.substring(SERIALIZED_MARKER_LENGTH, TYPE_SERIALIZED_MARKER_LENGTH);
-
-        // Fill the string into a ArrayBuffer.
-        var bufferLength = serializedString.length * 0.75;
-        var len = serializedString.length;
-        var i;
-        var p = 0;
-        var encoded1, encoded2, encoded3, encoded4;
-
-        if (serializedString[serializedString.length - 1] === "=") {
-            bufferLength--;
-            if (serializedString[serializedString.length - 2] === "=") {
-                bufferLength--;
-            }
-        }
-
-        var buffer = new ArrayBuffer(bufferLength);
-        var bytes = new Uint8Array(buffer);
-
-        for (i = 0; i < len; i+=4) {
-            encoded1 = BASE_CHARS.indexOf(serializedString[i]);
-            encoded2 = BASE_CHARS.indexOf(serializedString[i+1]);
-            encoded3 = BASE_CHARS.indexOf(serializedString[i+2]);
-            encoded4 = BASE_CHARS.indexOf(serializedString[i+3]);
-
-            /*jslint bitwise: true */
-            bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
-            bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
-            bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
-        }
-
-        // Return the right type based on the code/type set during
-        // serialization.
-        switch (type) {
-            case TYPE_ARRAYBUFFER:
-                return buffer;
-            case TYPE_BLOB:
-                return new Blob([buffer]);
-            case TYPE_INT8ARRAY:
-                return new Int8Array(buffer);
-            case TYPE_UINT8ARRAY:
-                return new Uint8Array(buffer);
-            case TYPE_UINT8CLAMPEDARRAY:
-                return new Uint8ClampedArray(buffer);
-            case TYPE_INT16ARRAY:
-                return new Int16Array(buffer);
-            case TYPE_UINT16ARRAY:
-                return new Uint16Array(buffer);
-            case TYPE_INT32ARRAY:
-                return new Int32Array(buffer);
-            case TYPE_UINT32ARRAY:
-                return new Uint32Array(buffer);
-            case TYPE_FLOAT32ARRAY:
-                return new Float32Array(buffer);
-            case TYPE_FLOAT64ARRAY:
-                return new Float64Array(buffer);
-            default:
-                throw new Error('Unkown type: ' + type);
-        }
-    }
-
-    // Serialize a value, afterwards executing a callback (which usually
-    // instructs the `setItem()` callback/promise to be executed). This is how
-    // we store binary data with localStorage.
-    function _serialize(value, callback) {
-        var valueString = '';
-        if (value) {
-            valueString = value.toString();
-        }
-
-        // Cannot use `value instanceof ArrayBuffer` or such here, as these
-        // checks fail when running the tests using casper.js...
-        //
-        // TODO: See why those tests fail and use a better solution.
-        if (value && (value.toString() === '[object ArrayBuffer]' ||
-                      value.buffer && value.buffer.toString() === '[object ArrayBuffer]')) {
-            // Convert binary arrays to a string and prefix the string with
-            // a special marker.
-            var buffer;
-            var marker = SERIALIZED_MARKER;
-
-            if (value instanceof ArrayBuffer) {
-                buffer = value;
-                marker += TYPE_ARRAYBUFFER;
-            } else {
-                buffer = value.buffer;
-
-                if (valueString === '[object Int8Array]') {
-                    marker += TYPE_INT8ARRAY;
-                } else if (valueString === '[object Uint8Array]') {
-                    marker += TYPE_UINT8ARRAY;
-                } else if (valueString === '[object Uint8ClampedArray]') {
-                    marker += TYPE_UINT8CLAMPEDARRAY;
-                } else if (valueString === '[object Int16Array]') {
-                    marker += TYPE_INT16ARRAY;
-                } else if (valueString === '[object Uint16Array]') {
-                    marker += TYPE_UINT16ARRAY;
-                } else if (valueString === '[object Int32Array]') {
-                    marker += TYPE_INT32ARRAY;
-                } else if (valueString === '[object Uint32Array]') {
-                    marker += TYPE_UINT32ARRAY;
-                } else if (valueString === '[object Float32Array]') {
-                    marker += TYPE_FLOAT32ARRAY;
-                } else if (valueString === '[object Float64Array]') {
-                    marker += TYPE_FLOAT64ARRAY;
-                } else {
-                    callback(new Error("Failed to get type for BinaryArray"));
-                }
-            }
-
-            callback(marker + _bufferToString(buffer));
-        } else if (valueString === "[object Blob]") {
-            // Conver the blob to a binaryArray and then to a string.
-            var fileReader = new FileReader();
-
-            fileReader.onload = function() {
-                var str = _bufferToString(this.result);
-
-                callback(SERIALIZED_MARKER + TYPE_BLOB + str);
-            };
-
-            fileReader.readAsArrayBuffer(value);
-        } else {
-            try {
-                callback(JSON.stringify(value));
-            } catch (e) {
-                if (this.console && this.console.error) {
-                    this.console.error("Couldn't convert value into a JSON string: ", value);
-                }
-
-                callback(null, e);
-            }
-        }
-    }
-
-    var webSQLStorage = {
-        _driver: 'webSQLStorage',
-        _initStorage: _initStorage,
-        getItem: getItem,
-        setItem: setItem,
-        removeItem: removeItem,
-        clear: clear,
-        length: length,
-        key: key,
-        keys: keys
-    };
-
-    if (typeof define === 'function' && define.amd) {
-        define('webSQLStorage', function() {
-            return webSQLStorage;
-        });
-    } else if (typeof module !== 'undefined' && module.exports) {
-        module.exports = webSQLStorage;
-    } else {
-        this.webSQLStorage = webSQLStorage;
-    }
-}).call(this);
-(function() {
-    'use strict';
-
-    // Promises!
-    var Promise = (typeof module !== 'undefined' && module.exports) ?
-                  require('promise') : this.Promise;
-
-    // Avoid those magic constants!
-    var MODULE_TYPE_DEFINE = 1;
-    var MODULE_TYPE_EXPORT = 2;
-    var MODULE_TYPE_WINDOW = 3;
-
-    // Attaching to window (i.e. no module loader) is the assumed,
-    // simple default.
-    var moduleType = MODULE_TYPE_WINDOW;
-
-    // Find out what kind of module setup we have; if none, we'll just attach
-    // localForage to the main window.
-    if (typeof define === 'function' && define.amd) {
-        moduleType = MODULE_TYPE_DEFINE;
-    } else if (typeof module !== 'undefined' && module.exports) {
-        moduleType = MODULE_TYPE_EXPORT;
-    }
-
-    // The actual localForage object that we expose as a module or via a
-    // global. It's extended by pulling in one of our other libraries.
-    var _this = this;
-    var localForage = {
-        INDEXEDDB: 'asyncStorage',
-        LOCALSTORAGE: 'localStorageWrapper',
-        WEBSQL: 'webSQLStorage',
-
-        _config: {
-            description: '',
-            name: 'localforage',
-            // Default DB size is _JUST UNDER_ 5MB, as it's the highest size
-            // we can use without a prompt.
-            size: 4980736,
-            storeName: 'keyvaluepairs',
-            version: 1.0
-        },
-
-        // Set any config values for localForage; can be called anytime before
-        // the first API call (e.g. `getItem`, `setItem`).
-        // We loop through options so we don't overwrite existing config
-        // values.
-        config: function(options) {
-            // If the options argument is an object, we use it to set values.
-            // Otherwise, we return either a specified config value or all
-            // config values.
-            if (typeof(options) === 'object') {
-                // If localforage is ready and fully initialized, we can't set
-                // any new configuration values. Instead, we return an error.
-                if (this._ready) {
-                    return new Error("Can't call config() after localforage " +
-                                     "has been used.");
-                }
-
-                for (var i in options) {
-                    this._config[i] = options[i];
-                }
-
-                return true;
-            } else if (typeof(options) === 'string') {
-                return this._config[options];
-            } else {
-                return this._config;
-            }
-        },
-
-        driver: function() {
-            return this._driver || null;
-        },
-
-        _ready: false,
-
-        _driverSet: null,
-
-        setDriver: function(drivers, callback, errorCallback) {
-            var self = this;
-
-            var isArray = Array.isArray || function(arg) {
-                return Object.prototype.toString.call(arg) === '[object Array]';
-            };
-
-            if (!isArray(drivers) && typeof drivers === 'string') {
-                drivers = [drivers];
-            }
-
-            this._driverSet = new Promise(function(resolve, reject) {
-                var driverName = self._getFirstSupportedDriver(drivers);
-
-                if (!driverName) {
-                    var error = new Error('No available storage method found.');
-                    self._driverSet = Promise.reject(error);
-
-                    if (errorCallback) {
-                        errorCallback(error);
-                    }
-
-                    reject(error);
-
-                    return;
-                }
-
-                self._ready = null;
-
-                // We allow localForage to be declared as a module or as a
-                // library available without AMD/require.js.
-                if (moduleType === MODULE_TYPE_DEFINE) {
-                    require([driverName], function(lib) {
-                        self._extend(lib);
-
-                        if (callback) {
-                            callback();
-                        }
-                        resolve();
-                    });
-
-                    return;
-                } else if (moduleType === MODULE_TYPE_EXPORT) {
-                    // Making it browserify friendly
-                    var driver;
-                    switch (driverName) {
-                        case self.INDEXEDDB:
-                            driver = require('./drivers/indexeddb');
-                            break;
-                        case self.LOCALSTORAGE:
-                            driver = require('./drivers/localstorage');
-                            break;
-                        case self.WEBSQL:
-                            driver = require('./drivers/websql');
-                    }
-
-                    self._extend(driver);
-                } else {
-                    self._extend(_this[driverName]);
-                }
-
-                if (callback) {
-                    callback();
-                }
-
-                resolve();
-            });
-
-            return this._driverSet;
-        },
-
-        _getFirstSupportedDriver: function(drivers) {
-            if (drivers) {
-                for (var i = 0; i < drivers.length; i++) {
-                    var driver = drivers[i];
-
-                    if (this.supports(driver)) {
-                        return driver;
-                    }
-                }
-            }
-
-            return null;
-        },
-
-        supports: function(driverName) {
-            return !!driverSupport[driverName];
-        },
-
-        ready: function(callback) {
-            var ready = new Promise(function(resolve, reject) {
-                localForage._driverSet.then(function() {
-                    if (localForage._ready === null) {
-                        localForage._ready = localForage._initStorage(
-                            localForage._config);
-                    }
-
-                    localForage._ready.then(resolve, reject);
-                }, reject);
-            });
-
-            ready.then(callback, callback);
-
-            return ready;
-        },
-
-        _extend: function(libraryMethodsAndProperties) {
-            for (var i in libraryMethodsAndProperties) {
-                if (libraryMethodsAndProperties.hasOwnProperty(i)) {
-                    this[i] = libraryMethodsAndProperties[i];
-                }
-            }
-        }
-    };
-
-    // Check to see if IndexedDB is available and if it is the latest
-    // implementation; it's our preferred backend library. We use "_spec_test"
-    // as the name of the database because it's not the one we'll operate on,
-    // but it's useful to make sure its using the right spec.
-    // See: https://github.com/mozilla/localForage/issues/128
-    var driverSupport = (function(_this) {
-        // Initialize IndexedDB; fall back to vendor-prefixed versions
-        // if needed.
-        var indexedDB = indexedDB || _this.indexedDB || _this.webkitIndexedDB ||
-                        _this.mozIndexedDB || _this.OIndexedDB ||
-                        _this.msIndexedDB;
-
-        var result = {};
-
-        result[localForage.WEBSQL] = !!_this.openDatabase;
-        result[localForage.INDEXEDDB] = !!(
-            indexedDB &&
-            typeof indexedDB.open === 'function' &&
-            indexedDB.open('_localforage_spec_test', 1)
-                     .onupgradeneeded === null
-        );
-
-        result[localForage.LOCALSTORAGE] = !!(function() {
-            try {
-                return (localStorage &&
-                        typeof localStorage.setItem === 'function');
-            } catch (e) {
-                return false;
-            }
-        })();
-
-        return result;
-    })(this);
-
-    var driverTestOrder = [
-        localForage.INDEXEDDB,
-        localForage.WEBSQL,
-        localForage.LOCALSTORAGE
-    ];
-
-    localForage.setDriver(driverTestOrder);
-
-    // We allow localForage to be declared as a module or as a library
-    // available without AMD/require.js.
-    if (moduleType === MODULE_TYPE_DEFINE) {
-        define(function() {
-            return localForage;
-        });
-    } else if (moduleType === MODULE_TYPE_EXPORT) {
-        module.exports = localForage;
-    } else {
-        this.localforage = localForage;
-    }
-}).call(this);
 
 /**
  * angular-localForage - Angular service & directive for https://github.com/mozilla/localForage (Offline storage, improved.)
@@ -59978,7 +61341,8 @@ angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
         };
     }
 ]);
-angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule', 'confero.ConferoDataObjects']).factory('EventsCache', ['$resource', '$cacheFactory', '$localForage', 'EventsData', '$q',
+angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule', 'confero.ConferoDataObjects'])
+	.factory('EventsCache', ['$resource', '$cacheFactory', '$localForage', 'EventsData', '$q',
     function($resource, $cacheFactory, $localForage, EventsData, $q) {
         "use strict";
         var deferred = $q.defer();

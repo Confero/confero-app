@@ -1,5 +1,15 @@
 # Changelog #
 
+v0.3.5 - 2014/09/04
+- fix major bug
+
+v0.3.4 - 2014/08/29
+- use Gulp instead of Grunt
+- refactorize #55
+- return new language on broadcast after language change
+- remove useless $digest #56
+- fix a bug with default value
+
 v0.3.3 - 2014/07/18
 - fix tests
 - add repository field to `package.json`

@@ -1,4 +1,4 @@
-# ng-i18next - use i18next with Angularjs #
+# ng-i18next - use i18next with Angularjs [![Build Status](https://travis-ci.org/i18next/ng-i18next.svg?branch=master)](https://travis-ci.org/i18next/ng-i18next) #
 
 Project goal is to provide an easy way to use [i18next](http://i18next.com/) with [AngularJS](http://angularjs.org/):
 
@@ -15,6 +15,12 @@ First check out the [documentation](http://i18next.com) by Jan Mühlemann.
 - scope variables in translations (if the translation contains directives of variables like `{{hello}}`, they'll get compiled)
 - sprintf support (directive and provider)
 - support for default values to be displayed before i18next engine is initialized
+
+# Installation #
+You can install `ng-i18next` as a bower dependency:
+
+	bower install ng-i18next
+
 
 # Usage #
 First add
@@ -124,7 +130,7 @@ Also options work perfectly together with html:
 ### Passing Options - sprintf
 You can use i18next sprintf feature:
 
-	<p ng-i18next="[i18next]({sprintf:['a','b','c','d']})sprintfString"">
+	<p ng-i18next="[i18next]({sprintf:['a','b','c','d']})sprintfString">
 
 where `sprintfString` could be `The first 4 letters of the english alphabet are: %s, %s, %s and %s` in your translation file.
 
@@ -144,12 +150,13 @@ For more, see examples.
 translation request just like you would `defaultValue`. If i18n strings need to be rendered before i18next is initialized,
 these special loading values will be used instead.
 
-## Examples
+## Default values - Examples ##
+
 	$i18nextProvider.options = {
 		/* ... */
 		defaultLoadingValue: ''
 	};
-	
+
 	(in template)
 	<p>{{'hello' | i18next}}</p>
 => displays an empty string (visually nothing) until i18next is initialized, then translates `hello`
@@ -169,6 +176,7 @@ To contribute, you must have:
 
 - [Node.js](http://nodejs.org/)
 - [bower](http://bower.io/)
+- [Gulp](http://gulpjs.com/)
 
 installed.
 
@@ -177,9 +185,13 @@ Load all dependencies using [`npm`](https://npmjs.org/) and [`bower`](http://bow
 	npm install
 	bower install
 
-Build `ng-i18next.js` using Grunt:
+Build `ng-i18next.js` using Gulp:
 
-	grunt
+	gulp build
+
+Test `ng-i18next.js` using Gulp:
+
+	gulp test
 
 ---------
 
@@ -187,7 +199,7 @@ Build `ng-i18next.js` using Grunt:
 
 You can run the examples using:
 
-	grunt server
+	gulp serve
 
 _(note that you have to be in the root directory of this project)_
 
@@ -195,6 +207,27 @@ Do not just open the HTML files. That won't work.
 
 ---------
 
+# Supported browsers #
+
+`ng-i18next` is tested with these browsers:
+
+ - latest Firefox
+ - latest Chrome
+ - IE9 and above
+
+IE8 isn't supported.
+`ng-i18next` should work with every browser that is supported by AngularJS.
+
+However, last time we checked, just adding polyfills do the job on IE8.
+
+---------
+
 # Changelog #
 
 For changelog file please see CHANGELOG.md
+
+---------
+
+# License #
+
+[MIT License](https://github.com/i18next/ng-i18next/blob/master/LICENSE)

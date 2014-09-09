@@ -1,10 +1,10 @@
 {
   "name": "ng-i18next",
   "main": "./dist/ng-i18next.js",
-  "version": "0.3.3",
+  "version": "0.3.5",
   "dependencies": {
     "angular": "^1.2",
-    "i18next": "^1.7.2"
+    "i18next": "^1.7.4"
   },
   "devDependencies": {
     "angular-mocks": "~1.2.20"
@@ -19,14 +19,13 @@
     "karma.conf.js"
   ],
   "homepage": "https://github.com/archer96/ng-i18next",
-  "_release": "0.3.3",
+  "_release": "0.3.5",
   "_resolution": {
     "type": "version",
-    "tag": "v0.3.3",
-    "commit": "2b7773ab35e4c96f67019f12042897cb8fb723b9"
+    "tag": "v0.3.5",
+    "commit": "3735325bbd9b54ade2f0097e1285bc87db6e1d6f"
   },
   "_source": "git://github.com/archer96/ng-i18next.git",
   "_target": "~0.3.3",
-  "_originalSource": "ng-i18next",
-  "_direct": true
+  "_originalSource": "ng-i18next"
 }
