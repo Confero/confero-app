@@ -110,8 +110,8 @@ gulp.task('deploy', ['minify'], function() {
   ])
     .pipe(rsync({
          root: 'build',
-         hostname: 'example.com',
-         destination: '/path/to/site'
+         hostname: 'awenda.cs.uwaterloo.ca',
+         destination: '/var/www/conferoTest/'
        })
     );
-});
+});  
