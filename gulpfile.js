@@ -98,7 +98,7 @@ gulp.task('minify', ['bundle'], function() {
 });
 
 
-gulp.task('deploy', function() {
+gulp.task('deploy', ['minify'], function() {
   gulp.src([
       './www/index.html', 
       './www/dist/**',
