@@ -60885,7 +60885,7 @@ angular.module('confero.eventsList', []).directive('eventsList', function() {
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: 'views/EventListView.html',
+        templateUrl: 'EventListView.html',
         scope: {
             events: "=events",
             locationWWW: "=location",
@@ -60919,7 +60919,7 @@ angular.module('confero.mainPage', []).directive('mainPage', function() {
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: 'views/mainPageView.html',
+        templateUrl: 'mainPageView.html',
     };
 });
 angular.module('confero.paperItem', ['confero.PaperService'])
@@ -60930,7 +60930,7 @@ angular.module('confero.paperItem', ['confero.PaperService'])
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: 'views/paperItemView.html',
+        templateUrl: 'paperItemView.html',
         scope: {
             paper: "=",
             conferenceId: "=conference",
@@ -60958,7 +60958,7 @@ angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopl
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: 'views/peopleItemView.html',
+        templateUrl: 'peopleItemView.html',
         scope: {
             person: "=",
             conferenceId: "=conference",
@@ -60987,7 +60987,7 @@ angular.module('confero.sessionItem', ['confero.SessionService']).directive('ses
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: 'views/sessionItemView.html',
+        templateUrl: 'sessionItemView.html',
         scope: {
             session: "=",
             conferenceId: "=conference",
@@ -61044,7 +61044,7 @@ angular.module('confero.tabs', [])
     "use strict";
     return {
       restrict: 'E',
-      templateUrl: 'views/tabs.html'
+      templateUrl: 'tabs.html'
     };
   });
 angular.module('confero.app').config(function($stateProvider, $urlRouterProvider) {
@@ -61055,13 +61055,13 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         controller: 'EventsListCtrl'
     }).state('tabs', {
         url: '/conference/:id',
-        templateUrl: "views/tabs.html",
+        templateUrl: "tabs.html",
         controller: "TabsCrtl",
     }).state('tabs.sessions', {
         url: '/sessions',
         views: {
             'sessions-tab': {
-                templateUrl: "views/sessionsTab.html",
+                templateUrl: "sessionsTab.html",
                 controller: "SessionsTabCrtl"
             }
         }
@@ -61069,7 +61069,7 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         url: '/custom',
         views: {
             'custom-tab': {
-                templateUrl: "views/customTab.html",
+                templateUrl: "customTab.html",
                 controller: "CustomTabCrtl"
             }
         }
@@ -61077,7 +61077,7 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         url: '/people',
         views: {
             'people-tab': {
-                templateUrl: "views/peopleTab.html",
+                templateUrl: "peopleTab.html",
                 controller: "PeopleTabCrtl"
             }
         }
@@ -61085,25 +61085,25 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         url: '/papers',
         views: {
             'papers-tab': {
-                templateUrl: "views/papersTab.html",
+                templateUrl: "papersTab.html",
                 controller: "PapersTabCrtl"
             }
         }
     }).state('sessionPage', {
         url: "/conference/:id/session/:key",
-        templateUrl: "views/sessionPage.html",
+        templateUrl: "sessionPage.html",
         controller: 'SessionPageCtrl'
     }).state('paperPage', {
         url: "/conference/:id/paper/:key",
-        templateUrl: "views/paperPageView.html",
+        templateUrl: "paperPageView.html",
         controller: 'PaperPageCtrl',
     }).state('peoplePage', {
         url: "/conference/:id/people/:key",
-        templateUrl: "views/peoplePageView.html",
+        templateUrl: "peoplePageView.html",
         controller: 'PeoplePageCtrl'
     }).state('aboutPage', {
         url: "/about",
-        templateUrl: "views/aboutPageView.html",
+        templateUrl: "aboutPageView.html",
         controller: 'AboutCtrl'
     });
     $urlRouterProvider.otherwise("/");
@@ -61686,3 +61686,59 @@ angular.module('confero.StarredService', ['LocalForageModule']).factory('Starred
         };
     }
 ]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('EventListView.html',
+        "<div class=\"list\">\n\n    <a ng-repeat=\"event in events\" href=\"#/conference/{{event.Id}}/sessions\" class=\"item item-thumbnail-left\" aria-label=\"{{event.Description}}\">\n        <img ng-src=\"assets/conf-data/icon200/{{event.Icon}}\" err-src=\"{{locationWWW}}/conferences/event/{{event.Id}}/image\">\n\n        <h2>{{ event.Name }}</h2>\n        <h4><span ng-bind-html=\"event.Description\"></span></h4>\n        <h4>{{ event.StartDatePretty }} - {{event.EndDatePretty}}</h4>\n    </a>\n\n</div>\n");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('aboutPageView.html',
+        "<ion-view title=\"About Confero\">\n    <ion-nav-buttons side=\"left\">\n        <button class=\"button icon button-clear ion-arrow-left-c\" ng-click=\"backToEventsList()\" ng-i18next=\"[aria-label]app.goback\"></button>\n    </ion-nav-buttons>\n\n    <ion-content>\n\n        <div class=\"card\">\n\n\n            <div class=\"item item-text-wrap\">\n                <p><span ng-i18next=\"[html]about.builtby\"></span>  <span ng-i18next=\"[html]about.thankyou\"></span>  \n                </p>\n\n                <p ng-i18next=\"about.feedback\"></p>\n            </div>\n        </div>\n        <div class=\"card\">\n\n\n            <div class=\"item item-divider item-text-wrap\">\n                <span ng-i18next=\"[html]about.getapp\"></span>\n            </div>\n            <div class=\"row responsive-sm\">\n                <div class=\"col\">\n                    <a class=\"item item-thumbnail-left\" ng-click=\"openInBrowser('https://marketplace.firefox.com/app/confero/')\" href=\"\">\n                        <img src=\"./img/firefox-os_logo-wordmark_RGB-vertical.png\"><span ng-i18next=\"about.firefoxos\"></span>\n                    </a>\n                </div>\n                <div class=\"col\">\n                    <a class=\"item item-thumbnail-left\" ng-click=\"openInBrowser('https://itunes.apple.com/ca/app/confero/id572642586')\" href=\"\">\n                        <img src=\"./img/ios_logo.png\"><span ng-i18next=\"about.apple\"></span>\n                    </a>\n                </div>\n            </div>\n\n            <div class=\"row responsive-sm\">\n                <div class=\"col\">\n                    <a class=\"item item-thumbnail-left\" ng-click=\"openInBrowser('https://play.google.com/store/apps/details?id=org.ulti.dev.mobile.conf')\" href=\"\">\n                        <img src=\"./img/android_logo.png\"><span ng-i18next=\"about.googleplay\"></span>\n                    </a>\n                </div>\n                <div class=\"col\">\n                    <a class=\"item item-thumbnail-left\" ng-click=\"openInBrowser('https://appworld.blackberry.com/webstore/content/20322191/?countrycode=CA&lang=en')\" href=\"\">\n                        <img src=\"./img/bb_logo.png\"><span ng-i18next=\"about.blackberry\"></span>\n                    </a>\n                </div>\n            </div>\n        </div>\n    </ion-content>\n</ion-view>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('customTab.html',
+        "<ion-view title=\"{{ConferenceInfo.Name}}\">\n    <span class=\"offscreen\" ng-i18next=\"custom.tablabel\"></span>\n    <ion-nav-buttons side=\"left\">\n        <button class=\"button icon button-clear ion-arrow-left-c\" ng-click=\"backToEventsList()\" ng-i18next=\"[aria-label]app.backtoevents\"></button>\n    </ion-nav-buttons>\n    <ion-content>\n        <h4 ng-show=\"!Sessions && !People && !Items\" ng-i18next=\"custom.instructions\"></h4>\n        \n        <label class=\"item item-input\" ng-show=\"Sessions || People || Items\">\n            <span ng-i18next=\"app.search\" class=\"offscreen\"></span>\n            <i class=\"icon ion-search placeholder-icon\"></i>\n            <input type=\"text\" ng-i18next=\"[placeholder]app.search\" ng-model=\"q\">\n        </label>\n        \n        <div class=\"card\" ng-show=\"Sessions\">\n            <div class=\"item item-divider\">\n                <span ng-i18next=\"app.sessions\"></span>\n            </div>\n            <div class=\"list\">\n                <div ng-repeat=\"session in Sessions | filter:q\" on-last-list-item>\n                    <div ng-show=\"showSessionDivider($index)\" class=\"item item-divider\">\n                        <h2>{{ session.PrettyDateTimeFull }}</h2>\n                    </div>\n                    <session-item conference=\"conferenceId\" session=\"session\"></session-item>\n                </div>\n            </div>\n        </div>\n        <div class=\"card\" ng-show=\"People\">\n            <div class=\"item item-divider\">\n                <span ng-i18next=\"app.people\"></span>\n            </div>\n            <div class=\"list\">\n                <div ng-repeat=\"person in People | filter:q\" on-last-list-item>\n                    <people-item conference=\"conferenceId\" person=\"person\"></people-item>\n                </div>\n            </div>\n        </div>\n        <div class=\"card\" ng-show=\"Items\">\n            <div class=\"item item-divider\">\n                <span ng-i18next=\"app.papers\"></span>\n            </div>\n            <div class=\"list\">\n                <paper-item ng-repeat=\"paper in Items | filter:q\" conference=\"conferenceId\" paper=\"paper\" on-last-list-item></paper-item>\n            </div>\n        </div>\n\n    </ion-content>\n</ion-view>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('mainPageView.html',
+        "<ion-view title=\"Confero\">\n    <ion-nav-buttons side=\"right\">\n      <button class=\"button icon button-clear ion-information-circled\" ng-click=\"openAbout()\" ng-i18next=\"[aria-label]app.openabout\">\n      </button>\n    </ion-nav-buttons>\n    <ion-content>\n        <div class=\"card\">\n            <div ng-if=\"inProgressEvents\">\n                <div class=\"item item-divider\">\n                    <h2 ng-i18next=\"eventlist.inprogress\"></h2>\n                </div>\n                <div class=\"item\">\n                    <events-list role=\"list\" events=\"inProgressEvents\" location=\"locationWWW\"></events-list>\n                </div>\n            </div>\n            <div ng-if=\"upcomingEvents\">\n                <div class=\"item item-divider\">\n                    <h2 ng-i18next=\"eventlist.upcoming\"></h2>\n                </div>\n                <div class=\"item\" >\n                    <events-list role=\"list\" events=\"upcomingEvents\" location=\"locationWWW\"></events-list>\n                </div>\n            </div>\n            <div ng-if=\"pastEvents\">\n                <div class=\"item item-divider\">\n                    <h2 ng-i18next=\"eventlist.past\"></h2>\n                </div>\n                <div class=\"item\" >\n                    <events-list role=\"list\" events=\"pastEvents\" location=\"locationWWW\"></events-list>\n                </div>\n            </div>\n        </div>\n    </ion-content>\n</ion-view>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('paperItemView.html',
+        "<a href=\"#/conference/{{conferenceId}}/paper/{{paperData.KeyEncoded}}\" class=\"item item-icon-left item-icon-right\">\n    <i class=\"icon ion-ribbon-b colorGold\" ng-show=\"paperData.Award\" ng-i18next=\"[aria-label]paper.award\"></i>\n    <div class=\"item-content\">\n        <h2><span ng-bind-html=\"paperData.Title\"></span></h2>\n        <h3>{{ paperData.PersonsString }}</h3>\n    </div>\n    <span ng-show=\"paperData.starred\" class=\"starred starredMarginTop5px badge badge-assertive \"><i class=\"image ion-star colorGold\"></i></span>\n    <i class=\"icon ion-ios7-arrow-right dark\"></i>\n</a>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('paperPageView.html',
+        "<ion-view title=\"{{ConferenceInfo.Name}}\" animation=\"slide-left-right\">\n    <ion-nav-buttons side=\"left\">\n        <button class=\"button icon button-clear ion-arrow-left-c\" ng-click=\"back()\" ng-i18next=\"[aria-label]app.goback\"></button>\n    </ion-nav-buttons>\n    <ion-content>\n        <div class=\"card\">\n            <div class=\"item item-divider item-icon-left item-icon-right\">\n                <i class=\"icon\" ng-class=\"isStarredStyle\" ng-click=\"clickStar()\" ng-i18next=\"[aria-label]paper.star\"></i>\n                <h2 class=\"tablecell\"><span class=\"middle\" ng-bind-html=\"paperData.Title\"></span></h2> \n                <i class=\"icon ion-ribbon-b colorGold\" ng-show=\"paperData.Award\" ng-i18next=\"[aria-label]paper.award\"></i>\n            </div>\n            <div clas=\"item item-divider\">\n                <div class=\"list\">\n                    <people-item ng-repeat=\"key in paperData.Authors\" conference=\"conferenceId\" key=\"key\"></people-item>\n                </div>\n            </div>\n            <div clas=\"item item-divider\">\n                <session-item conference=\"conferenceId\" paperkey=\"paperData.Key\"></session-item>\n\n            </div>\n            <div clas=\"item item-divider\">\n                \n                <a ng-click=\"openInBrowser(paperData.googleScholar)\" href=\"\" ng-show=\"paperData.googleScholar\"  ng-i18next=\"[aria-label]paper.gotogoogle\" class=\"padding\"><img ng-src=\"img/gs64.png\" class=\"padding\"></a> \n                <a ng-click=\"openInBrowser(paperData.urlDOI)\" href=\"\" ng-show=\"paperData.DOI\" class=\"padding\" ng-i18next=\"[aria-label]paper.gotodoi\"><img ng-src=\"img/doi64.png\" class=\"padding\"></a>\n                \n            </div>\n            <div clas=\"item item-divider item-text-wrap padding\">\n                {{paperData.Abstract}}\n            </div>\n        </div>\n    </ion-content>\n</ion-view>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('papersTab.html',
+        "<ion-view title=\"{{ConferenceInfo.Name}}\">\n    <span class=\"offscreen\" ng-i18next=\"paper.tablabel\"></span>\n    <ion-nav-buttons side=\"left\">\n        <button class=\"button icon button-clear ion-arrow-left-c\" ng-click=\"backToEventsList()\" ng-i18next=\"[aria-label]app.backtoevents\"></button>\n    </ion-nav-buttons>\n    <ion-content>\n        \n        <label class=\"item item-input\"><span ng-i18next=\"app.search\" class=\"offscreen\"></span>\n            <i class=\"icon ion-search placeholder-icon\"></i>\n            <input type=\"text\" placeholder=\"Search\" ng-model=\"q\">\n        </label>\n        <div class=\"list\" role=\"list\">\n            <paper-item ng-repeat=\"paper in papers | filter:q\" conference=\"conferenceId\" paper=\"paper\" on-last-list-item></paper-item>\n        </div>\n    </ion-content>\n</ion-view>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('peopleItemView.html',
+        "<a href=\"#/conference/{{conferenceId}}/people/{{personData.KeyEncoded}}\" class=\"item item-icon-right\">\n    <h2><span ng-bind-html=\"personData.Name\"></span></h2>\n    <h3>{{ personData.Affiliation }}</h3>\n    <i class=\"icon ion-ios7-arrow-right dark\"></i>\n</a>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('peoplePageView.html',
+        "<ion-view title=\"{{ConferenceInfo.Name}}\" animation=\"slide-left-right\">\n    <ion-nav-buttons side=\"left\">\n        <button class=\"button icon button-clear ion-arrow-left-c\" ng-click=\"back()\" ng-i18next=\"[aria-label]app.goback\"></button>\n    </ion-nav-buttons>\n    <ion-content>\n        <div class=\"card\">\n            <div class=\"item item-divider item-icon-left\">\n                <i class=\"icon\" ng-class=\"isStarredStyle\" ng-click=\"clickStar()\" ng-i18next=\"[aria-label]people.star\"></i>\n                <div class=\"tablecell\">\n                    <div class=\"middle\">\n                        <h2 ng-bind-html=\"peopleData.Name\"></h2> \n                        <h3 ng-bind-html=\"peopleData.Affiliation\"></h3>\n                    </div>\n\n                </div>\n            </div>\n            <div clas=\"item item-divider\">\n                <a ng-click=\"openInGoogleScholar(peopleData.googleScholar)\" href=\"\" ng-show=\"peopleData.googleScholar\" class=\"padding\">\n                    <img ng-src=\"./img/gs64.png\" class=\"padding\">\n                </a>\n            </div>\n\n            <div class=\"item item-divider padding\" ng-repeat=\"session in Sessions | orderBy:[StartDate, EndDate]\">\n                <session-item conference=\"conferenceId\" session=\"session\"></session-item>\n                <paper-item ng-repeat=\"item in session.ItemsFull\" conference=\"conferenceId\" paper=\"item\"></paper-item>\n\n            </div>\n\n        </div>\n    </ion-content>\n</ion-view>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('peopleTab.html',
+        "<ion-view title=\"{{ConferenceInfo.Name}}\">\n    <span class=\"offscreen\" ng-i18next=\"people.tablabel\"></span>\n    <ion-nav-buttons side=\"left\">\n        <button class=\"button icon button-clear ion-arrow-left-c\" ng-click=\"backToEventsList()\" ng-i18next=\"[aria-label]app.backtoevents\"></button>\n    </ion-nav-buttons>\n    <ion-content>\n        <label class=\"item item-input\"><span ng-i18next=\"app.search\" class=\"offscreen\"></span>\n            <i class=\"icon ion-search placeholder-icon\"></i>\n            <input type=\"text\" placeholder=\"Search\" ng-model=\"q\">\n        </label>\n        <div class=\"list\" role=\"list\">\n            <div ng-repeat=\"person in people | filter:q\" on-last-list-item>\n                <div ng-show=\"showPeopleDivider($index)\" class=\"item item-divider\" aria-hidden=\"true\">\n                    <h2>{{ dividerTitle($index) }}</h2>\n                </div>\n                <people-item conference=\"conferenceId\" person=\"person\"></people-item>\n            </div>\n        </div>\n    </ion-content>\n</ion-view>\n");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('sessionItemView.html',
+        "<a href=\"#/conference/{{conferenceId}}/session/{{sessionData.KeyEncoded}}\" class=\"item {{sessionData.Colour}} item-icon-right\">\n    <h2 class=\"colorWhite\"><span ng-bind-html=\"sessionData.Title\"></span></h2>\n    <h3 class=\"colorWhite\">{{ sessionData.Type }}</h3>\n    <h3 class=\"colorWhite\">{{ sessionData.PrettyDateTime }}</h3>\n    <span ng-show=\"sessionData.starred\" class=\"badge badge-assertive starred starredMarginTop15px\"><i class=\"image ion-star colorGold\"></i></span>\n    <i class=\"icon ion-ios7-arrow-right light\"></i>\n</a>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('sessionPage.html',
+        "<ion-view title=\"{{ConferenceInfo.Name}}\" animation=\"slide-left-right\">\n    <ion-nav-buttons side=\"left\">\n            <button class=\"button icon button-clear ion-arrow-left-c\" ng-click=\"back()\" ng-i18next=\"[aria-label]app.goback\"></button>\n    </ion-nav-buttons>\n    <ion-content>\n        <div class=\"card\">\n            <div class=\"item item-divider item-icon-left {{session.Colour}} colorWhite\">\n                <i class=\"icon\" ng-class=\"isStarredStyle\" ng-click=\"clickStar()\" ng-i18next=\"[aria-label]session.star\"></i>\n                <h2 class=\"colorWhite\"><span ng-bind-html=\"session.Title\"></span></h2>\n                <h4 class=\"colorWhite\">Location: {{session.Location}}</h4>\n                <h4 class=\"colorWhite\">{{session.PrettyDateTime}}</h4>\n                <h4 class=\"colorWhite\" ng-show=\"session.Chairs\">Chair<span ng-show=\"session.Chairs && session.Chairs.length > 1\">s</span>: {{session.ChairsString}}</h4>\n            </div>\n            <div clas=\"item\">\n                <div class=\"list\">\n                    <paper-item ng-repeat=\"key in session.Items\" conference=\"conferenceId\" key=\"key\"></paper-item>\n                </div>\n            </div>\n        </div>\n    </ion-content>\n</ion-view>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('sessionsTab.html',
+        "<ion-view title=\"{{ConferenceInfo.Name}}\">\n    <span class=\"offscreen\" ng-i18next=\"session.tablabel\"></span>\n    <ion-nav-buttons side=\"left\">\n        <button class=\"button icon button-clear ion-arrow-left-c\" ng-click=\"backToEventsList()\" ng-i18next=\"[aria-label]app.backtoevents\"></button>\n    </ion-nav-buttons>\n    <ion-content>\n        <label class=\"item item-input\"><span ng-i18next=\"app.search\" class=\"offscreen\"></span>\n            <i class=\"icon ion-search placeholder-icon\"></i>\n            <input type=\"text\" placeholder=\"Search\" ng-model=\"q\">\n        </label>\n        <div class=\"list\" role=\"list\">\n            <div ng-repeat=\"session in sessions | filter:q\" on-last-list-item>\n                <div ng-show=\"showSessionDivider($index)\" class=\"item item-divider\">\n                    <h2><span class=\"offscreen\" ng-i18next=\"session.sessiondates\"></span>{{ session.PrettyDateTimeFull }}</h2>\n                </div>\n                <session-item conference=\"conferenceId\" session=\"session\"></session-item>\n            </div>\n        </div>\n    </ion-content>\n</ion-view>");
+}]);
+angular.module('confero.app').run(['$templateCache', function($templateCache) {
+    $templateCache.put('tabs.html',
+        "<ion-view>\n    <ion-tabs class=\"tabs-striped tabs-background-dark tabs-color-light\">\n        <ion-tab title=\"Sessions\" icon=\"ion-ios7-browsers-outline\" href=\"#/conference/{{conferenceId}}/sessions\" role=\"tab\">\n            <ion-nav-view name=\"sessions-tab\"></ion-nav-view>\n        </ion-tab>\n\n        <ion-tab title=\"Custom\" icon=\"ion-star\" href=\"#/conference/{{conferenceId}}/custom\" role=\"tab\">\n            <ion-nav-view name=\"custom-tab\"></ion-nav-view>\n        </ion-tab>\n\n        <ion-tab title=\"People\" icon=\"ion-ios7-people\" href=\"#/conference/{{conferenceId}}/people\" role=\"tab\">\n            <ion-nav-view name=\"people-tab\"></ion-nav-view>\n        </ion-tab>\n        <ion-tab title=\"Papers\" icon=\"ion-document-text\" href=\"#/conference/{{conferenceId}}/papers\" role=\"tab\">\n            <ion-nav-view name=\"papers-tab\"></ion-nav-view>\n        </ion-tab>\n    </ion-tabs>\n</ion-view>");
+}]);

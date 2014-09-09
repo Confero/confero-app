@@ -9,6 +9,8 @@ var gulp = require('gulp'),
     jshint = require('gulp-jshint'),
     uglify = require('gulp-uglify'),
     rsync = require('gulp-rsync'),
+    angularTemplates = require('gulp-angular-templates'),
+    clean = require('gulp-clean'),
     karma = require('gulp-karma');
 
 var paths = {
@@ -67,7 +69,17 @@ gulp.task('test', ['scripts-test'], function(cb) {
                });
 });
 
-gulp.task('bundle', function() {
+gulp.task('clean-dist', function () {
+    return gulp.src('www/dist', {read: false})
+        .pipe(clean({force: true}));
+});
+
+gulp.task('clean-templates', function () {
+    return gulp.src('www/templates', {read: false})
+        .pipe(clean({force: true}));
+});
+
+gulp.task('bundle', ['clean-dist', 'html', 'cp-index', 'cp-assets', 'cp-img', 'cp-locales', 'cp-css', 'cp-ionic'], function() {
     return gulp.src( [
         'www/lib/i18next/i18next.js',
         'www/lib/localforage/dist/localforage.js',
@@ -82,7 +94,8 @@ gulp.task('bundle', function() {
         'www/lib/moment/min/moment-with-locales.js',
         'www/lib/ng-i18next/dist/ng-i18next.js',
         'www/lib/angular-localforage/dist/angular-localForage.js',
-        'www/js/**/*.js'])
+        'www/js/**/*.js',
+        'www/templates/**/*.js'])
     .pipe(concat('conferoApp.js'))
     .pipe(gulp.dest('www/dist'));
 });
@@ -97,16 +110,46 @@ gulp.task('minify', ['bundle'], function() {
                .pipe(gulp.dest('www/dist'));
 });
 
+gulp.task('cp-index', function(){
+     return gulp.src('www/index.html')
+         .pipe(gulp.dest('www/dist'));
+});
+
+gulp.task('cp-assets', function(){
+        return gulp.src('www/assets/**/*')
+         .pipe(gulp.dest('www/dist/assets'));
+});
+
+gulp.task('cp-img', function(){
+        return gulp.src('www/img/**/*')
+         .pipe(gulp.dest('www/dist/img'));
+});
+
+gulp.task('cp-locales', function(){
+        return gulp.src('www/locales/**/*')
+         .pipe(gulp.dest('www/dist/locales'));
+});
+
+gulp.task('cp-css', function(){
+        return gulp.src('www/css/**/*')
+         .pipe(gulp.dest('www/dist/css'));
+});
+
+gulp.task('cp-ionic', function(){
+        return gulp.src('www/lib/ionic/fonts/**/*')
+         .pipe(gulp.dest('www/dist/lib/ionic/fonts'));
+});
+
+
+gulp.task('html', ['clean-templates'], function () {
+    return gulp.src('./www/views/**/*.html')
+        .pipe(angularTemplates({module:'confero.app'}))
+        .pipe(gulp.dest('./www/templates'));
+});
 
 gulp.task('deploy', ['minify'], function() {
   gulp.src([
-      './www/index.html', 
-      './www/dist/**',
-      './www/assets/**',
-      './www/css/**',
-      './www/img/**',
-      './www/locales',
-      './www/views',
+      './www/dist/**'
   ])
     .pipe(rsync({
          root: 'build',

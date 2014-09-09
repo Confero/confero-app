@@ -3,7 +3,7 @@ angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopl
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: 'views/peopleItemView.html',
+        templateUrl: 'peopleItemView.html',
         scope: {
             person: "=",
             conferenceId: "=conference",

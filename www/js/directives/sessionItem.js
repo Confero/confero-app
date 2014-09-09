@@ -3,7 +3,7 @@ angular.module('confero.sessionItem', ['confero.SessionService']).directive('ses
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: 'views/sessionItemView.html',
+        templateUrl: 'sessionItemView.html',
         scope: {
             session: "=",
             conferenceId: "=conference",

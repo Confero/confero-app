@@ -6,13 +6,13 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         controller: 'EventsListCtrl'
     }).state('tabs', {
         url: '/conference/:id',
-        templateUrl: "views/tabs.html",
+        templateUrl: "tabs.html",
         controller: "TabsCrtl",
     }).state('tabs.sessions', {
         url: '/sessions',
         views: {
             'sessions-tab': {
-                templateUrl: "views/sessionsTab.html",
+                templateUrl: "sessionsTab.html",
                 controller: "SessionsTabCrtl"
             }
         }
@@ -20,7 +20,7 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         url: '/custom',
         views: {
             'custom-tab': {
-                templateUrl: "views/customTab.html",
+                templateUrl: "customTab.html",
                 controller: "CustomTabCrtl"
             }
         }
@@ -28,7 +28,7 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         url: '/people',
         views: {
             'people-tab': {
-                templateUrl: "views/peopleTab.html",
+                templateUrl: "peopleTab.html",
                 controller: "PeopleTabCrtl"
             }
         }
@@ -36,25 +36,25 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         url: '/papers',
         views: {
             'papers-tab': {
-                templateUrl: "views/papersTab.html",
+                templateUrl: "papersTab.html",
                 controller: "PapersTabCrtl"
             }
         }
     }).state('sessionPage', {
         url: "/conference/:id/session/:key",
-        templateUrl: "views/sessionPage.html",
+        templateUrl: "sessionPage.html",
         controller: 'SessionPageCtrl'
     }).state('paperPage', {
         url: "/conference/:id/paper/:key",
-        templateUrl: "views/paperPageView.html",
+        templateUrl: "paperPageView.html",
         controller: 'PaperPageCtrl',
     }).state('peoplePage', {
         url: "/conference/:id/people/:key",
-        templateUrl: "views/peoplePageView.html",
+        templateUrl: "peoplePageView.html",
         controller: 'PeoplePageCtrl'
     }).state('aboutPage', {
         url: "/about",
-        templateUrl: "views/aboutPageView.html",
+        templateUrl: "aboutPageView.html",
         controller: 'AboutCtrl'
     });
     $urlRouterProvider.otherwise("/");

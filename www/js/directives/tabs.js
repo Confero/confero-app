@@ -3,6 +3,6 @@ angular.module('confero.tabs', [])
     "use strict";
     return {
       restrict: 'E',
-      templateUrl: 'views/tabs.html'
+      templateUrl: 'tabs.html'
     };
   });

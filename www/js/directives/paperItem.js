@@ -6,7 +6,7 @@ angular.module('confero.paperItem', ['confero.PaperService'])
     return {
         restrict: 'E',
         replace: 'true',
-        templateUrl: 'views/paperItemView.html',
+        templateUrl: 'paperItemView.html',
         scope: {
             paper: "=",
             conferenceId: "=conference",
