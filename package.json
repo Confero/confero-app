@@ -31,6 +31,7 @@
     "karma-phantomjs-launcher": "^0.1.4",
     "karma-script-launcher": "^0.1.0",
     "gulp-rsync": "0.0.4",
-    "gulp-angular-templates": "0.0.1"
+    "gulp-angular-templates": "0.0.1",
+    "gulp-manifest": "0.0.6"
   }
 }

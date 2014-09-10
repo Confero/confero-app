@@ -11,6 +11,7 @@ var gulp = require('gulp'),
     rsync = require('gulp-rsync'),
     angularTemplates = require('gulp-angular-templates'),
     clean = require('gulp-clean'),
+    manifest = require('gulp-manifest'),
     karma = require('gulp-karma');
 
 var paths = {
@@ -147,7 +148,19 @@ gulp.task('html', ['clean-templates'], function () {
         .pipe(gulp.dest('./www/templates'));
 });
 
-gulp.task('deploy', ['clean-dist','clean-templates', 'bundle','minify'], function() {
+gulp.task('manifest', ['clean-dist', 'clean-templates', 'html', 'cp-index', 'cp-assets', 'cp-img', 'cp-locales', 'cp-css', 'cp-ionic', 'bundle', 'minify'], function(){
+    return  gulp.src(['www/dist/**/*'])
+        .pipe(manifest({
+            hash: true,
+            network: ['http://*', 'https://*', '*'],
+            filename: 'confero.manifest',
+            exclude: 'confero.manifest'
+     }))
+    .pipe(gulp.dest('www/dist'));
+    
+});
+
+gulp.task('deploy', ['clean-dist','clean-templates', 'bundle','minify', 'manifest'], function() {
 
     var secret = require('rsyncSecret.js');
    
