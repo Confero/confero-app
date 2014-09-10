@@ -148,15 +148,18 @@ gulp.task('html', ['clean-templates'], function () {
 });
 
 gulp.task('deploy', ['clean-dist','clean-templates', 'bundle','minify'], function() {
- return gulp.src([
+
+    var secret = require('rsyncSecret.js');
+   
+    return gulp.src([
       './www/dist/**'
   ])
     .pipe(rsync({
          root: 'build',
          recursive: true,
          ssh: true,
-         hostname: 'rtholmes@awenda.cs.uwaterloo.ca',
-         destination: '/var/www/conferoTest/'
+         hostname: secret.hostname,
+         destination: secret.dest, 
        })
     );
 });  
