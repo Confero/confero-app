@@ -100,7 +100,7 @@ gulp.task('bundle', ['clean-dist', 'html', 'cp-index', 'cp-assets', 'cp-img', 'c
     .pipe(gulp.dest('www/dist'));
 });
 
-gulp.task('minify', ['bundle'], function() {
+gulp.task('minify', ['clean-dist', 'clean-templates', 'bundle'], function() {
     return gulp.src('www/dist/conferoApp.js')
                .pipe(uglify({
                     compress: true,
@@ -110,32 +110,32 @@ gulp.task('minify', ['bundle'], function() {
                .pipe(gulp.dest('www/dist'));
 });
 
-gulp.task('cp-index', function(){
+gulp.task('cp-index', ['clean-dist'], function(){
      return gulp.src('www/index.html')
          .pipe(gulp.dest('www/dist'));
 });
 
-gulp.task('cp-assets', function(){
+gulp.task('cp-assets', ['clean-dist'], function(){
         return gulp.src('www/assets/**/*')
          .pipe(gulp.dest('www/dist/assets'));
 });
 
-gulp.task('cp-img', function(){
+gulp.task('cp-img', ['clean-dist'], function(){
         return gulp.src('www/img/**/*')
          .pipe(gulp.dest('www/dist/img'));
 });
 
-gulp.task('cp-locales', function(){
+gulp.task('cp-locales', ['clean-dist'], function(){
         return gulp.src('www/locales/**/*')
          .pipe(gulp.dest('www/dist/locales'));
 });
 
-gulp.task('cp-css', function(){
+gulp.task('cp-css', ['clean-dist'], function(){
         return gulp.src('www/css/**/*')
          .pipe(gulp.dest('www/dist/css'));
 });
 
-gulp.task('cp-ionic', function(){
+gulp.task('cp-ionic', ['clean-dist'], function(){
         return gulp.src('www/lib/ionic/fonts/**/*')
          .pipe(gulp.dest('www/dist/lib/ionic/fonts'));
 });
@@ -147,13 +147,15 @@ gulp.task('html', ['clean-templates'], function () {
         .pipe(gulp.dest('./www/templates'));
 });
 
-gulp.task('deploy', ['minify'], function() {
-  gulp.src([
+gulp.task('deploy', ['clean-dist','clean-templates', 'bundle','minify'], function() {
+ return gulp.src([
       './www/dist/**'
   ])
     .pipe(rsync({
          root: 'build',
-         hostname: 'awenda.cs.uwaterloo.ca',
+         recursive: true,
+         ssh: true,
+         hostname: 'rtholmes@awenda.cs.uwaterloo.ca',
          destination: '/var/www/conferoTest/'
        })
     );
