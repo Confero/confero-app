@@ -162,17 +162,17 @@ gulp.task('manifest', ['clean-dist', 'clean-templates', 'html', 'cp-index', 'cp-
 
 gulp.task('deploy', ['clean-dist','clean-templates', 'bundle','minify', 'manifest'], function() {
 
-    var secret = require('rsyncSecret.js');
+	var secret = require('./rsyncSecret.js');
    
     return gulp.src([
       './www/dist/**'
   ])
     .pipe(rsync({
-         root: 'build',
+         root: './www/dist/',
          recursive: true,
          ssh: true,
-         hostname: secret.hostname,
-         destination: secret.dest, 
+         hostname: secret.host,
+         destination: secret.path 
        })
     );
 });  
