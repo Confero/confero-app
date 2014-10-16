@@ -1,6 +1,6 @@
 /**
- * angular-localForage - Angular service & directive for https://github.com/mozilla/localForage (Offline storage, improved.)
- * @version v0.2.9
+ * angular-localforage - Angular service & directive for https://github.com/mozilla/localForage (Offline storage, improved.)
+ * @version v0.2.10
  * @link https://github.com/ocombe/angular-localForage
  * @license MIT
  * @author Olivier Combe <olivier.combe@gmail.com>
@@ -81,18 +81,19 @@
 			// Directly adds a value to storage
 			var setItem = function(key, value) {
 				var deferred = $q.defer(),
-					args = arguments;
+					args = arguments,
+					localCopy = angular.copy(value);
 
-				//avoid $promises attributes from value objects, if is there.
-				if (angular.isObject(value) && angular.isDefined(value.$promise)) {
-					delete value.$promise; //delete attribut from object structure.
+				//avoid $promises attributes from value objects, if present.
+				if (angular.isObject(localCopy) && angular.isDefined(localCopy.$promise)) {
+					delete localCopy.$promise; //delete attribut from object structure.
 				}
 				
-				localforage.setItem(prefix() + key, value).then(function success() {
+				localforage.setItem(prefix() + key, localCopy).then(function success() {
 					if(notify.setItem) {
-						$rootScope.$broadcast('LocalForageModule.setItem', {key: key, newvalue: value, driver: localforage.driver()});
+						$rootScope.$broadcast('LocalForageModule.setItem', {key: key, newvalue: localCopy, driver: localforage.driver()});
 					}
-					deferred.resolve(value);
+					deferred.resolve(localCopy);
 				}, function error(data) {
 					onError(data, args, setItem, deferred);
 				});
@@ -138,7 +139,7 @@
 						deferred.resolve();
 					});
 				}, function error(data) {
-					onError(data, args, clearAll, deferred);
+					onError(data, args, clear, deferred);
 				});
 				return deferred.promise;
 			}
@@ -214,7 +215,7 @@
 				// Set the storeName key for the LocalForage entry
 				// use user defined in specified
 				var storeName = opts.storeName || opts.key,
-					model = $parse(opts.key);
+					model = $parse(storeName);
 
 				return getItem(storeName).then(function(item) {
 					if(item) { // If it does exist assign it to the $scope value

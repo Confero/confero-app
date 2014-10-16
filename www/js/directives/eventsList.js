@@ -12,7 +12,7 @@ angular.module('confero.eventsList', []).directive('eventsList', function() {
     };
 }).directive('errSrc', function() {
     "use strict";
-	return {
+    return {
         link: function(scope, element, attrs) {
             element.bind('error', function() {
                 if(attrs.src != attrs.errSrc) {

@@ -157,13 +157,13 @@ gulp.task('manifest', ['clean-dist', 'clean-templates', 'html', 'cp-index', 'cp-
             exclude: 'confero.manifest'
      }))
     .pipe(gulp.dest('www/dist'));
-    
+
 });
 
 gulp.task('deploy', ['clean-dist','clean-templates', 'bundle','minify', 'manifest'], function() {
 
 	var secret = require('./rsyncSecret.js');
-   
+
     return gulp.src([
       './www/dist/**'
   ])
@@ -172,7 +172,7 @@ gulp.task('deploy', ['clean-dist','clean-templates', 'bundle','minify', 'manifes
          recursive: true,
          ssh: true,
          hostname: secret.host,
-         destination: secret.path 
+         destination: secret.path
        })
     );
-});  
+});

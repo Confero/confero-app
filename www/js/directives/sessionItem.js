@@ -15,8 +15,8 @@ angular.module('confero.sessionItem', ['confero.SessionService']).directive('ses
             $scope.$watch('sessionData', function(newValue, oldValue) {
                 if(newValue) {
                     $scope.sessionData.KeyEncoded = encodeURIComponent($scope.sessionData.Key);
-                    var time = $scope.sessionData.Time? $scope.sessionData.Time.split('-'): ['00:00','23:59'];
-                                                                                         
+                    var time = $scope.sessionData.Time ? $scope.sessionData.Time.split('-') : ['00:00', '23:59'];
+
                     if(time[0].indexOf('m') > -1) { //old standard
                         $scope.sessionData.StartTime = moment($scope.sessionData.Day + ' ' + time[0].trim(), 'MM-DD-YYYY HH:mm a');
                         if(!time[1]) {

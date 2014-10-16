@@ -7,24 +7,24 @@ angular.module('confero.app')
         $scope.pastEvents = [];
         $scope.upcomingEvents = [];
         $scope.inProgressEvents = [];
-        
-        $scope.openAbout = function(){
+
+        $scope.openAbout = function() {
             $state.go('aboutPage');
         };
-        
+
         EventsIndex.Past().then(function(data) {
             $scope.pastEvents = data;
-        }, function(rejection){
+        }, function(rejection) {
             //console.log(rejection);
         });
         EventsIndex.UpComing().then(function(data) {
             $scope.upcomingEvents = data;
-        }, function(rejection){
+        }, function(rejection) {
             //console.log(rejection);
         });
         EventsIndex.InProgress().then(function(data) {
             $scope.inProgressEvents = data;
-        }, function(rejection){
+        }, function(rejection) {
             //console.log(rejection);
         });
     }

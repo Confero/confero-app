@@ -5,13 +5,13 @@
     </ion-nav-buttons>
     <ion-content>
         <h4 ng-show="!Sessions && !People && !Items" ng-i18next="custom.instructions"></h4>
-        
+
         <label class="item item-input" ng-show="Sessions || People || Items">
             <span ng-i18next="app.search" class="offscreen"></span>
             <i class="icon ion-search placeholder-icon"></i>
             <input type="text" ng-i18next="[placeholder]app.search" ng-model="q">
         </label>
-        
+
         <div class="card" ng-show="Sessions">
             <div class="item item-divider">
                 <span ng-i18next="app.sessions"></span>

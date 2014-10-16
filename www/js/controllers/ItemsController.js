@@ -11,7 +11,7 @@ angular.module('confero.app').controller('PapersTabCrtl', ['$scope', '$state', '
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         }, function(rejection) {
-           // console.log(rejection);
+            // console.log(rejection);
         });
         Conference.Papers($scope.conferenceId).then(function(data) {
             angular.forEach(data, function(value, key) {
@@ -40,24 +40,24 @@ angular.module('confero.app').controller('PapersTabCrtl', ['$scope', '$state', '
         Paper.get($scope.conferenceId, $scope.paperKey).then(function(data) {
             $scope.paperData = data;
             $scope.paperData.urlDOI = decodeURIComponent(data.DOI);
-            $scope.paperData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Title.replace(/\s/g, '+')+ '+' + data.Authors.join("+").replace("@", "").replace(/\s/g, "+");
+            $scope.paperData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Title.replace(/\s/g, '+') + '+' + data.Authors.join("+").replace("@", "").replace(/\s/g, "+");
             Starred.get($scope.conferenceId, $scope.paperKey).then(function(value) {
                 $scope.starred = value;
             });
         }, function(rejection) {
             //console.log(rejection);
         });
-         
+
         $scope.openInBrowser = function(url) {
             if(url) {
                 window.open(url, '_blank', 'location=no');
             }
         };
-        
+
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         }, function(rejection) {
-           // console.log(rejection);
+            // console.log(rejection);
         });
         $scope.$watch('starred', function(newValue, oldValue) {
             if(newValue) {

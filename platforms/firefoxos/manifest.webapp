@@ -1,0 +1,16 @@
+{
+    "launch_path": "/index.html",
+    "installs_allowed_from": [
+        "*"
+    ],
+    "version": "4.0.4",
+    "name": "Confero",
+    "pkgName": "com.confero.app",
+    "description": "Conference App.",
+    "developer": {
+        "name": "Rylan Cottrell, Reid Holmes",
+        "url": "http://www.conferoapp.com/"
+    },
+    "fullscreen": "true",
+    "icons": {}
+}

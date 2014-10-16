@@ -10,7 +10,7 @@ angular.module('confero.app').controller('CustomTabCrtl', ['$scope', '$state', '
         Conference.Info($scope.conferenceId).then(function(data) {
             $scope.ConferenceInfo = data;
         }, function(rejection) {
-           // console.log(rejection);
+            // console.log(rejection);
         });
         $scope.hasStarred = function() {
             return $scope.Sessions || $scope.Items || $scope.People;
@@ -62,7 +62,7 @@ angular.module('confero.app').controller('CustomTabCrtl', ['$scope', '$state', '
                 }
             }
         }, function(rejection) {
-           // console.log(rejection);
+            // console.log(rejection);
         });
     }
 ]);
