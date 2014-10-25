@@ -1,4 +1,10 @@
-angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopleItem', function(People) {
+angular
+    .module('confero.app')
+    .directive('peopleItem', peopleItem);
+
+peopleItem.$inject = ['People'];
+
+function peopleItem(People) {
     "use strict";
     return {
         restrict: 'E',
@@ -10,11 +16,7 @@ angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopl
             key: "=key"
         },
         controller: function($scope) {
-            $scope.$watch('personData', function(newValue, oldValue) {
-                if(newValue) {
-                    $scope.personData.KeyEncoded = encodeURIComponent($scope.personData.Key);
-                }
-            });
+            $scope.$watch('personData', personData);
             if(!$scope.person && $scope.key) {
                 var k = encodeURIComponent($scope.key);
                 var personPromise = People.Person($scope.conferenceId, $scope.key);
@@ -24,6 +26,12 @@ angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopl
             } else {
                 $scope.personData = $scope.person;
             }
+
+            function personData(newValue, oldValue) {
+                if(newValue) {
+                    $scope.personData.KeyEncoded = encodeURIComponent($scope.personData.Key);
+                }
+            }
         }
     };
-});
+}

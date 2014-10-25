@@ -1,4 +1,10 @@
-angular.module('confero.sessionItem', ['confero.SessionService']).directive('sessionItem', function(Session) {
+angular
+    .module('confero.app')
+    .directive('sessionItem', sessionItem);
+
+sessionItem.$inject = ['Session'];
+
+function sessionItem(Session) {
     "use strict";
     return {
         restrict: 'E',
@@ -12,7 +18,33 @@ angular.module('confero.sessionItem', ['confero.SessionService']).directive('ses
         },
         controller: function($scope) {
             var sessionPromise;
-            $scope.$watch('sessionData', function(newValue, oldValue) {
+            $scope.$watch('sessionData', sessionData);
+            $scope.$watch('paperkey', paperkey);
+            $scope.$watch('key', key);
+
+            if($scope.session) {
+                $scope.sessionData = $scope.session;
+            }
+
+            function key(newValue) {
+                if($scope.key) {
+                    sessionPromise = Session.get($scope.conferenceId, $scope.key);
+                    sessionPromise.then(function(data) {
+                        $scope.sessionData = data;
+                    });
+                }
+            }
+
+            function paperkey(newValue) {
+                if($scope.paperkey) {
+                    sessionPromise = Session.SessionByPaperKey($scope.conferenceId, $scope.paperkey);
+                    sessionPromise.then(function(data) {
+                        $scope.sessionData = data;
+                    });
+                }
+            }
+
+            function sessionData(newValue, oldValue) {
                 if(newValue) {
                     $scope.sessionData.KeyEncoded = encodeURIComponent($scope.sessionData.Key);
                     var time = $scope.sessionData.Time ? $scope.sessionData.Time.split('-') : ['00:00', '23:59'];
@@ -32,26 +64,7 @@ angular.module('confero.sessionItem', ['confero.SessionService']).directive('ses
                     $scope.sessionData.PrettyDateTimeFull = $scope.sessionData.StartTime.format("dddd MMMM D[th] HH:mm") + ' - ' + $scope.sessionData.EndTime.format("HH:mm");
                     $scope.sessionData.Colour = 'colour' + (simpleHash($scope.sessionData.Location) % 15);
                 }
-            });
-            if($scope.session) {
-                $scope.sessionData = $scope.session;
             }
-            $scope.$watch('key', function(newValue) {
-                if($scope.key) {
-                    sessionPromise = Session.get($scope.conferenceId, $scope.key);
-                    sessionPromise.then(function(data) {
-                        $scope.sessionData = data;
-                    });
-                }
-            });
-            $scope.$watch('paperkey', function(newValue) {
-                if($scope.paperkey) {
-                    sessionPromise = Session.SessionByPaperKey($scope.conferenceId, $scope.paperkey);
-                    sessionPromise.then(function(data) {
-                        $scope.sessionData = data;
-                    });
-                }
-            });
         }
     };
-});
+}

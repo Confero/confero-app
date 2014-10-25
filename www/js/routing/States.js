@@ -1,4 +1,9 @@
-angular.module('confero.app').config(function($stateProvider, $urlRouterProvider) {
+angular
+    .module('confero.app')
+    .config(config);
+
+
+function config($stateProvider, $urlRouterProvider) {
     "use strict";
     $stateProvider.state('eventspage', {
         url: "/",
@@ -58,4 +63,4 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         controller: 'AboutCtrl'
     });
     $urlRouterProvider.otherwise("/");
-});
+}

@@ -65538,32 +65538,14 @@ angular.module('jm.i18next').config(['$i18nextProvider',
 
 moment.locale(navigator.language);
 
-angular.module('confero.app', [
-    'ionic',
-    'ngResource',
-    'ui.router',
-    'LocalForageModule',
-    'jm.i18next',
-    'confero.tabs',
-    'confero.ConferoDataObjects',
-    'confero.NavigationService',
-    'confero.ConferoDataService',
-    'confero.mainPage',
-    'confero.eventsList',
-    'confero.lastListItem',
-    'confero.paperItem',
-    'confero.peopleItem',
-    'confero.sessionItem',
-    'confero.EventsService',
-    'confero.StarredService',
-    'confero.ConferenceService',
-    'confero.SessionService',
-    'confero.PaperService',
-    'confero.PeopleService'
-])
-    .constant('$ionicLoadingConfig', {
-        template: '<h1><i class="icon ion-loading-a"></i>Loading...</h1>'
-    })
+angular
+    .module('confero.app', [
+        'ionic',
+        'ngResource',
+        'ui.router',
+        'LocalForageModule',
+        'jm.i18next'
+    ])
     .run(function($ionicPlatform) {
         $ionicPlatform.ready(function() {
             // Hide the accessory bar by default (remove this to show the accessory bar above the keyboard
@@ -65575,52 +65557,7 @@ angular.module('confero.app', [
                 StatusBar.styleDefault();
             }
         });
-    })
-    .config(['$localForageProvider',
-        function($localForageProvider) {
-            $localForageProvider.config({
-                //driver      : 'localStorageWrapper', // if you want to force a driver
-                name: 'Confero', // name of the database and prefix for your data
-                version: 1.0, // version of the database, you shouldn't have to use this
-                storeName: 'conferoData', // name of the table
-                description: 'Confero data store'
-            });
-            $localForageProvider.setNotify(true, true);
-        }
-    ])
-    .config(['$compileProvider',
-        function($compileProvider) {
-            $compileProvider.aHrefSanitizationWhitelist(/^\s*(https?|ftp|mailto|app):/);
-            $compileProvider.imgSrcSanitizationWhitelist(/^\s*(https?|ftp|mailto|app):/);
-
-        }
-    ])
-    .controller('TabsCrtl', ['$scope', '$state', '$ionicLoading', '$rootScope',
-        function($scope, $state, $ionicLoading, $ionicNavBarDelegate, $rootScope) {
-            $scope.conferenceId = $state.params.id;
-            $scope.ConferenceName = "confero";
-
-            $scope.$on('loadingFinished', function(ngLoadEvent) {
-                $ionicLoading.hide();
-            });
-
-        }
-    ])
-    .controller('AboutCtrl', ['$scope', '$state', '$ionicNavBarDelegate',
-        function($scope, $state, $ionicNavBarDelegate) {
-            $ionicNavBarDelegate.showBackButton(false);
-            $scope.backToEventsList = function() {
-                $state.go('eventspage');
-            };
-
-            $scope.openInBroswer = function(url) {
-                if(url) {
-                    window.open(url, '_blank', 'location=no');
-                }
-            };
-
-        }
-    ]);
+    });
 function simpleHash(str) {
     "use strict";
     var strCode, hash = 0;
@@ -65716,388 +65653,553 @@ function sortByDate(a, b) {
         return 0;
     }
 }
-angular.module('confero.app')
+angular
+    .module('confero.app')
+    .config(['$compileProvider',
+        function($compileProvider) {
+            $compileProvider.aHrefSanitizationWhitelist(/^\s*(https?|ftp|mailto|app):/);
+            $compileProvider.imgSrcSanitizationWhitelist(/^\s*(https?|ftp|mailto|app):/);
 
-.controller('EventsListCtrl', ['$scope', 'EventsIndex', '$state',
-    function($scope, EventsIndex, $state) {
-        "use strict";
-        $scope.locationWWW = 'http://ranche-exogen.codio.io:3000';
-        $scope.pastEvents = [];
-        $scope.upcomingEvents = [];
-        $scope.inProgressEvents = [];
-
-        $scope.openAbout = function() {
-            $state.go('aboutPage');
-        };
-
-        EventsIndex.Past().then(function(data) {
-            $scope.pastEvents = data;
-        }, function(rejection) {
-            //console.log(rejection);
-        });
-        EventsIndex.UpComing().then(function(data) {
-            $scope.upcomingEvents = data;
-        }, function(rejection) {
-            //console.log(rejection);
-        });
-        EventsIndex.InProgress().then(function(data) {
-            $scope.inProgressEvents = data;
-        }, function(rejection) {
-            //console.log(rejection);
-        });
-    }
-]);
-angular.module('confero.app').controller('CustomTabCrtl', ['$scope', '$state', 'Conference', '$ionicNavBarDelegate', 'Starred', 'ConferenceCache',
-    function($scope, $state, Conference, $ionicNavBarDelegate, Starred, ConferenceCache) {
-        "use strict";
-        $scope.conferenceId = $state.params.id;
-        $scope.ConferenceName = "confero";
-        $ionicNavBarDelegate.showBackButton(false);
-        $scope.backToEventsList = function() {
-            $state.go('eventspage');
-        };
-        Conference.Info($scope.conferenceId).then(function(data) {
-            $scope.ConferenceInfo = data;
-        }, function(rejection) {
-            // console.log(rejection);
-        });
-        $scope.hasStarred = function() {
-            return $scope.Sessions || $scope.Items || $scope.People;
-        };
-        $scope.showSessionDivider = function(index) {
-            if($scope.sessions) {
-                if(index === 0) {
-                    return true;
-                } else {
-                    if($scope.sessions[index] && $scope.sessions[index - 1]) {
-                        return $scope.sessions[index].PrettyDateTime !== $scope.sessions[index - 1].PrettyDateTime;
-                    }
-                }
-            }
-        };
-        $scope.$watch('Sessions', function(newValue, oldValue) {
-            if($scope.Sessions) {
-                $scope.Sessions.sort(sortByDate);
-            }
-        });
-        Starred.get($scope.conferenceId).then(function(keys) {
-            $scope.Sessions = undefined;
-            $scope.Items = undefined;
-            $scope.People = undefined;
-            var resolveKeys = function(key) {
-                ConferenceCache.get($scope.conferenceId).then(function(conf) {
-                    var result = conf.resolveKey($scope.conferenceId, key);
-                    if(result.session) {
-                        if(!$scope.Sessions) {
-                            $scope.Sessions = [];
-                        }
-                        $scope.Sessions.push(result.session);
-                    } else if(result.item) {
-                        if(!$scope.Items) {
-                            $scope.Items = [];
-                        }
-                        $scope.Items.push(result.item);
-                    } else if(result.person) {
-                        if(!$scope.People) {
-                            $scope.People = [];
-                        }
-                        $scope.People.push(result.person);
-                    }
-                });
-            };
-            for(var k in keys) {
-                if(keys.hasOwnProperty(k)) {
-                    resolveKeys(k);
-                }
-            }
-        }, function(rejection) {
-            // console.log(rejection);
-        });
-    }
-]);
-angular.module('confero.app').controller('PapersTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading', '$ionicNavBarDelegate',
-    function($scope, $state, Conference, $ionicLoading, $ionicNavBarDelegate) {
-        "use strict";
-        $ionicLoading.show();
-        $scope.conferenceId = $state.params.id;
-        $scope.ConferenceName = "confero";
-        $ionicNavBarDelegate.showBackButton(false);
-        $scope.backToEventsList = function() {
-            $state.go('eventspage');
-        };
-        Conference.Info($scope.conferenceId).then(function(data) {
-            $scope.ConferenceInfo = data;
-        }, function(rejection) {
-            // console.log(rejection);
-        });
-        Conference.Papers($scope.conferenceId).then(function(data) {
-            angular.forEach(data, function(value, key) {
-                value.KeyEncoded = encodeURIComponent(value.Key);
-            });
-            data.sort(function(a, b) {
-                return naturalSort(a.Title, b.Title);
-            });
-            $scope.papers = data;
-        }, function(rejection) {
-            //console.log(rejection);
-        });
-    }
-]).controller('PaperPageCtrl', ['$scope', '$state', 'Paper', 'Conference', 'Starred', 'Navigation',
-    function($scope, $state, Paper, Conference, Starred, Navigation) {
-        "use strict";
-        $scope.conferenceId = $state.params.id;
-        $scope.paperKey = $state.params.key;
-        $scope.items = {};
-        $scope.starred = false;
-        $scope.back = function() {
-            Navigation.goBack('tabs.people', {
-                id: $scope.conferenceId
-            });
-        };
-        Paper.get($scope.conferenceId, $scope.paperKey).then(function(data) {
-            $scope.paperData = data;
-            $scope.paperData.urlDOI = decodeURIComponent(data.DOI);
-            $scope.paperData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Title.replace(/\s/g, '+') + '+' + data.Authors.join("+").replace("@", "").replace(/\s/g, "+");
-            Starred.get($scope.conferenceId, $scope.paperKey).then(function(value) {
-                $scope.starred = value;
-            });
-        }, function(rejection) {
-            //console.log(rejection);
-        });
-
-        $scope.openInBrowser = function(url) {
-            if(url) {
-                window.open(url, '_blank', 'location=no');
-            }
-        };
-
-        Conference.Info($scope.conferenceId).then(function(data) {
-            $scope.ConferenceInfo = data;
-        }, function(rejection) {
-            // console.log(rejection);
-        });
-        $scope.$watch('starred', function(newValue, oldValue) {
-            if(newValue) {
-                $scope.isStarredStyle = 'ion-ios7-star colorGold';
-            } else {
-                $scope.isStarredStyle = 'ion-ios7-star-outline';
-            }
-        });
-        $scope.clickStar = function() {
-            Starred.toggleStar($scope.conferenceId, $scope.paperKey).then(function(value) {
-                $scope.starred = value;
-            });
-        };
-    }
-]);
-angular.module('confero.app')
-    .controller('PeopleTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
-        function($scope, $state, Conference, $ionicLoading, $ionicNavBarDelegate) {
-            "use strict";
-            $ionicLoading.show();
-
-            $scope.conferenceId = $state.params.id;
-            $scope.ConferenceName = "confero";
-
-            $scope.backToEventsList = function() {
-                $state.go('eventspage');
-            };
-
-            Conference.Info($scope.conferenceId).then(function(data) {
-                $scope.ConferenceInfo = data;
-            }, function(rejection) {
-                // console.log(rejection);
-            });
-
-            Conference.People($scope.conferenceId).then(function(data) {
-                angular.forEach(data, function(value, key) {
-                    value.KeyEncoded = encodeURIComponent(value.Key);
-                    var name = value.Name.split(/\s/);
-                    value.firstName = name[0];
-                    value.lastName = name[name.length - 1];
-                });
-                data.sort(function(a, b) {
-                    var s = naturalSort(a.lastName, b.lastName);
-                    if(s === 0) {
-                        s = naturalSort(a.firstName, b.firstName);
-                    }
-                    return s;
-                });
-                $scope.people = data;
-            }, function(rejection) {
-                // console.log(rejection);
-            });
-
-            $scope.dividerTitle = function($index) {
-                return $scope.people[$index].lastName[0];
-            };
-            $scope.showPeopleDivider = function($index) {
-                if(!$scope.people[$index - 1]) {
-                    return true;
-                } else {
-                    return $scope.people[$index - 1].lastName[0] !== $scope.people[$index].lastName[0];
-                }
-            };
-        }
-    ])
-    .controller('PeoplePageCtrl', ['$scope', '$state', 'People', 'Session', 'Conference', 'Starred', 'Navigation',
-        function($scope, $state, People, Session, Conference, Starred, Navigation) {
-            "use strict";
-            $scope.conferenceId = $state.params.id;
-            $scope.peopleKey = $state.params.key;
-
-            $scope.back = function() {
-                Navigation.goBack('tabs.people', {
-                    id: $scope.conferenceId
-                });
-            };
-
-            People.Person($scope.conferenceId, $scope.peopleKey).then(function(data) {
-                $scope.peopleData = data;
-                $scope.peopleData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Name.replace(/\s/g, "+") + '+' + data.Affiliation.replace(/\s/g, '+');
-                Starred
-                    .get($scope.conferenceId, $scope.peopleKey)
-                    .then(function(value) {
-                        $scope.starred = value;
-                    });
-            }, function(rejection) {
-                //  console.log(rejection);
-            });
-
-            $scope.openInGoogleScholar = function(url) {
-                if(url) {
-                    window.open(url, '_blank', 'location=no');
-                }
-            };
-
-            People.ItemsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
-                $scope.Items = data;
-                $scope.Sessions = {};
-
-                angular.forEach($scope.Items, function(value, index) {
-                    Session.SessionByPaperKey($scope.conferenceId, value.Key).then(function(sdata) {
-                        if(!$scope.Sessions[sdata.Key]) {
-                            $scope.Sessions[sdata.Key] = sdata;
-                            $scope.Sessions[sdata.Key].StartDate = new Date($scope.Sessions[sdata.Key].StartTime.format());
-                            $scope.Sessions[sdata.Key].EndDate = new Date($scope.Sessions[sdata.Key].EndTime.format());
-                            $scope.Sessions[sdata.Key].ItemsFull = [];
-
-                        }
-                        $scope.Sessions[sdata.Key].ItemsFull.push(value);
-                    });
-                });
-            }, function(rejection) {
-                //  console.log(rejection);
-            });
-
-            $scope.starred = false;
-
-            Conference.Info($scope.conferenceId).then(function(data) {
-                $scope.ConferenceInfo = data;
-            }, function(rejection) {
-                // console.log(rejection);
-            });
-
-            $scope.$watch('starred', function(newValue, oldValue) {
-                if(newValue) {
-                    $scope.isStarredStyle = 'ion-ios7-star colorGold';
-                } else {
-                    $scope.isStarredStyle = 'ion-ios7-star-outline';
-                }
-            });
-            $scope.clickStar = function() {
-                Starred
-                    .toggleStar($scope.conferenceId, $scope.peopleKey)
-                    .then(function(value) {
-                        $scope.starred = value;
-                    });
-            };
         }
     ]);
-angular.module('confero.app').controller('SessionsTabCrtl', ['$scope', '$state', 'Conference', '$ionicLoading',
-    function($scope, $state, Conference, $ionicLoading, $timeout) {
-        "use strict";
-        $ionicLoading.show();
-        $scope.conferenceId = $state.params.id;
-        $scope.ConferenceName = "confero";
-        $scope.backToEventsList = function() {
-            $state.go('eventspage');
-        };
-        $scope.showSessionDivider = function(index) {
-            if($scope.sessions) {
-                if(index === 0) {
-                    return true;
-                } else {
-                    if($scope.sessions[index] && $scope.sessions[index - 1]) {
-                        return $scope.sessions[index].PrettyDateTime !== $scope.sessions[index - 1].PrettyDateTime;
+angular
+    .module('confero.app')
+    .constant('$ionicLoadingConfig', {
+        template: '<h1><i class="icon ion-loading-a"></i>Loading...</h1>'
+    });
+angular
+    .module('confero.app')
+    .config(['$localForageProvider',
+        function($localForageProvider) {
+            $localForageProvider.config({
+                //driver      : 'localStorageWrapper', // if you want to force a driver
+                name: 'Confero', // name of the database and prefix for your data
+                version: 1.0, // version of the database, you shouldn't have to use this
+                storeName: 'conferoData', // name of the table
+                description: 'Confero data store'
+            });
+            $localForageProvider.setNotify(true, true);
+        }
+    ]);
+angular
+    .module('confero.app')
+    .controller('AboutCtrl', AboutCtrl);
+
+AboutCtrl.$inject = ['$scope', '$state', '$ionicNavBarDelegate'];
+
+function AboutCtrl($scope, $state, $ionicNavBarDelegate) {
+    $ionicNavBarDelegate.showBackButton(false);
+    $scope.backToEventsList = backToEventsList;
+    $scope.openInBroswer = openInBroswer;
+
+    function openInBroswer(url) {
+        if(url) {
+            window.open(url, '_blank', 'location=no');
+        }
+    }
+
+    function backToEventsList() {
+        $state.go('eventspage');
+    }
+
+}
+angular
+    .module('confero.app')
+    .controller('EventsListCtrl', EventsListCtrl);
+
+EventsListCtrl.$inject = ['$scope', 'EventsIndex', '$state'];
+
+function EventsListCtrl($scope, EventsIndex, $state) {
+    "use strict";
+    $scope.locationWWW = 'http://ranche-exogen.codio.io:3000';
+    $scope.pastEvents = [];
+    $scope.upcomingEvents = [];
+    $scope.inProgressEvents = [];
+
+    $scope.openAbout = openAbout;
+
+    EventsIndex.Past().then(function(data) {
+        $scope.pastEvents = data;
+    }, function(rejection) {
+        //console.log(rejection);
+    });
+
+    EventsIndex.UpComing().then(function(data) {
+        $scope.upcomingEvents = data;
+    }, function(rejection) {
+        //console.log(rejection);
+    });
+
+    EventsIndex.InProgress().then(function(data) {
+        $scope.inProgressEvents = data;
+    }, function(rejection) {
+        //console.log(rejection);
+    });
+
+    function openAbout() {
+        $state.go('aboutPage');
+    }
+}
+angular
+    .module('confero.app')
+    .controller('CustomTabCrtl', CustomTabCrtl);
+
+CustomTabCrtl.$inject = ['$scope', '$state', 'Conference', '$ionicNavBarDelegate', 'Starred', 'ConferenceCache'];
+
+function CustomTabCrtl($scope, $state, Conference, $ionicNavBarDelegate, Starred, ConferenceCache) {
+    "use strict";
+    $scope.conferenceId = $state.params.id;
+    $scope.ConferenceName = "confero";
+    $ionicNavBarDelegate.showBackButton(false);
+    $scope.backToEventsList = backToEventsList;
+    $scope.hasStarred = hasStarred;
+    $scope.showSessionDivider = showSessionDivider;
+    $scope.$watch('Sessions', Sessions);
+
+    Conference.Info($scope.conferenceId).then(function(data) {
+        $scope.ConferenceInfo = data;
+    }, function(rejection) {
+        // console.log(rejection);
+    });
+
+    Starred.get($scope.conferenceId).then(function(keys) {
+        $scope.Sessions = undefined;
+        $scope.Items = undefined;
+        $scope.People = undefined;
+        var resolveKeys = function(key) {
+            ConferenceCache.get($scope.conferenceId).then(function(conf) {
+                var result = conf.resolveKey($scope.conferenceId, key);
+                if(result.session) {
+                    if(!$scope.Sessions) {
+                        $scope.Sessions = [];
                     }
+                    $scope.Sessions.push(result.session);
+                } else if(result.item) {
+                    if(!$scope.Items) {
+                        $scope.Items = [];
+                    }
+                    $scope.Items.push(result.item);
+                } else if(result.person) {
+                    if(!$scope.People) {
+                        $scope.People = [];
+                    }
+                    $scope.People.push(result.person);
                 }
-            }
+            });
         };
-        Conference.Sessions($scope.conferenceId).then(function(data) {
-            $scope.sessions = data;
-        }, function(rejection) {
-            console.log(rejection);
-        });
-        Conference.Info($scope.conferenceId).then(function(data) {
-            $scope.ConferenceInfo = data;
-        }, function(rejection) {
-            console.log(rejection);
-        });
+        for(var k in keys) {
+            if(keys.hasOwnProperty(k)) {
+                resolveKeys(k);
+            }
+        }
+    }, function(rejection) {
+        // console.log(rejection);
+    });
+
+    function Sessions(newValue, oldValue) {
+        if($scope.Sessions) {
+            $scope.Sessions.sort(sortByDate);
+        }
     }
-]).controller('SessionPageCtrl', ['$scope', '$state', 'Session', 'Conference', 'Starred', 'Navigation',
-    function($scope, $state, Session, Conference, Starred, Navigation) {
-        "use strict";
-        $scope.conferenceId = $state.params.id;
-        $scope.sessionKey = $state.params.key;
-        $scope.items = {};
-        $scope.starred = false;
-        $scope.back = function() {
-            Navigation.goBack('tabs.people', {
-                id: $scope.conferenceId
-            });
-        };
-        Session.get($scope.conferenceId, $scope.sessionKey).then(function(data) {
-            var t = data.Time.split('-');
-            if(t[0].indexOf('m') > -1) { //old standard
-                data.StartTime = moment(data.Day + ' ' + t[0].trim(), 'MM-DD-YYYY HH:mm a');
-                if(!t[1]) {
-                    t[1] = "11:59 pm";
-                }
-                data.EndTime = moment(data.Day + ' ' + t[1].trim(), 'MM-DD-YYYY HH:mm a');
-            } else { //new standard
-                data.StartTime = moment(data.Day + ' ' + t[0].trim(), "YYYY-MM-DD HH:mm");
-                data.EndTime = moment(data.Day + ' ' + t[1].trim(), "YYYY-MM-DD HH:mm");
-            }
-            data.PrettyDateTime = data.StartTime.format("ddd MMMM D[th] HH:mm") + ' - ' + data.EndTime.format("HH:mm");
-            data.Colour = 'colour' + (simpleHash(data.Location) % 15);
-            $scope.session = data;
-            Starred.get($scope.conferenceId, $scope.sessionKey).then(function(value) {
-                $scope.starred = value;
-            });
-        }, function(rejection) {
-            console.log(rejection);
-        });
-        Conference.Info($scope.conferenceId).then(function(data) {
-            $scope.ConferenceInfo = data;
-        }, function(rejection) {
-            console.log(rejection);
-        });
-        $scope.$watch('starred', function(newValue, oldValue) {
-            if(newValue) {
-                $scope.isStarredStyle = 'ion-ios7-star colorGold';
+
+    function showSessionDivider(index) {
+        if($scope.sessions) {
+            if(index === 0) {
+                return true;
             } else {
-                $scope.isStarredStyle = 'ion-ios7-star-outline';
+                if($scope.sessions[index] && $scope.sessions[index - 1]) {
+                    return $scope.sessions[index].PrettyDateTime !== $scope.sessions[index - 1].PrettyDateTime;
+                }
             }
+        }
+    }
+
+    function hasStarred() {
+        return $scope.Sessions || $scope.Items || $scope.People;
+    }
+
+    function backToEventsList() {
+        $state.go('eventspage');
+    }
+}
+angular
+    .module('confero.app')
+    .controller('PapersPageCtrl', PapersPageCtrl);
+
+PapersPageCtrl.$inject = ['$scope', '$state', 'Paper', 'Conference', 'Starred', 'Navigation'];
+
+function PapersPageCtrl($scope, $state, Paper, Conference, Starred, Navigation) {
+    "use strict";
+    $scope.conferenceId = $state.params.id;
+    $scope.paperKey = $state.params.key;
+    $scope.items = {};
+    $scope.starred = false;
+    $scope.back = back;
+    $scope.clickStar = clickStar;
+    $scope.openInBrowser = openInBrowser;
+    $scope.$watch('starred', starred);
+
+    Paper.get($scope.conferenceId, $scope.paperKey).then(function(data) {
+        $scope.paperData = data;
+        $scope.paperData.urlDOI = decodeURIComponent(data.DOI);
+        $scope.paperData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Title.replace(/\s/g, '+') + '+' + data.Authors.join("+").replace("@", "").replace(/\s/g, "+");
+        Starred.get($scope.conferenceId, $scope.paperKey).then(function(value) {
+            $scope.starred = value;
         });
-        $scope.clickStar = function() {
-            Starred.toggleStar($scope.conferenceId, $scope.sessionKey).then(function(value) {
+    }, function(rejection) {
+        //console.log(rejection);
+    });
+
+    Conference.Info($scope.conferenceId).then(function(data) {
+        $scope.ConferenceInfo = data;
+    }, function(rejection) {
+        // console.log(rejection);
+    });
+
+    function starred(newValue, oldValue) {
+        if(newValue) {
+            $scope.isStarredStyle = 'ion-ios7-star colorGold';
+        } else {
+            $scope.isStarredStyle = 'ion-ios7-star-outline';
+        }
+    }
+
+    function openInBrowser(url) {
+        if(url) {
+            window.open(url, '_blank', 'location=no');
+        }
+    }
+
+    function clickStar() {
+        Starred.toggleStar($scope.conferenceId, $scope.paperKey).then(function(value) {
+            $scope.starred = value;
+        });
+    }
+
+    function back() {
+        Navigation.goBack('tabs.people', {
+            id: $scope.conferenceId
+        });
+    }
+}
+angular
+    .module('confero.app')
+    .controller('PapersTabCrtl', PapersTabCtrl);
+
+PapersTabCtrl.$inject = ['$scope', '$state', 'Conference', '$ionicLoading', '$ionicNavBarDelegate'];
+
+function PapersTabCtrl($scope, $state, Conference, $ionicLoading, $ionicNavBarDelegate) {
+    "use strict";
+    $ionicLoading.show();
+    $scope.conferenceId = $state.params.id;
+    $scope.ConferenceName = "confero";
+    $ionicNavBarDelegate.showBackButton(false);
+    $scope.backToEventsList = backToEventsList;
+
+    Conference.Info($scope.conferenceId).then(function(data) {
+        $scope.ConferenceInfo = data;
+    }, function(rejection) {
+        // console.log(rejection);
+    });
+    Conference.Papers($scope.conferenceId).then(function(data) {
+        angular.forEach(data, function(value, key) {
+            value.KeyEncoded = encodeURIComponent(value.Key);
+        });
+        data.sort(function(a, b) {
+            return naturalSort(a.Title, b.Title);
+        });
+        $scope.papers = data;
+    }, function(rejection) {
+        //console.log(rejection);
+    });
+
+    function backToEventsList() {
+        $state.go('eventspage');
+    }
+}
+angular
+    .module('confero.app')
+    .controller('PeoplePageCtrl', PeoplePageCtrl);
+
+PeoplePageCtrl.$inject = ['$scope', '$state', 'People', 'Session', 'Conference', 'Starred', 'Navigation'];
+
+function PeoplePageCtrl($scope, $state, People, Session, Conference, Starred, Navigation) {
+    "use strict";
+    $scope.conferenceId = $state.params.id;
+    $scope.peopleKey = $state.params.key;
+    $scope.back = back;
+    $scope.clickStar = clickStar;
+    $scope.starred = false;
+    $scope.openInGoogleScholar = openInGoogleScholar;
+    $scope.$watch('starred', starred);
+
+    People.Person($scope.conferenceId, $scope.peopleKey).then(function(data) {
+        $scope.peopleData = data;
+        $scope.peopleData.googleScholar = "http://scholar.google.ca/scholar?q=" + data.Name.replace(/\s/g, "+") + '+' + data.Affiliation.replace(/\s/g, '+');
+        Starred
+            .get($scope.conferenceId, $scope.peopleKey)
+            .then(function(value) {
                 $scope.starred = value;
             });
-        };
+    }, function(rejection) {
+        //  console.log(rejection);
+    });
+
+    People.ItemsByPeopleKey($scope.conferenceId, $scope.peopleKey).then(function(data) {
+        $scope.Items = data;
+        $scope.Sessions = {};
+
+        angular.forEach($scope.Items, function(value, index) {
+            Session.SessionByPaperKey($scope.conferenceId, value.Key).then(function(sdata) {
+                if(!$scope.Sessions[sdata.Key]) {
+                    $scope.Sessions[sdata.Key] = sdata;
+                    $scope.Sessions[sdata.Key].StartDate = new Date($scope.Sessions[sdata.Key].StartTime.format());
+                    $scope.Sessions[sdata.Key].EndDate = new Date($scope.Sessions[sdata.Key].EndTime.format());
+                    $scope.Sessions[sdata.Key].ItemsFull = [];
+
+                }
+                $scope.Sessions[sdata.Key].ItemsFull.push(value);
+            });
+        });
+    }, function(rejection) {
+        //  console.log(rejection);
+    });
+
+    Conference.Info($scope.conferenceId).then(function(data) {
+        $scope.ConferenceInfo = data;
+    }, function(rejection) {
+        // console.log(rejection);
+    });
+
+    function starred(newValue, oldValue) {
+        if(newValue) {
+            $scope.isStarredStyle = 'ion-ios7-star colorGold';
+        } else {
+            $scope.isStarredStyle = 'ion-ios7-star-outline';
+        }
     }
-]);
-angular.module('confero.eventsList', []).directive('eventsList', function() {
+
+    function openInGoogleScholar(url) {
+        if(url) {
+            window.open(url, '_blank', 'location=no');
+        }
+    }
+
+    function clickStar() {
+        Starred
+            .toggleStar($scope.conferenceId, $scope.peopleKey)
+            .then(function(value) {
+                $scope.starred = value;
+            });
+    }
+
+    function back() {
+        Navigation.goBack('tabs.people', {
+            id: $scope.conferenceId
+        });
+    }
+}
+angular
+    .module('confero.app')
+    .controller('PeopleTabCrtl', PeopleTabCtrl)
+    .controller('PeoplePageCtrl', PeoplePageCtrl);
+
+PeopleTabCtrl.$inject = ['$scope', '$state', 'Conference', '$ionicLoading'];
+PeoplePageCtrl.$inject = ['$scope', '$state', 'People', 'Session', 'Conference', 'Starred', 'Navigation'];
+
+function PeopleTabCtrl($scope, $state, Conference, $ionicLoading, $ionicNavBarDelegate) {
+    "use strict";
+    $ionicLoading.show();
+    $scope.conferenceId = $state.params.id;
+    $scope.ConferenceName = "confero";
+    $scope.backToEventsList = backToEventsList;
+    $scope.showPeopleDivider = showPeopleDivider;
+    $scope.dividerTitle = dividerTitle;
+
+    Conference.Info($scope.conferenceId).then(function(data) {
+        $scope.ConferenceInfo = data;
+    }, function(rejection) {
+        // console.log(rejection);
+    });
+
+    Conference.People($scope.conferenceId).then(function(data) {
+        angular.forEach(data, function(value, key) {
+            value.KeyEncoded = encodeURIComponent(value.Key);
+            var name = value.Name.split(/\s/);
+            value.firstName = name[0];
+            value.lastName = name[name.length - 1];
+        });
+        data.sort(function(a, b) {
+            var s = naturalSort(a.lastName, b.lastName);
+            if(s === 0) {
+                s = naturalSort(a.firstName, b.firstName);
+            }
+            return s;
+        });
+        $scope.people = data;
+    }, function(rejection) {
+        // console.log(rejection);
+    });
+
+    function dividerTitle($index) {
+        return $scope.people[$index].lastName[0];
+    }
+
+    function showPeopleDivider($index) {
+        if(!$scope.people[$index - 1]) {
+            return true;
+        } else {
+            return $scope.people[$index - 1].lastName[0] !== $scope.people[$index].lastName[0];
+        }
+    }
+
+    function backToEventsList() {
+        $state.go('eventspage');
+    }
+}
+angular
+    .module('confero.app')
+    .controller('SessionPageCtrl', SessionPageCtrl);
+
+SessionPageCtrl.$inject = ['$scope', '$state', 'Session', 'Conference', 'Starred', 'Navigation'];
+
+function SessionPageCtrl($scope, $state, Session, Conference, Starred, Navigation) {
+    "use strict";
+    $scope.conferenceId = $state.params.id;
+    $scope.sessionKey = $state.params.key;
+    $scope.items = {};
+    $scope.starred = false;
+    $scope.back = back;
+    $scope.clickStar = clickStar;
+    $scope.$watch('starred', starred);
+
+    Session.get($scope.conferenceId, $scope.sessionKey).then(function(data) {
+        var t = data.Time.split('-');
+        if(t[0].indexOf('m') > -1) { //old standard
+            data.StartTime = moment(data.Day + ' ' + t[0].trim(), 'MM-DD-YYYY HH:mm a');
+            if(!t[1]) {
+                t[1] = "11:59 pm";
+            }
+            data.EndTime = moment(data.Day + ' ' + t[1].trim(), 'MM-DD-YYYY HH:mm a');
+        } else { //new standard
+            data.StartTime = moment(data.Day + ' ' + t[0].trim(), "YYYY-MM-DD HH:mm");
+            data.EndTime = moment(data.Day + ' ' + t[1].trim(), "YYYY-MM-DD HH:mm");
+        }
+        data.PrettyDateTime = data.StartTime.format("ddd MMMM D[th] HH:mm") + ' - ' + data.EndTime.format("HH:mm");
+        data.Colour = 'colour' + (simpleHash(data.Location) % 15);
+        $scope.session = data;
+        Starred.get($scope.conferenceId, $scope.sessionKey).then(function(value) {
+            $scope.starred = value;
+        });
+    }, function(rejection) {
+        console.log(rejection);
+    });
+
+    Conference.Info($scope.conferenceId).then(function(data) {
+        $scope.ConferenceInfo = data;
+    }, function(rejection) {
+        console.log(rejection);
+    });
+
+    function starred(newValue, oldValue) {
+        if(newValue) {
+            $scope.isStarredStyle = 'ion-ios7-star colorGold';
+        } else {
+            $scope.isStarredStyle = 'ion-ios7-star-outline';
+        }
+    }
+
+    function back() {
+        Navigation.goBack('tabs.people', {
+            id: $scope.conferenceId
+        });
+    }
+
+    function clickStar() {
+        Starred.toggleStar($scope.conferenceId, $scope.sessionKey).then(function(value) {
+            $scope.starred = value;
+        });
+    }
+}
+angular
+    .module('confero.app')
+    .controller('SessionsTabCrtl', SessionTabCtrl);
+
+SessionTabCtrl.$inject = ['$scope', '$state', 'Conference', '$ionicLoading'];
+
+function SessionTabCtrl($scope, $state, Conference, $ionicLoading, $timeout) {
+    "use strict";
+    $ionicLoading.show();
+    $scope.conferenceId = $state.params.id;
+    $scope.ConferenceName = "confero";
+    $scope.backToEventsList = backToEventsList;
+    $scope.showSessionDivider = showSessionDivider;
+
+    Conference.Sessions($scope.conferenceId).then(function(data) {
+        $scope.sessions = data;
+    }, function(rejection) {
+        console.log(rejection);
+    });
+    Conference.Info($scope.conferenceId).then(function(data) {
+        $scope.ConferenceInfo = data;
+    }, function(rejection) {
+        console.log(rejection);
+    });
+
+    function backToEventsList() {
+        $state.go('eventspage');
+    }
+
+    function showSessionDivider(index) {
+        if($scope.sessions) {
+            if(index === 0) {
+                return true;
+            } else {
+                if($scope.sessions[index] && $scope.sessions[index - 1]) {
+                    return $scope.sessions[index].PrettyDateTime !== $scope.sessions[index - 1].PrettyDateTime;
+                }
+            }
+        }
+    }
+}
+angular
+    .module('confero.app')
+    .controller('TabsCrtl', TabsCtrl);
+
+TabsCtrl.$inject = ['$scope', '$state', '$ionicLoading', '$rootScope'];
+
+function TabsCtrl($scope, $state, $ionicLoading, $ionicNavBarDelegate, $rootScope) {
+    $scope.conferenceId = $state.params.id;
+    $scope.ConferenceName = "confero";
+    $scope.$on('loadingFinished', loadingFinished);
+
+    function loadingFinished(ngLoadEvent) {
+        $ionicLoading.hide();
+    }
+}
+angular
+    .module('confero.app')
+    .directive('errSrc', errSrc);
+
+function errSrc() {
+    "use strict";
+    return {
+        link: function(scope, element, attrs) {
+            element.bind('error', error);
+
+            function error() {
+                if(attrs.src != attrs.errSrc) {
+                    attrs.$set('src', attrs.errSrc);
+                }
+            }
+        }
+    };
+}
+angular
+    .module('confero.app')
+    .directive('eventsList', eventsList);
+
+function eventsList() {
     "use strict";
     return {
         restrict: 'E',
@@ -66109,70 +66211,79 @@ angular.module('confero.eventsList', []).directive('eventsList', function() {
             index: "=index"
         }
     };
-}).directive('errSrc', function() {
-    "use strict";
-    return {
-        link: function(scope, element, attrs) {
-            element.bind('error', function() {
-                if(attrs.src != attrs.errSrc) {
-                    attrs.$set('src', attrs.errSrc);
-                }
-            });
-        }
-    };
-});
-angular.module('confero.lastListItem', []).directive('onLastListItem', function($timeout) {
+}
+angular
+    .module('confero.app')
+    .directive('onLastListItem', onLastListItem);
+
+onLastListItem.$inject = ['$timeout'];
+
+function onLastListItem($timeout) {
     "use strict";
     return function(scope, element, attrs) {
         if(scope.$last) {
-            $timeout(function() {
-                scope.$emit('loadingFinished', element);
-            }, 10);
+            $timeout(loadingFinished, 10);
+        }
+
+        function loadingFinished() {
+            scope.$emit('loadingFinished', element);
         }
     };
-});
-angular.module('confero.mainPage', []).directive('mainPage', function() {
+}
+angular
+    .module('confero.app')
+    .directive('mainPage', mainPage);
+
+function mainPage() {
     "use strict";
     return {
         restrict: 'E',
         replace: 'true',
         templateUrl: 'mainPageView.html',
     };
-});
-angular.module('confero.paperItem', ['confero.PaperService'])
+}
+angular
+    .module('confero.app')
+    .directive('paperItem', paperItem);
 
-.directive('paperItem', ['Paper',
-    function(Paper) {
-        "use strict";
+paperItem.$inject = ['Paper'];
 
-        return {
-            restrict: 'E',
-            replace: 'true',
-            templateUrl: 'paperItemView.html',
-            scope: {
-                paper: "=",
-                conferenceId: "=conference",
-                key: "=key"
-            },
-            controller: function($scope) {
-                var setupData = function() {
-                    $scope.paperData.KeyEncoded = encodeURIComponent($scope.paperData.Key);
-                };
-                if(!$scope.paper && $scope.key) {
-                    var paperPromise = Paper.get($scope.conferenceId, $scope.key);
-                    paperPromise.then(function(data) {
-                        $scope.paperData = data;
-                        setupData();
-                    });
-                } else {
-                    $scope.paperData = $scope.paper;
+function paperItem(Paper) {
+    "use strict";
+
+    return {
+        restrict: 'E',
+        replace: 'true',
+        templateUrl: 'paperItemView.html',
+        scope: {
+            paper: "=",
+            conferenceId: "=conference",
+            key: "=key"
+        },
+        controller: function($scope) {
+            var setupData = function() {
+                $scope.paperData.KeyEncoded = encodeURIComponent($scope.paperData.Key);
+            };
+            if(!$scope.paper && $scope.key) {
+                var paperPromise = Paper.get($scope.conferenceId, $scope.key);
+                paperPromise.then(function(data) {
+                    $scope.paperData = data;
                     setupData();
-                }
+                });
+            } else {
+                $scope.paperData = $scope.paper;
+                setupData();
             }
-        };
-    }
-]);
-angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopleItem', function(People) {
+        }
+    };
+}
+angular
+    .module('confero.app')
+    .directive('peopleItem', peopleItem);
+
+peopleItem.$inject = ['People'];
+
+function peopleItem(People) {
     "use strict";
     return {
         restrict: 'E',
@@ -66184,11 +66295,7 @@ angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopl
             key: "=key"
         },
         controller: function($scope) {
-            $scope.$watch('personData', function(newValue, oldValue) {
-                if(newValue) {
-                    $scope.personData.KeyEncoded = encodeURIComponent($scope.personData.Key);
-                }
-            });
+            $scope.$watch('personData', personData);
             if(!$scope.person && $scope.key) {
                 var k = encodeURIComponent($scope.key);
                 var personPromise = People.Person($scope.conferenceId, $scope.key);
@@ -66198,10 +66305,22 @@ angular.module('confero.peopleItem', ['confero.PeopleService']).directive('peopl
             } else {
                 $scope.personData = $scope.person;
             }
+
+            function personData(newValue, oldValue) {
+                if(newValue) {
+                    $scope.personData.KeyEncoded = encodeURIComponent($scope.personData.Key);
+                }
+            }
         }
     };
-});
-angular.module('confero.sessionItem', ['confero.SessionService']).directive('sessionItem', function(Session) {
+}
+angular
+    .module('confero.app')
+    .directive('sessionItem', sessionItem);
+
+sessionItem.$inject = ['Session'];
+
+function sessionItem(Session) {
     "use strict";
     return {
         restrict: 'E',
@@ -66215,7 +66334,33 @@ angular.module('confero.sessionItem', ['confero.SessionService']).directive('ses
         },
         controller: function($scope) {
             var sessionPromise;
-            $scope.$watch('sessionData', function(newValue, oldValue) {
+            $scope.$watch('sessionData', sessionData);
+            $scope.$watch('paperkey', paperkey);
+            $scope.$watch('key', key);
+
+            if($scope.session) {
+                $scope.sessionData = $scope.session;
+            }
+
+            function key(newValue) {
+                if($scope.key) {
+                    sessionPromise = Session.get($scope.conferenceId, $scope.key);
+                    sessionPromise.then(function(data) {
+                        $scope.sessionData = data;
+                    });
+                }
+            }
+
+            function paperkey(newValue) {
+                if($scope.paperkey) {
+                    sessionPromise = Session.SessionByPaperKey($scope.conferenceId, $scope.paperkey);
+                    sessionPromise.then(function(data) {
+                        $scope.sessionData = data;
+                    });
+                }
+            }
+
+            function sessionData(newValue, oldValue) {
                 if(newValue) {
                     $scope.sessionData.KeyEncoded = encodeURIComponent($scope.sessionData.Key);
                     var time = $scope.sessionData.Time ? $scope.sessionData.Time.split('-') : ['00:00', '23:59'];
@@ -66235,38 +66380,27 @@ angular.module('confero.sessionItem', ['confero.SessionService']).directive('ses
                     $scope.sessionData.PrettyDateTimeFull = $scope.sessionData.StartTime.format("dddd MMMM D[th] HH:mm") + ' - ' + $scope.sessionData.EndTime.format("HH:mm");
                     $scope.sessionData.Colour = 'colour' + (simpleHash($scope.sessionData.Location) % 15);
                 }
-            });
-            if($scope.session) {
-                $scope.sessionData = $scope.session;
             }
-            $scope.$watch('key', function(newValue) {
-                if($scope.key) {
-                    sessionPromise = Session.get($scope.conferenceId, $scope.key);
-                    sessionPromise.then(function(data) {
-                        $scope.sessionData = data;
-                    });
-                }
-            });
-            $scope.$watch('paperkey', function(newValue) {
-                if($scope.paperkey) {
-                    sessionPromise = Session.SessionByPaperKey($scope.conferenceId, $scope.paperkey);
-                    sessionPromise.then(function(data) {
-                        $scope.sessionData = data;
-                    });
-                }
-            });
         }
     };
-});
-angular.module('confero.tabs', [])
-  .directive('conferoTabs', function() {
+}
+angular
+    .module('confero.app')
+    .directive('conferoTabs', conferoTabs);
+
+function conferoTabs() {
     "use strict";
     return {
-      restrict: 'E',
-      templateUrl: 'tabs.html'
+        restrict: 'E',
+        templateUrl: 'tabs.html'
     };
-  });
-angular.module('confero.app').config(function($stateProvider, $urlRouterProvider) {
+}
+angular
+    .module('confero.app')
+    .config(config);
+
+
+function config($stateProvider, $urlRouterProvider) {
     "use strict";
     $stateProvider.state('eventspage', {
         url: "/",
@@ -66326,256 +66460,424 @@ angular.module('confero.app').config(function($stateProvider, $urlRouterProvider
         controller: 'AboutCtrl'
     });
     $urlRouterProvider.otherwise("/");
-});
-angular.module('confero.ConferenceService', ['confero.ConferoDataService']).factory('Conference', ['ConferenceCache', '$q',
-    function(ConferenceCache, $q) {
-        "use strict";
-        var confInfoCache = {};
-        return {
-            People: function(confId) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conference) {
-                    deferred.resolve(conference.get(confId).People);
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            },
-            Sessions: function(confId) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conference) {
-                    deferred.resolve(conference.get(confId).Sessions);
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            },
-            Papers: function(confId) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conference) {
-                    deferred.resolve(conference.get(confId).Items);
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            },
-            Info: function(confId) {
-                var deferred = $q.defer();
-                if(confInfoCache[confId]) {
-                    deferred.resolve(confInfoCache[confId]);
-                } else {
-                    ConferenceCache.get(confId).then(function(conf) {
-                        var info = {};
-                        var conference = conf.get(confId);
-                        for(var i in conference) {
-                            if(conference.hasOwnProperty(i) &&
-                                i !== "Sessions" &&
-                                i !== "SessionsByKey" &&
-                                i !== "Items" &&
-                                i !== "ItemsByKey" &&
-                                i !== "People" &&
-                                i !== "PeopleByKey"
-                            ) {
-                                info[i] = conference[i];
-                            }
-                        }
-                        confInfoCache[confId] = info;
-                        deferred.resolve(info);
-                    });
-                }
-                return deferred.promise;
-            }
-        };
-    }
-]);
-angular.module('confero.ConferoDataObjects', []).factory('EventsData', [
-    function() {
-        "use strict";
-        var eventIndex, eventByKey;
-        return {
-            setEventsIndex: function(eventsData) {
-                eventIndex = eventsData;
-                eventByKey = {};
-                for(var i = 0; eventIndex.Events[i]; i++) {
-                    eventIndex.Events[i].momentStartDate = moment(eventIndex.Events[i].StartDate, "YYYY-MM-DD");
-                    eventIndex.Events[i].momentEndDate = moment(eventIndex.Events[i].EndDate, "YYYY-MM-DD");
-                    eventIndex.Events[i].momentEndDate.hour(23);
-                    eventIndex.Events[i].momentEndDate.minute(59);
-                    eventByKey[eventIndex.Events[i].Id] = eventIndex.Events[i];
-                    eventIndex.Events[i].StartDatePretty = eventIndex.Events[i].momentStartDate.format("MMMM D, YYYY");
-                    eventIndex.Events[i].EndDatePretty = eventIndex.Events[i].momentEndDate.format("MMMM D, YYYY");
-                }
-                eventIndex.Events.sort(function compare(a, b) {
-                    if(a.momentEndDate.isAfter(b.momentEndDate)) {
-                        return -1;
-                    } else if(a.momentEndDate.isBefore(b.momentEndDate)) {
-                        return 1;
-                    } else {
-                        if(a.momentStartDate.isAfter(b.momentStartDate)) {
-                            return -1;
-                        }
-                        if(a.momentStartDate.isBefore(b.momentStartDate)) {
-                            return 1;
-                        }
-                        return 0;
-                    }
-                });
-            },
-            getEventIndex: function() {
-                return eventIndex;
-            },
-            getEventById: function(id) {
-                if(eventByKey) {
-                    return eventByKey[id];
-                }
-            },
-            getEventsByTemporal: function(temporal, date) {
-                var events = [];
-                if(eventIndex) {
-                    for(var i = 0; eventIndex.Events[i]; i++) {
-                        if(temporal === "past" && eventIndex.Events[i].momentEndDate.isBefore(date)) {
-                            events.push(eventIndex.Events[i]);
-                        } else if(temporal === "upcoming" && date.isBefore(eventIndex.Events[i].momentStartDate)) {
-                            events.push(eventIndex.Events[i]);
-                        } else if(temporal === "inprogress" && (
-                            (date.isBefore(eventIndex.Events[i].momentEndDate) || date.isSame(eventIndex.Events[i].momentEndDate)) && (date.isAfter(eventIndex.Events[i].momentStartDate) || date.isSame(eventIndex.Events[i].momentStartDate)))) {
-                            events.push(eventIndex.Events[i]);
-                        }
-                    }
-                }
-                return events;
-            }
-        };
-    }
-]).factory('ConferenceData', [
-    function() {
-        "use strict";
-        var confDataCache = {};
-        return {
-            addConference: function(confId, data, version) {
-                var confData = data;
-                confData.Version = version;
-                angular.forEach(confData.Sessions, function(value, index) {
-                    var atime = value.Time ? value.Time.split('-') : ['00:00', '23:59'];
-                    if(atime[0].indexOf('m') > -1) { //old standard
-                        value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'MM-DD-YYYY HH:mm a');
-                        if(!atime[1]) {
-                            atime[1] = "11:59 pm";
-                        }
-                        value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'MM-DD-YYYY HH:mm a');
-                    } else { //new standard
-                        value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');
-                        value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'YYYY-MM-DD HH:mm');
-                    }
-                });
-                var i, j;
-                confData.Sessions.sort(sortByDate);
-                if(!confData.PeopleByKey) {
-                    confData.PeopleByKey = {};
-                    for(i = 0; confData.People[i]; i++) {
-                        confData.PeopleByKey[confData.People[i].Key] = confData.People[i];
-                    }
-                }
-                if(!confData.SessionsByKey) {
-                    confData.SessionsByKey = {};
-                    confData.SessionByPaperKey = {};
-                    for(i = 0; confData.Sessions[i]; i++) {
-                        confData.SessionsByKey[confData.Sessions[i].Key] = confData.Sessions[i];
-                        if(confData.Sessions[i].Items) {
-                            for(j = 0; confData.Sessions[i].Items[j]; j++) {
-                                confData.SessionByPaperKey[confData.Sessions[i].Items[j]] = confData.Sessions[i].Key;
-                            }
-                        }
-                    }
-                }
-                if(!confData.ItemsByKey) {
-                    confData.ItemsKeyByPeopleKey = {};
-                    confData.ItemsByKey = {};
-                    for(i = 0; confData.Items[i]; i++) {
-                        confData.ItemsByKey[confData.Items[i].Key] = confData.Items[i];
-                        for(j = 0; confData.Items[i].Authors[j]; j++) {
-                            if(confData.ItemsKeyByPeopleKey[confData.Items[i].Authors[j]]) {
-                                confData.ItemsKeyByPeopleKey[confData.Items[i].Authors[j]].push(confData.Items[i].Key);
-                            } else {
-                                confData.ItemsKeyByPeopleKey[confData.Items[i].Authors[j]] = [confData.Items[i].Key];
-                            }
-                        }
-                    }
-                }
-                confDataCache[confId] = confData;
-            },
-            get: function(confId) {
-                return confDataCache[confId];
-            },
-            resolveKey: function(confId, key) {
-                if(confDataCache[confId]) {
-                    if(confDataCache[confId].PeopleByKey[key]) {
-                        return {
-                            person: confDataCache[confId].PeopleByKey[key]
-                        };
-                    } else if(confDataCache[confId].SessionsByKey[key]) {
-                        return {
-                            session: confDataCache[confId].SessionsByKey[key]
-                        };
-                    } else if(confDataCache[confId].ItemsByKey[key]) {
-                        return {
-                            item: confDataCache[confId].ItemsByKey[key]
-                        };
-                    }
-                }
-            },
-            getPersonByKey: function(confId, peopleKey) {
-                if(confDataCache[confId]) {
-                    return confDataCache[confId].PeopleByKey[peopleKey];
-                }
-            },
-            getSessionByKey: function(confId, sessionKey) {
-                if(confDataCache[confId]) {
-                    return confDataCache[confId].SessionsByKey[sessionKey];
-                }
-            },
-            getItemByKey: function(confId, itemKey) {
-                if(confDataCache[confId]) {
-                    return confDataCache[confId].ItemsByKey[itemKey];
-                }
-            },
-            getSessionByPaperKey: function(confId, paperKey) {
-                if(confDataCache[confId]) {
-                    return this.getSessionByKey(confId, confDataCache[confId].SessionByPaperKey[paperKey]);
-                }
-            },
-            getItemsByPeopleKey: function(confId, peopleKey) {
-                if(confDataCache[confId]) {
-                    var itemKeys = confDataCache[confId].ItemsKeyByPeopleKey[peopleKey];
-                    var items = [];
-                    for(var i = 0; itemKeys[i]; i++) {
-                        items.push(this.getItemByKey(confId, itemKeys[i]));
-                    }
-                    return items;
-                }
-            },
-            getSessionsByPeopleKey: function(confId, peopleKey) {
-                if(confDataCache[confId]) {
-                    var items = this.getItemsByPeopleKey(confId, peopleKey);
-                    var sessions = [];
-                    for(var i = 0; items[i]; i++) {
-                        sessions.push(this.getSessionByPaperKey(confId, items[i].Key));
-                    }
-                    return sessions;
-                }
-            }
-        };
-    }
-]);
-angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule', 'confero.ConferoDataObjects'])
-	.factory('EventsCache', ['$resource', '$cacheFactory', '$localForage', 'EventsData', '$q',
-    function($resource, $cacheFactory, $localForage, EventsData, $q) {
-        "use strict";
+}
+angular
+    .module('confero.app')
+    .factory('EventsIndex', EventsIndex);
+
+EventsIndex.$inject = ['EventsCache', '$q'];
+
+function EventsIndex(EventsCache, $q) {
+    "use strict";
+    var service = {
+        Past: Past,
+        UpComing: UpComing,
+        InProgress: InProgress
+    };
+
+    return service;
+
+    //////
+
+    function Past() {
         var deferred = $q.defer();
-        if(!EventsData.getEventIndex()) {
-            var fetchFromServer = function() {
-                var www = 'http://ec2-54-164-164-122.compute-1.amazonaws.com:3000';
-                var res = www + '/conferences/events';
+        EventsCache.get().then(function(eventsIndex) {
+            var now = moment();
+            deferred.resolve(eventsIndex.getEventsByTemporal('past', now));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function UpComing() {
+        var deferred = $q.defer();
+        EventsCache.get().then(function(eventsIndex) {
+            var now = moment();
+            deferred.resolve(eventsIndex.getEventsByTemporal('upcoming', now));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function InProgress() {
+        var deferred = $q.defer();
+        EventsCache.get().then(function(eventsIndex) {
+            var now = moment();
+            deferred.resolve(eventsIndex.getEventsByTemporal('inprogress', now));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+}
+angular
+    .module('confero.app')
+    .factory('Conference', Conference);
+
+Conference.$inject = ['ConferenceCache', '$q'];
+
+function Conference(ConferenceCache, $q) {
+    "use strict";
+    var confInfoCache = {};
+    var service = {
+        People: People,
+        Sessions: Sessions,
+        Papers: Papers,
+        Info: Info
+    };
+    return service;
+
+
+    function People(confId) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conference) {
+            deferred.resolve(conference.get(confId).People);
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function Sessions(confId) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conference) {
+            deferred.resolve(conference.get(confId).Sessions);
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function Papers(confId) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conference) {
+            deferred.resolve(conference.get(confId).Items);
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function Info(confId) {
+        var deferred = $q.defer();
+        if(confInfoCache[confId]) {
+            deferred.resolve(confInfoCache[confId]);
+        } else {
+            ConferenceCache.get(confId).then(function(conf) {
+                var info = {};
+                var conference = conf.get(confId);
+                for(var i in conference) {
+                    if(conference.hasOwnProperty(i) &&
+                        i !== "Sessions" &&
+                        i !== "SessionsByKey" &&
+                        i !== "Items" &&
+                        i !== "ItemsByKey" &&
+                        i !== "People" &&
+                        i !== "PeopleByKey"
+                    ) {
+                        info[i] = conference[i];
+                    }
+                }
+                confInfoCache[confId] = info;
+                deferred.resolve(info);
+            });
+        }
+        return deferred.promise;
+    }
+}
+angular
+    .module('confero.app')
+    .factory('ConferenceCache', ConferenceCache);
+
+ConferenceCache.$inject = ['$resource', '$cacheFactory', '$localForage', 'ConferenceData', 'EventsData', '$q'];
+
+function ConferenceCache($resource, $cacheFactory, $localForage, ConferenceData, EventsData, $q) {
+    var fetchFromServer = function(confId, deferred, currentVersion) {
+        var www = 'http://ec2-54-164-164-122.compute-1.amazonaws.com:3000';
+        var confLoc = '/conference/:id';
+        var verLoc = '/conferences/event/:id/version';
+        var call = $resource(www + verLoc, {}, {
+            'get': {
+                method: 'GET',
+                params: {
+                    id: '',
+                },
+                cache: $cacheFactory
+            }
+        }).get({
+            id: confId
+        });
+        call.$promise.then(function(data) {
+            if(!currentVersion || data.version > currentVersion) {
+                var call = $resource(www + confLoc, {}, {
+                    'get': {
+                        method: 'GET',
+                        params: {
+                            id: '',
+                        },
+                        cache: $cacheFactory
+                    }
+                }).get({
+                    id: confId
+                });
+                call.$promise.then(function(data) {
+
+                    var version = EventsData.getEventById(confId) ? EventsData.getEventById(confId).Version : 0;
+                    ConferenceData.addConference(confId, data, version);
+                    deferred.resolve(ConferenceData);
+                    deferred.notify('server');
+                    data.Version = version;
+                    $localForage.setItem(confId, data);
+                });
+            }
+        }, function(rejection) {
+            deferred.reject(rejection);
+        });
+    };
+    var service = {
+        get: get
+    };
+    return service;
+
+    ///////
+
+    function get(confId) {
+        var deferred = $q.defer();
+        if(ConferenceData.get(confId)) {
+            deferred.resolve(ConferenceData);
+            deferred.notify('cache');
+        } else {
+            $localForage.getItem(confId).then(function(value) {
+                if(value) {
+                    ConferenceData.addConference(confId, value, value.Version);
+                    deferred.resolve(ConferenceData);
+                    deferred.notify('storage');
+                    fetchFromServer(confId, deferred, value.Version);
+                } else {
+                    var eventData = EventsData.getEventById(confId);
+                    if(eventData) {
+                        var res = 'assets/conf-data/data/' + eventData.File;
+                        var call = $resource(res, {}, {
+                            'get': {
+                                method: 'GET',
+                                cache: $cacheFactory
+                            }
+                        }).get();
+                        call.$promise.then(function(data) {
+                            var version = EventsData.getEventById(confId).Version;
+                            ConferenceData.addConference(confId, data, version);
+                            deferred.resolve(ConferenceData);
+                            deferred.notify('local');
+                            data.Version = version;
+                            $localForage.setItem(confId, data).then(function() {
+                                fetchFromServer(confId, deferred, version);
+                            });
+                        }, function(reason) {
+                            fetchFromServer(confId, deferred);
+                        });
+                    } else {
+                        fetchFromServer(confId, deferred);
+                    }
+                }
+            }, function(rejection) {
+                deferred.reject(rejection);
+            });
+        }
+        return deferred.promise;
+    }
+}
+angular
+    .module('confero.app')
+    .factory('ConferenceData', ConferenceData);
+
+function ConferenceData() {
+    "use strict";
+    var confDataCache = {};
+
+    var service = {
+        addConference: addConference,
+        get: get,
+        resolveKey: resolveKey,
+        getPersonByKey: getPersonByKey,
+        getSessionByKey: getSessionByKey,
+        getItemByKey: getItemByKey,
+        getSessionByPaperKey: getSessionByPaperKey,
+        getItemsByPeopleKey: getItemsByPeopleKey,
+        getSessionsByPeopleKey: getSessionsByPeopleKey
+    };
+
+    return service;
+
+    function addConference(confId, data, version) {
+        var confData = data;
+        confData.Version = version;
+        angular.forEach(confData.Sessions, function(value, index) {
+            var atime = value.Time ? value.Time.split('-') : ['00:00', '23:59'];
+            if(atime[0].indexOf('m') > -1) { //old standard
+                value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'MM-DD-YYYY HH:mm a');
+                if(!atime[1]) {
+                    atime[1] = "11:59 pm";
+                }
+                value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'MM-DD-YYYY HH:mm a');
+            } else { //new standard
+                value.StartTime = moment(value.Day + ' ' + atime[0].trim(), 'YYYY-MM-DD HH:mm');
+                value.EndTime = moment(value.Day + ' ' + atime[1].trim(), 'YYYY-MM-DD HH:mm');
+            }
+        });
+        var i, j;
+        confData.Sessions.sort(sortByDate);
+        if(!confData.PeopleByKey) {
+            confData.PeopleByKey = {};
+            for(i = 0; confData.People[i]; i++) {
+                confData.PeopleByKey[confData.People[i].Key] = confData.People[i];
+            }
+        }
+        if(!confData.SessionsByKey) {
+            confData.SessionsByKey = {};
+            confData.SessionByPaperKey = {};
+            for(i = 0; confData.Sessions[i]; i++) {
+                confData.SessionsByKey[confData.Sessions[i].Key] = confData.Sessions[i];
+                if(confData.Sessions[i].Items) {
+                    for(j = 0; confData.Sessions[i].Items[j]; j++) {
+                        confData.SessionByPaperKey[confData.Sessions[i].Items[j]] = confData.Sessions[i].Key;
+                    }
+                }
+            }
+        }
+        if(!confData.ItemsByKey) {
+            confData.ItemsKeyByPeopleKey = {};
+            confData.ItemsByKey = {};
+            for(i = 0; confData.Items[i]; i++) {
+                confData.ItemsByKey[confData.Items[i].Key] = confData.Items[i];
+                for(j = 0; confData.Items[i].Authors[j]; j++) {
+                    if(confData.ItemsKeyByPeopleKey[confData.Items[i].Authors[j]]) {
+                        confData.ItemsKeyByPeopleKey[confData.Items[i].Authors[j]].push(confData.Items[i].Key);
+                    } else {
+                        confData.ItemsKeyByPeopleKey[confData.Items[i].Authors[j]] = [confData.Items[i].Key];
+                    }
+                }
+            }
+        }
+        confDataCache[confId] = confData;
+    }
+
+    function get(confId) {
+        return confDataCache[confId];
+    }
+
+    function resolveKey(confId, key) {
+        if(confDataCache[confId]) {
+            if(confDataCache[confId].PeopleByKey[key]) {
+                return {
+                    person: confDataCache[confId].PeopleByKey[key]
+                };
+            } else if(confDataCache[confId].SessionsByKey[key]) {
+                return {
+                    session: confDataCache[confId].SessionsByKey[key]
+                };
+            } else if(confDataCache[confId].ItemsByKey[key]) {
+                return {
+                    item: confDataCache[confId].ItemsByKey[key]
+                };
+            }
+        }
+    }
+
+    function getPersonByKey(confId, peopleKey) {
+        if(confDataCache[confId]) {
+            return confDataCache[confId].PeopleByKey[peopleKey];
+        }
+    }
+
+    function getSessionByKey(confId, sessionKey) {
+        if(confDataCache[confId]) {
+            return confDataCache[confId].SessionsByKey[sessionKey];
+        }
+    }
+
+    function getItemByKey(confId, itemKey) {
+        if(confDataCache[confId]) {
+            return confDataCache[confId].ItemsByKey[itemKey];
+        }
+    }
+
+    function getSessionByPaperKey(confId, paperKey) {
+        if(confDataCache[confId]) {
+            return getSessionByKey(
+                confId,
+                confDataCache[confId].SessionByPaperKey[paperKey]
+            );
+        }
+    }
+
+    function getItemsByPeopleKey(confId, peopleKey) {
+        if(confDataCache[confId]) {
+            var itemKeys = confDataCache[confId].ItemsKeyByPeopleKey[peopleKey];
+            var items = [];
+            itemKeys.forEach(addItemsByKey);
+
+            return items;
+        }
+        /////
+
+        function addItemsByKey(item) {
+            items.push(getItemByKey(confId, item));
+        }
+    }
+
+    function getSessionsByPeopleKey(confId, peopleKey) {
+        if(confDataCache[confId]) {
+            var items = getItemsByPeopleKey(confId, peopleKey);
+            var sessions = [];
+            items.forEach(addSessions);
+
+            return sessions;
+        }
+        /////
+
+        function addSessions(item) {
+            sessions.push(getSessionByPaperKey(confId, item.Key));
+        }
+    }
+}
+angular
+    .module('confero.app')
+    .factory('EventsCache', EventsCache);
+
+EventsCache.$inject = ['$resource', '$cacheFactory', '$localForage', 'EventsData', '$q'];
+
+function EventsCache($resource, $cacheFactory, $localForage, EventsData, $q) {
+    "use strict";
+    var deferred = $q.defer();
+    if(!EventsData.getEventIndex()) {
+        var fetchFromServer = function() {
+            var www = 'http://ec2-54-164-164-122.compute-1.amazonaws.com:3000';
+            var res = www + '/conferences/events';
+            var call = $resource(res, {}, {
+                'get': {
+                    method: 'GET',
+                    cache: $cacheFactory
+                }
+            }).get();
+            call.$promise.then(function(data) {
+                EventsData.setEventsIndex(data);
+                deferred.resolve(EventsData);
+                deferred.notify('server');
+                $localForage.setItem('ConferoEventIndex', data);
+            }, function(rejection) {
+                console.log(rejection);
+            });
+        };
+        $localForage.getItem('ConferoEventIndex').then(function(value) {
+            if(value) {
+                EventsData.setEventsIndex(value);
+                deferred.resolve(EventsData);
+                deferred.notify('storage');
+            } else {
+                var res = 'assets/conf-data/EventIndex.json';
                 var call = $resource(res, {}, {
                     'get': {
                         method: 'GET',
@@ -66585,333 +66887,323 @@ angular.module('confero.ConferoDataService', ['ngResource', 'LocalForageModule',
                 call.$promise.then(function(data) {
                     EventsData.setEventsIndex(data);
                     deferred.resolve(EventsData);
-                    deferred.notify('server');
-                    $localForage.setItem('ConferoEventIndex', data);
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-            };
-            $localForage.getItem('ConferoEventIndex').then(function(value) {
-                if(value) {
-                    EventsData.setEventsIndex(value);
-                    deferred.resolve(EventsData);
-                    deferred.notify('storage');
-                } else {
-                    var res = 'assets/conf-data/EventIndex.json';
-                    var call = $resource(res, {}, {
-                        'get': {
-                            method: 'GET',
-                            cache: $cacheFactory
-                        }
-                    }).get();
-                    call.$promise.then(function(data) {
-                        EventsData.setEventsIndex(data);
-                        deferred.resolve(EventsData);
-                        deferred.notify('local');
-                        $localForage.setItem('ConferoEventIndex', data).then(function() {
-                            fetchFromServer();
-                        });
-                    }, function(reason) {
+                    deferred.notify('local');
+                    $localForage.setItem('ConferoEventIndex', data).then(function() {
                         fetchFromServer();
                     });
+                }, function(reason) {
+                    fetchFromServer();
+                });
+            }
+        }, function(rejection) {
+            deferred.reject(rejection);
+        });
+    } else {
+        deferred.resolve(EventsData);
+        deferred.notify('cache');
+    }
+
+    var service = {
+        get: get
+    };
+
+    return service;
+
+    function get() {
+        return deferred.promise;
+    }
+
+}
+angular
+    .module('confero.app')
+    .factory('EventsData', EventsData);
+
+function EventsData() {
+    "use strict";
+    var eventIndex, eventByKey;
+
+    var service = {
+        setEventsIndex: setEventsIndex,
+        getEventIndex: getEventIndex,
+        getEventById: getEventById,
+        getEventsByTemporal: getEventsByTemporal
+    };
+
+    return service;
+
+    function setEventsIndex(eventsData) {
+        eventIndex = eventsData;
+        eventByKey = {};
+        for(var i = 0; eventIndex.Events[i]; i++) {
+            eventIndex.Events[i].momentStartDate = moment(eventIndex.Events[i].StartDate, "YYYY-MM-DD");
+            eventIndex.Events[i].momentEndDate = moment(eventIndex.Events[i].EndDate, "YYYY-MM-DD");
+            eventIndex.Events[i].momentEndDate.hour(23);
+            eventIndex.Events[i].momentEndDate.minute(59);
+            eventByKey[eventIndex.Events[i].Id] = eventIndex.Events[i];
+            eventIndex.Events[i].StartDatePretty = eventIndex.Events[i].momentStartDate.format("MMMM D, YYYY");
+            eventIndex.Events[i].EndDatePretty = eventIndex.Events[i].momentEndDate.format("MMMM D, YYYY");
+        }
+        eventIndex.Events.sort(function compare(a, b) {
+            if(a.momentEndDate.isAfter(b.momentEndDate)) {
+                return -1;
+            } else if(a.momentEndDate.isBefore(b.momentEndDate)) {
+                return 1;
+            } else {
+                if(a.momentStartDate.isAfter(b.momentStartDate)) {
+                    return -1;
                 }
+                if(a.momentStartDate.isBefore(b.momentStartDate)) {
+                    return 1;
+                }
+                return 0;
+            }
+        });
+    }
+
+    function getEventIndex() {
+        return eventIndex;
+    }
+
+    function getEventById(id) {
+        if(eventByKey) {
+            return eventByKey[id];
+        }
+    }
+
+    function getEventsByTemporal(temporal, date) {
+        var events = [];
+        if(eventIndex) {
+            for(var i = 0; eventIndex.Events[i]; i++) {
+                if(temporal === "past" && eventIndex.Events[i].momentEndDate.isBefore(date)) {
+                    events.push(eventIndex.Events[i]);
+                } else if(temporal === "upcoming" && date.isBefore(eventIndex.Events[i].momentStartDate)) {
+                    events.push(eventIndex.Events[i]);
+                } else if(temporal === "inprogress" && (
+                    (date.isBefore(eventIndex.Events[i].momentEndDate) || date.isSame(eventIndex.Events[i].momentEndDate)) && (date.isAfter(eventIndex.Events[i].momentStartDate) || date.isSame(eventIndex.Events[i].momentStartDate)))) {
+                    events.push(eventIndex.Events[i]);
+                }
+            }
+        }
+        return events;
+    }
+}
+angular
+    .module('confero.app')
+    .factory('Navigation', Navigation);
+
+Navigation.$inject = ['$rootScope', '$state'];
+
+function Navigation($rootScope, $state) {
+    "use strict";
+    var navStack = [];
+    $rootScope.$on('$stateChangeSuccess', stateChangeSuccess);
+
+    function stateChangeSuccess(event, toState, toParams, fromState, fromParams) {
+        if(navStack && navStack[navStack.length - 1] === 0) {
+            navStack.pop();
+            return;
+        }
+        navStack.push({
+            state: fromState,
+            params: fromParams
+        });
+    }
+    var service = {
+        goBack: goBack
+    };
+
+    return service;
+
+    ////////////
+
+    function goBack(defaultState, defaultParams) {
+        var b = navStack.pop();
+        if(b) {
+            navStack.push(0);
+            $state.go(b.state, b.params);
+        } else {
+            $state.go(defaultState, defaultParams);
+        }
+    }
+}
+angular
+    .module('confero.app')
+    .factory('Paper', Paper);
+
+Paper.$inject = ['ConferenceCache', '$q'];
+
+function Paper(ConferenceCache, $q) {
+    "use strict";
+
+    var service = {
+        get: get
+    };
+
+    return service;
+
+    ////////////
+
+    function get(confId, paperKey) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conf) {
+            deferred.resolve(conf.getItemByKey(confId, paperKey));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+}
+angular
+    .module('confero.app')
+    .factory('People', People);
+
+People.$inject = ['ConferenceCache', '$q'];
+
+function People(ConferenceCache, $q) {
+    "use strict";
+    var service = {
+        Person: Person,
+        SessionsByPeopleKey: SessionsByPeopleKey,
+        ItemsByPeopleKey: ItemsByPeopleKey
+    };
+
+    return service;
+
+    ////////////
+
+    function Person(confId, personKey) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conf) {
+            deferred.resolve(conf.getPersonByKey(confId, personKey));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function SessionsByPeopleKey(confId, personKey) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conf) {
+            deferred.resolve(conf.getSessionsByPeopleKey(confId, personKey));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function ItemsByPeopleKey(confId, personKey) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conf) {
+            deferred.resolve(conf.getItemsByPeopleKey(confId, personKey));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+}
+angular
+    .module('confero.app')
+    .factory('Session', Session);
+
+Session.$inject = ['ConferenceCache', '$q'];
+
+function Session(ConferenceCache, $q) {
+    "use strict";
+    var service = {
+        get: get,
+        SessionByPaperKey: SessionByPaperKey
+    };
+
+    return service;
+
+    ////////////
+
+    function get(confId, sessionKey) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conf) {
+            deferred.resolve(conf.getSessionByKey(confId, sessionKey));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+
+    function SessionByPaperKey(confId, paperKey) {
+        var deferred = $q.defer();
+        ConferenceCache.get(confId).then(function(conf) {
+            deferred.resolve(conf.getSessionByPaperKey(confId, paperKey));
+        }, function(rejection) {
+            console.log(rejection);
+        });
+        return deferred.promise;
+    }
+}
+angular
+    .module('confero.app')
+    .factory('Starred', Starred);
+
+Starred.$inject = ['$localForage', '$q'];
+
+function Starred($localForage, $q) {
+    "use strict";
+    var starred = {};
+    var prefix = "starred_";
+    var service = {
+        toggleStar: toggleStar,
+        get: get
+    };
+    return service;
+
+    ////////////
+
+    function toggleStar(confId, key) {
+        var deferred = $q.defer();
+        if(!starred[confId]) {
+            $localForage.getItem(prefix + confId).then(function(value) {
+                starred[confId] = {};
+                if(value) {
+                    starred[confId] = value;
+                }
+                starred[confId][key] = !starred[confId][key];
+                deferred.resolve(starred[confId][key]);
+                $localForage.setItem(prefix + confId, starred[confId]);
             }, function(rejection) {
-                deferred.reject(rejection);
+                console.log(rejection);
             });
         } else {
-            deferred.resolve(EventsData);
-            deferred.notify('cache');
+            starred[confId][key] = !starred[confId][key];
+            deferred.resolve(starred[confId][key]);
+            $localForage.setItem(prefix + confId, starred[confId]);
         }
-        return {
-            get: function() {
-                return deferred.promise;
-            }
-        };
+        return deferred.promise;
     }
-]).factory('ConferenceCache', ['$resource', '$cacheFactory', '$localForage', 'ConferenceData', 'EventsData', '$q',
-    function($resource, $cacheFactory, $localForage, ConferenceData, EventsData, $q) {
-        var fetchFromServer = function(confId, deferred, currentVersion) {
-            var www = 'http://ec2-54-164-164-122.compute-1.amazonaws.com:3000';
-            var confLoc = '/conference/:id';
-            var verLoc = '/conferences/event/:id/version';
-            var call = $resource(www + verLoc, {}, {
-                'get': {
-                    method: 'GET',
-                    params: {
-                        id: '',
-                    },
-                    cache: $cacheFactory
+
+    function get(confId, key) {
+        var deferred = $q.defer();
+        if(!starred[confId]) {
+            $localForage.getItem(prefix + confId).then(function(value) {
+                starred[confId] = {};
+                if(value) {
+                    starred[confId] = value;
                 }
-            }).get({
-                id: confId
-            });
-            call.$promise.then(function(data) {
-                if(!currentVersion || data.version > currentVersion) {
-                    var call = $resource(www + confLoc, {}, {
-                        'get': {
-                            method: 'GET',
-                            params: {
-                                id: '',
-                            },
-                            cache: $cacheFactory
-                        }
-                    }).get({
-                        id: confId
-                    });
-                    call.$promise.then(function(data) {
-                        
-                        var version = EventsData.getEventById(confId)? EventsData.getEventById(confId).Version: 0;
-                        ConferenceData.addConference(confId, data, version);
-                        deferred.resolve(ConferenceData);
-                        deferred.notify('server');
-                        data.Version = version;
-                        $localForage.setItem(confId, data);
-                    });
+                if(key) {
+                    deferred.resolve(starred[confId][key]);
+                } else {
+                    deferred.resolve(starred[confId]);
                 }
             }, function(rejection) {
-                deferred.reject(rejection);
+                console.log(rejection);
             });
-        };
-        return {
-            get: function(confId) {
-                var deferred = $q.defer();
-                if(ConferenceData.get(confId)) {
-                    deferred.resolve(ConferenceData);
-                    deferred.notify('cache');
-                } else {
-                    $localForage.getItem(confId).then(function(value) {
-                        if(value) {
-                            ConferenceData.addConference(confId, value, value.Version);
-                            deferred.resolve(ConferenceData);
-                            deferred.notify('storage');
-                            fetchFromServer(confId, deferred, value.Version);
-                        } else {
-                            var eventData = EventsData.getEventById(confId);
-                            if( eventData ) {
-                                var res = 'assets/conf-data/data/' + eventData.File;
-                                var call = $resource(res, {}, {
-                                    'get': {
-                                        method: 'GET',
-                                        cache: $cacheFactory
-                                    }
-                                }).get();
-                                call.$promise.then(function(data) {
-                                    var version = EventsData.getEventById(confId).Version;
-                                    ConferenceData.addConference(confId, data, version);
-                                    deferred.resolve(ConferenceData);
-                                    deferred.notify('local');
-                                    data.Version = version;
-                                    $localForage.setItem(confId, data).then(function() {
-                                        fetchFromServer(confId, deferred, version);
-                                    });
-                                }, function(reason) {
-                                    fetchFromServer(confId, deferred);
-                                });
-                            } else {
-                                fetchFromServer(confId, deferred);
-                            }
-                        }
-                    }, function(rejection) {
-                        deferred.reject(rejection);
-                    });
-                }
-                return deferred.promise;
+        } else {
+            if(key) {
+                deferred.resolve(starred[confId][key]);
+            } else {
+                deferred.resolve(starred[confId]);
             }
-        };
+        }
+        return deferred.promise;
     }
-]);
-angular.module('confero.EventsService', ['confero.ConferoDataService']).factory('EventsIndex', ['EventsCache', '$q',
-    function(EventsCache, $q) {
-        "use strict";
-        return {
-            Past: function() {
-                var deferred = $q.defer();
-                EventsCache.get().then(function(eventsIndex) {
-                    var now = moment();
-                    deferred.resolve(eventsIndex.getEventsByTemporal('past', now));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            },
-            UpComing: function() {
-                var deferred = $q.defer();
-                EventsCache.get().then(function(eventsIndex) {
-                    var now = moment();
-                    deferred.resolve(eventsIndex.getEventsByTemporal('upcoming', now));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            },
-            InProgress: function() {
-                var deferred = $q.defer();
-                EventsCache.get().then(function(eventsIndex) {
-                    var now = moment();
-                    deferred.resolve(eventsIndex.getEventsByTemporal('inprogress', now));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            }
-        };
-    }
-]);
-angular.module('confero.NavigationService', []).factory('Navigation', ['$rootScope', '$state',
-    function($rootScope, $state) {
-        "use strict";
-        var navStack = [];
-        $rootScope.$on('$stateChangeSuccess', function(event, toState, toParams, fromState, fromParams) {
-            if(navStack && navStack[navStack.length - 1] === 0) {
-				navStack.pop();
-				return;
-			}
-			navStack.push({state: fromState, params: fromParams});
-        });
-		
-        return {
-            goBack: function(defaultState, defaultParams) {
-                var b = navStack.pop();
-                if(b) {
-                    navStack.push(0);
-                    $state.go(b.state, b.params);
-                } else {
-                    $state.go(defaultState, defaultParams);
-                }
-            }
-        };
-    }
-]);
-angular.module('confero.PaperService', ['confero.ConferoDataService']).factory('Paper', ['ConferenceCache', '$q',
-    function(ConferenceCache, $q) {
-        "use strict";
-        return {
-            get: function(confId, paperKey) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conf) {
-                    deferred.resolve(conf.getItemByKey(confId, paperKey));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            }
-        };
-    }
-]);
-angular.module('confero.PeopleService', ['confero.ConferoDataService']).factory('People', ['ConferenceCache', '$q',
-    function(ConferenceCache, $q) {
-        "use strict";
-        return {
-            Person: function(confId, personKey) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conf) {
-                    deferred.resolve(conf.getPersonByKey(confId, personKey));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            },
-            SessionsByPeopleKey: function(confId, personKey) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conf) {
-                    deferred.resolve(conf.getSessionsByPeopleKey(confId, personKey));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            },
-            ItemsByPeopleKey: function(confId, personKey) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conf) {
-                    deferred.resolve(conf.getItemsByPeopleKey(confId, personKey));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            }
-        };
-    }
-]);
-angular.module('confero.SessionService', ['confero.ConferoDataService']).factory('Session', ['ConferenceCache', '$q',
-    function(ConferenceCache, $q) {
-        "use strict";
-        return {
-            get: function(confId, sessionKey) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conf) {
-                    deferred.resolve(conf.getSessionByKey(confId, sessionKey));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            },
-            SessionByPaperKey: function(confId, paperKey) {
-                var deferred = $q.defer();
-                ConferenceCache.get(confId).then(function(conf) {
-                    deferred.resolve(conf.getSessionByPaperKey(confId, paperKey));
-                }, function(rejection) {
-                    console.log(rejection);
-                });
-                return deferred.promise;
-            }
-        };
-    }
-]);
-angular.module('confero.StarredService', ['LocalForageModule']).factory('Starred', ['$localForage', '$q',
-    function($localForage, $q) {
-        "use strict";
-        var starred = {};
-        var prefix = "starred_";
-        return {
-            toggleStar: function(confId, key) {
-                var deferred = $q.defer();
-                if(!starred[confId]) {
-                    $localForage.getItem(prefix + confId).then(function(value) {
-                        starred[confId] = {};
-                        if(value) {
-                            starred[confId] = value;
-                        }
-                        starred[confId][key] = !starred[confId][key];
-                        deferred.resolve(starred[confId][key]);
-                        $localForage.setItem(prefix + confId, starred[confId]);
-                    }, function(rejection) {
-                        console.log(rejection);
-                    });
-                } else {
-                    starred[confId][key] = !starred[confId][key];
-                    deferred.resolve(starred[confId][key]);
-                    $localForage.setItem(prefix + confId, starred[confId]);
-                }
-                return deferred.promise;
-            },
-            get: function(confId, key) {
-                var deferred = $q.defer();
-                if(!starred[confId]) {
-                    $localForage.getItem(prefix + confId).then(function(value) {
-                        starred[confId] = {};
-                        if(value) {
-                            starred[confId] = value;
-                        }
-                        if(key) {
-                            deferred.resolve(starred[confId][key]);
-                        } else {
-                            deferred.resolve(starred[confId]);
-                        }
-                    }, function(rejection) {
-                        console.log(rejection);
-                    });
-                } else {
-                    if(key) {
-                        deferred.resolve(starred[confId][key]);
-                    } else {
-                        deferred.resolve(starred[confId]);
-                    }
-                }
-                return deferred.promise;
-            }
-        };
-    }
-]);
+}
 angular.module('confero.app').run(['$templateCache', function($templateCache) {
     $templateCache.put('EventListView.html',
         "<div class=\"list\">\n\n    <a ng-repeat=\"event in events\" href=\"#/conference/{{event.Id}}/sessions\" class=\"item item-thumbnail-left\" aria-label=\"{{event.Description}}\">\n        <img ng-src=\"assets/conf-data/icon200/{{event.Icon}}\" err-src=\"{{locationWWW}}/conferences/event/{{event.Id}}/image\">\n\n        <h2>{{ event.Name }}</h2>\n        <h4><span ng-bind-html=\"event.Description\"></span></h4>\n        <h4>{{ event.StartDatePretty }} - {{event.EndDatePretty}}</h4>\n    </a>\n\n</div>\n");
