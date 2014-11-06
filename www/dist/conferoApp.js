@@ -65523,6 +65523,11 @@ angular.module('jm.i18next').filter('i18next', ['$i18next', function ($i18next) 
 	}]);
 })(window, window.angular, window.localforage);
 
+/* ConferoApp.js
+ * version : 4.0.1
+ * authors : Rylan Cottrell, Reid Holmes
+ * license : GNU GPL
+ */
 angular.module('jm.i18next').config(['$i18nextProvider',
     function($i18nextProvider) {
         $i18nextProvider.options = {

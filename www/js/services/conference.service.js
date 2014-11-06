@@ -1,3 +1,8 @@
+/* ConferoApp.js
+ * version : 4.0.1
+ * authors : Rylan Cottrell, Reid Holmes
+ * license : GNU GPL
+ */
 angular
     .module('confero.app')
     .factory('Conference', Conference);

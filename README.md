@@ -1,20 +1,23 @@
 # Confero
+Confero is a touch based multi-conference agenda planning application.
 
-For this project all commits will be done through pull requests and should included the appropriate tests. To get the project:
+## Installation
+Simple installation process
+    npm install -g gulp
+    npm install
 
-1. Clone repo
-2. Run 
+## Build
+A gulp task that bundles and minifies the applicaton into the dist folder and generates an app cache manifest file.
+    gulp manifest
 
-> npm install -g gulp
+## Deploy
+A gulp deploy task has been created that bundles the app and uses rsync to deploy the app. 
+The deploy tasks looks for a rsyncSecret.js file, structured the following way:
+    module.exports = { hostname: "SomeServerName", dest: "SomeDestinationFolder" };
 
-> npm install
+## Tests
+To run the tests.
+    gulp test
 
-> gulp install
-
-To run the tests
-> gulp test
-
-To dev,
-Create a branch off the master (pull changes as they arise), 
-push your branch up and create a pull request through the interface. 
-As long as the branch is up-to-date with the master, bitbucket can automatically merge the request once it is approved.
+## License
+[GNU GPL]()

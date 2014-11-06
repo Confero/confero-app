@@ -1,5 +1,4 @@
 //https://github.com/Bill4Time/javascript-natural-sort
-
 function naturalSort(a, b) {
     "use strict";
     var re = /(^([+\-]?(?:0|[1-9]\d*)(?:\.\d*)?(?:[eE][+\-]?\d+)?)?$|^0x[0-9a-f]+$|\d+)/gi,
@@ -51,6 +50,12 @@ function naturalSort(a, b) {
     }
     return 0;
 }
+
+/* ConferoApp.js
+ * version : 4.0.1
+ * authors : Rylan Cottrell, Reid Holmes
+ * license : GNU GPL
+ */
 
 function sortByDate(a, b) {
     "use strict";

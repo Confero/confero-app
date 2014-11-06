@@ -1,3 +1,9 @@
+/* ConferoApp.js
+ * version : 4.0.1
+ * authors : Rylan Cottrell, Reid Holmes
+ * license : GNU GPL
+ */
+
 angular.module('jm.i18next').config(['$i18nextProvider',
     function($i18nextProvider) {
         $i18nextProvider.options = {

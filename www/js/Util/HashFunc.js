@@ -1,3 +1,9 @@
+/* ConferoApp.js
+ * version : 4.0.1
+ * authors : Rylan Cottrell, Reid Holmes
+ * license : GNU GPL
+ */
+
 function simpleHash(str) {
     "use strict";
     var strCode, hash = 0;
