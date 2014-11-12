@@ -4,3 +4,7 @@ www/dist/
 www/templates
 
 
+platforms/
+plugins/
+hooks/
+www/lib/

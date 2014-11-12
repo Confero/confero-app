@@ -7,6 +7,9 @@
     "type": "git",
     "url": "https://github.com/Confero/confero-app.git"
   },
+  "scripts": {
+    "postinstall": "bower install"
+  },
   "dependencies": {
     "gulp": "^3.5.6",
     "gulp-sass": "^0.7.1",
