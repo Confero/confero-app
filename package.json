@@ -2,6 +2,11 @@
   "name": "confero",
   "version": "4.0.0",
   "description": "Confero",
+  "license": "GPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Confero/confero-app.git"
+  },
   "dependencies": {
     "gulp": "^3.5.6",
     "gulp-sass": "^0.7.1",
