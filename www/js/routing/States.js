@@ -58,7 +58,7 @@ function config($stateProvider, $urlRouterProvider) {
     }).state('paperPage', {
         url: "/conference/:id/paper/:key",
         templateUrl: "paperPageView.html",
-        controller: 'PaperPageCtrl',
+        controller: 'PapersPageCtrl',
     }).state('peoplePage', {
         url: "/conference/:id/people/:key",
         templateUrl: "peoplePageView.html",
